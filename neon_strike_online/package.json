@@ -1,0 +1,17 @@
+{
+  "name": "neon-strike-online",
+  "version": "1.0.0",
+  "private": true,
+  "description": "NEON STRIKE online multiplayer server and client",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js",
+    "test": "node test/server-test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
