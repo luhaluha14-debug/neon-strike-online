@@ -1,0 +1,13 @@
+{
+  "name": "neon-strike-online",
+  "private": true,
+  "scripts": {
+    "start": "node neon_strike_online/server/server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
