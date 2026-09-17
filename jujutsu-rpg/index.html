@@ -101,7 +101,7 @@ img{max-width:100%;}
 
 /* 공통 헤더 */
 .topbar{
-  display:flex; align-items:center; gap:10px;
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap; row-gap:6px;
   padding:10px 14px;
   min-height:56px;
   background:linear-gradient(180deg,rgba(12,10,24,.96),rgba(12,10,24,.6));
@@ -128,13 +128,13 @@ img{max-width:100%;}
 
 /* 재화 표시 */
 .currency-row{display:flex; gap:8px; align-items:center; flex-wrap:nowrap;
-  flex:1 1 auto; justify-content:flex-end; min-width:0; overflow-x:auto; scrollbar-width:none;}
+  flex:1 1 210px; justify-content:flex-end; min-width:0; overflow-x:auto; scrollbar-width:none;}
 .currency-row::-webkit-scrollbar{display:none;}
 .cur{
   display:flex;align-items:center;gap:5px;
   padding:5px 10px; border-radius:999px;
   background:rgba(10,8,20,.72); border:1px solid var(--line);
-  font-size:calc(12.5px * var(--fs)); font-weight:700; white-space:nowrap; flex:0 0 auto;
+  font-size:clamp(10.5px, calc(12.5px * var(--fs)), 15px); font-weight:700; white-space:nowrap; flex:0 0 auto;
 }
 .cur .ic{font-size:calc(13px * var(--fs));}
 .cur.jade{color:var(--cyan);} .cur.gold{color:var(--gold);} .cur.shard{color:var(--violet);}
@@ -2297,13 +2297,14 @@ const SaveSystem = (() => {
       for (const id of Object.keys(raw.chars)) {
         if (!DB.byId(id)) continue;                       // 존재하지 않는 ID 무시
         const c = raw.chars[id] || {};
-        const skl = Array.isArray(c.sklv) ? c.sklv.map(v => clamp(Math.floor(Util.num(v)) || 1, 1, 10)) : [1, 1, 1];
-        while (skl.length < 4) skl.push(1);
+        const need = (DB.byId(id).skills.length || 3) + 1;   // 스킬 수 + 필살기
+        const skl = Array.isArray(c.sklv) ? c.sklv.map(v => clamp(Math.floor(Util.num(v)) || 1, 1, 10)) : [];
+        while (skl.length < need) skl.push(1);
         out.chars[id] = {
           lv: clamp(Math.floor(Util.num(c.lv)) || 1, 1, 100),
           exp: Math.max(0, Math.floor(Util.num(c.exp))),
           asc: clamp(Math.floor(Util.num(c.asc)), 0, 6),
-          sklv: skl.slice(0, 4),
+          sklv: skl.slice(0, need),
           shards: Math.max(0, Math.floor(Util.num(c.shards))),
         };
       }
@@ -2446,7 +2447,8 @@ const GameState = (() => {
       persist();
       return { ok: true, dup: true, shard, jade };
     }
-    S.chars[id] = { lv: 1, exp: 0, asc: 0, sklv: [1, 1, 1, 1], shards: 0 };
+    const nSkill = (DB.byId(id).skills.length || 3) + 1;
+    S.chars[id] = { lv: 1, exp: 0, asc: 0, sklv: new Array(nSkill).fill(1), shards: 0 };
     if (S.party.length < 4 && !S.party.includes(id)) S.party.push(id);
     persist();
     return { ok: true, dup: false };
@@ -3068,7 +3070,9 @@ const BattleSystem = (() => {
   function pCdmg(u) { return Math.max(.1, u.base.cdmg + modSum(u, 'cdmg')); }
   function pDmgOut(u) { return Math.max(.2, 1 + modSum(u, 'dmg')); }
   function pDmgIn(u) {
-    let v = 1 + modSum(u, 'taken') - modSum(u, 'takenD');
+    // taken(받는 피해 증가)은 debuff 로, takenD(받는 피해 감소)는 buff 로 부여된다.
+    // modSum 은 debuff 를 음수로 합산하므로 taken 은 부호를 뒤집어야 '증가'가 된다.
+    let v = 1 - modSum(u, 'taken') - modSum(u, 'takenD');
     for (const p of passives(u)) if (p.type === 'dmgCut') v -= p.val;
     return clamp(v, .1, 3);
   }
@@ -3312,8 +3316,14 @@ const BattleSystem = (() => {
 
   /* ---------------- 효과 적용 ---------------- */
   const STAT_LABEL = { atk: 'ATK', def: 'DEF', spd: 'SPD', crit: 'CRIT', cdmg: 'C.DMG', dmg: 'DMG', taken: '피해▲', takenD: '피해▼' };
+  /** 대상 수와 무관하게 1회만 적용되는 효과 */
+  const GLOBAL_EFFECTS = { sp: 1, revive: 1 };
   function applyEffects(actor, eff, hitTargets) {
     for (const e of (eff || [])) {
+      if (GLOBAL_EFFECTS[e.k]) {
+        if (e.chance === undefined || Math.random() <= e.chance) Util.safe(() => applyOne(actor, actor, e), 'eff:' + e.k);
+        continue;
+      }
       const targets = effTargets(actor, e.to, hitTargets);
       for (const t of targets) {
         if (!t) continue;
@@ -3531,11 +3541,8 @@ const BattleSystem = (() => {
       if (done > 0 && el) FX.damageNumber(el, done, { heal: true });
       BattleUI.renderAll();
     }
-    // 브레이크 회복 처리
-    if (u.broken) {
-      u.breakTurns = Math.max(0, u.breakTurns - 1);
-      if (u.breakTurns <= 0) recoverBreak(u);
-    }
+    // 남은 브레이크 턴이 모두 소진됐을 때만 회복 (감소는 턴 종료 시)
+    if (u.broken && u.breakTurns <= 0) recoverBreak(u);
     return true;
   }
 
@@ -3587,6 +3594,7 @@ const BattleSystem = (() => {
   async function finishTurn(actor) {
     if (!B || B.ended) return;
     tickBuffs(actor);
+    if (actor.broken) actor.breakTurns = Math.max(0, actor.breakTurns - 1);
     BattleUI.renderAll();
     if (!aliveEnemies().length) return onWaveCleared();
     if (!aliveAllies().length) return end(false);
@@ -4409,7 +4417,8 @@ const UI = (() => {
     const c = GameState.cur();
     return '<span class="cur jade"><span class="ic">🔷</span>' + fmt(c.jade) + '</span>' +
       '<span class="cur gold"><span class="ic">🪙</span>' + fmt(c.gold) + '</span>' +
-      '<span class="cur shard"><span class="ic">📘</span>' + fmt(c.exp) + '</span>';
+      '<span class="cur shard"><span class="ic">📘</span>' + fmt(c.exp) + '</span>' +
+      '<span class="cur" style="color:var(--green)"><span class="ic">🔩</span>' + fmt(c.mat) + '</span>';
   }
   function refreshCurrency() {
     ['home-cur', 'stage-cur', 'gacha-cur', 'shop-cur', 'detail-cur'].forEach(id => {
@@ -4474,6 +4483,15 @@ const UI = (() => {
         return;
       }
       if (current === 'story' && story) { return; }
+      // 이미 끝난 전투 기록으로 되돌아가면 빈 전투 화면이 뜨므로 홈으로 보정
+      if (scr === 'battle') {
+        const b = BattleSystem.get();
+        if (!b || b.ended) {
+          apply('home');
+          Util.safe(() => history.replaceState({ screen: 'home' }, ''), 'history');
+          return;
+        }
+      }
       apply($('#screen-' + scr) ? scr : 'home');
     });
   }
@@ -5081,6 +5099,7 @@ const UI = (() => {
 
     // 공통 뒤로가기 버튼
     $$('[data-nav]').forEach(b => onTap(b, () => { AudioSystem.sfx('back'); nav(b.dataset.nav); }));
+    onTap($('#detail-back'), () => { AudioSystem.sfx('back'); nav(detailFrom || 'chars'); });
 
     // 스토리
     onTap($('#btn-story-next'), () => nextStoryLine());
