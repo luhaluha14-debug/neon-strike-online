@@ -113,7 +113,7 @@ img{max-width:100%;}
 .topbar h2{
   margin:0; font-size:calc(17px * var(--fs)); letter-spacing:.06em; font-weight:800;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-  flex:0 1 auto; min-width:52px;
+  flex:0 0 auto; max-width:46%;
 }
 .topbar .spacer{flex:1 1 auto;min-width:4px;}
 .btn-back{
@@ -226,12 +226,26 @@ img{max-width:100%;}
   background:radial-gradient(70% 60% at 30% 40%, rgba(120,70,240,.28), transparent 70%);
   pointer-events:none;
 }
-.hero-char{
-  position:absolute; right:-2%; bottom:0; width:min(62%,340px); opacity:.95;
+.home-hero .hero-char{
+  position:absolute; right:-4%; bottom:-2%; width:min(70%,380px); opacity:.97;
+  background:radial-gradient(50% 44% at 50% 44%, rgba(150,110,255,.20), transparent 70%);
   filter:drop-shadow(0 12px 30px rgba(0,0,0,.6));
   pointer-events:none;
 }
-.hero-info{position:relative; z-index:2; max-width:62%;}
+.home-hero .hero-char svg{width:100%;height:auto;display:block;}
+.hero-info{position:relative; z-index:2; max-width:62%;
+  text-shadow:0 2px 10px rgba(0,0,0,.85);}
+.home-next{
+  position:absolute; top:12px; left:14px; right:14px; z-index:3;
+  display:flex; align-items:center; gap:10px; max-width:420px;
+  padding:10px 12px; border-radius:var(--r-md);
+  background:linear-gradient(100deg,rgba(28,22,58,.92),rgba(16,12,34,.72));
+  border:1px solid var(--line);
+}
+.home-next .hn-ic{font-size:20px;}
+.home-next .hn-b{min-width:0;flex:1;display:flex;flex-direction:column;}
+.home-next .hn-t{display:block;font-size:calc(12.5px * var(--fs));font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.home-next .hn-s{display:block;font-size:calc(10.5px * var(--fs));color:var(--txt-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .hero-info .hn{font-size:calc(21px * var(--fs)); font-weight:900; letter-spacing:.02em;}
 .hero-info .hv{color:var(--violet); font-size:calc(12.5px * var(--fs)); font-weight:700;}
 .hero-info .hd{color:var(--txt-dim); font-size:calc(11.5px * var(--fs)); margin-top:4px;}
@@ -452,7 +466,11 @@ img{max-width:100%;}
    ===================================================================== */
 #screen-story{background:radial-gradient(80% 60% at 50% 30%, rgba(60,30,130,.35), transparent 70%), var(--bg-0);}
 .story-stage{flex:1 1 auto;position:relative;display:flex;align-items:flex-end;justify-content:center;min-height:0;overflow:hidden;}
-.story-char{width:min(60%,300px);filter:drop-shadow(0 10px 30px rgba(0,0,0,.7));transition:opacity .3s,transform .3s;}
+.story-char{width:min(76%,340px);align-self:flex-end;
+  background:radial-gradient(50% 46% at 50% 44%, rgba(140,110,255,.22), transparent 72%);filter:drop-shadow(0 10px 30px rgba(0,0,0,.7));
+  animation:storyIn .3s var(--ease);}
+.story-char svg{width:100%;height:auto;display:block;}
+@keyframes storyIn{from{opacity:0;transform:translateY(14px);}to{opacity:1;transform:none;}}
 .story-box{
   flex:0 0 auto; margin:12px; margin-bottom:calc(12px + var(--sab));
   background:rgba(10,8,22,.94); border:1px solid var(--line-strong); border-radius:var(--r-lg);
@@ -585,6 +603,13 @@ body.reduce-motion .bg-orbs{display:none;}
 .bar.brk{height:5px;}
 .bar.brk > i{background:linear-gradient(90deg,#ffd166,#fff3c4);}
 .bar.brk.broken > i{background:linear-gradient(90deg,#777,#aaa);}
+.u-intent{
+  font-size:clamp(8.5px,2.2vw,11.5px); font-weight:800; text-align:center;
+  color:#ffd166; background:rgba(10,8,20,.72); border:1px solid rgba(255,209,102,.45);
+  border-radius:999px; padding:0 6px; margin:1px auto 2px; max-width:100%;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.unit.boss .u-bars{width:clamp(110px,34vw,320px);}
 .brk-tag{
   position:absolute; top:-8px; left:50%; transform:translateX(-50%);
   background:var(--gold); color:#1a1200; font-weight:900; font-size:10px;
@@ -970,6 +995,16 @@ body.reduce-motion .shake-s,body.reduce-motion .shake-m,body.reduce-motion .shak
 #app[data-layout="l"] .u-name{font-size:10px;}
 #app[data-layout="l"] .st-ic{font-size:8px;padding:0 3px;}
 #app[data-layout="l"] .line{gap:clamp(6px,3vw,26px);}
+#app[data-layout="p"] .timeline{
+  flex-direction:row; left:50%; transform:translateX(-50%); top:4px;
+  max-width:96%; flex-wrap:nowrap; overflow:hidden; gap:3px;
+}
+#app[data-layout="p"] .timeline .tl-label{display:none;}
+#app[data-layout="p"] .tl-item{padding:2px;border-radius:999px;}
+#app[data-layout="p"] .tl-item .tl-n{display:none;}
+#app[data-layout="p"] .tl-item .tl-p{width:26px;height:26px;}
+#app[data-layout="p"] .tl-item.now,#app[data-layout="p"] .tl-item.first{box-shadow:0 0 0 2px var(--violet);}
+#app[data-layout="p"] .bt-log{top:36px;}
 #app[data-layout="l"] .timeline{flex-direction:row;left:50%;transform:translateX(-50%);top:calc(26px + var(--sat));max-width:84%;flex-wrap:nowrap;overflow:hidden;}
 #app[data-layout="l"] .tl-item{padding:1px 5px 1px 1px;}
 #app[data-layout="l"] .tl-item .tl-p{width:18px;height:18px;}
@@ -1014,6 +1049,8 @@ body.reduce-motion .shake-s,body.reduce-motion .shake-m,body.reduce-motion .shak
 #app[data-layout="tp"] .shop-grid,
 #app[data-layout="tl"] .shop-grid,
 #app[data-layout="d"] .shop-grid{max-width:900px;margin:0 auto;width:100%;}
+#app[data-layout="tp"] .story-char,#app[data-layout="tl"] .story-char,#app[data-layout="d"] .story-char{width:min(46%,420px);}
+#app[data-layout="l"] .story-char{width:min(30%,220px);}
 #app[data-layout="tp"] .story-box,
 #app[data-layout="tl"] .story-box,
 #app[data-layout="d"] .story-box{max-width:860px;margin-left:auto;margin-right:auto;width:calc(100% - 24px);}
@@ -1043,9 +1080,9 @@ body.reduce-motion .shake-s,body.reduce-motion .shake-m,body.reduce-motion .shak
 #app[data-layout="tp"] .ally-card .ac-n,
 #app[data-layout="tl"] .ally-card .ac-n,
 #app[data-layout="d"] .ally-card .ac-n{font-size:calc(12.5px * var(--fs));}
-#app[data-layout="tp"] .unit .u-art{width:clamp(88px,13vw,150px);}
-#app[data-layout="tp"] .enemy-line .unit .u-art{width:clamp(104px,17vw,190px);}
-#app[data-layout="tp"] .unit.boss .u-art{width:clamp(160px,30vw,300px);}
+#app[data-layout="tp"] .unit .u-art{width:clamp(96px,19vw,190px);}
+#app[data-layout="tp"] .enemy-line .unit .u-art{width:clamp(112px,24vw,240px);}
+#app[data-layout="tp"] .unit.boss .u-art{width:clamp(180px,42vw,380px);}
 #app[data-layout="tl"] .unit .u-art, #app[data-layout="d"] .unit .u-art{width:clamp(88px,10vw,146px);}
 #app[data-layout="tl"] .enemy-line .unit .u-art, #app[data-layout="d"] .enemy-line .unit .u-art{width:clamp(100px,13vw,186px);}
 #app[data-layout="tl"] .unit.boss .u-art, #app[data-layout="d"] .unit.boss .u-art{width:clamp(150px,22vw,300px);}
@@ -1060,9 +1097,11 @@ body.reduce-motion .shake-s,body.reduce-motion .shake-m,body.reduce-motion .shak
   left:50%;transform:translate(-50%,105%);width:min(96%,720px);border-radius:20px 20px 0 0;}
 #app[data-layout="tp"] .sheet.open,#app[data-layout="tl"] .sheet.open,#app[data-layout="d"] .sheet.open{transform:translate(-50%,0);}
 #app[data-layout="tl"] .enemy-line, #app[data-layout="d"] .enemy-line{top:10%;}
-#app[data-layout="tp"] .enemy-line{top:10%;}
-#app[data-layout="tp"] .ally-line,#app[data-layout="tl"] .ally-line,#app[data-layout="d"] .ally-line{bottom:4%;}
-#app[data-layout="tp"] .hero-char,#app[data-layout="tl"] .hero-char,#app[data-layout="d"] .hero-char{width:min(46%,420px);}
+#app[data-layout="tp"] .enemy-line{top:8%;}
+#app[data-layout="tp"] .ally-line{bottom:7%;}
+#app[data-layout="tl"] .ally-line,#app[data-layout="d"] .ally-line{bottom:4%;}
+#app[data-layout="tp"] .home-hero .hero-char{width:min(72%,540px);}
+#app[data-layout="tl"] .home-hero .hero-char,#app[data-layout="d"] .home-hero .hero-char{width:min(46%,480px);}
 #app[data-layout="tp"] .home-hero,#app[data-layout="tl"] .home-hero,#app[data-layout="d"] .home-hero{padding:24px;}
 #app[data-layout="tp"] .hero-info .hn,#app[data-layout="tl"] .hero-info .hn,#app[data-layout="d"] .hero-info .hn{font-size:calc(28px * var(--fs));}
 #app[data-layout="d"] .home-hero{max-width:1200px;margin:0 auto;width:100%;}
@@ -1339,7 +1378,7 @@ const Art = (() => {
   const HAIR = {
     // 뒷머리 / 앞머리 패스 (viewBox 120x160 기준, 얼굴 중심 60,58)
     spiky:  { back: 'M28,62 Q26,22 60,18 Q94,22 92,62 L86,58 Q88,30 60,27 Q32,30 34,58 Z',
-              front:'M30,52 L42,24 L50,44 L58,21 L66,44 L76,24 L90,52 Q80,40 60,38 Q40,40 30,52 Z' },
+              front:'M28,52 Q32,30 60,29 Q88,30 92,52 Q80,38 60,36 Q40,38 28,52 Z M38,37 L46,15 L54,35 Z M52,35 L60,11 L68,35 Z M66,37 L74,15 L82,37 Z' },
     long:   { back: 'M26,70 Q22,20 60,17 Q98,20 94,70 Q98,104 88,112 L86,56 Q88,30 60,27 Q32,30 34,56 L32,112 Q22,104 26,70 Z',
               front:'M32,48 Q34,28 60,26 Q86,28 88,48 Q78,34 60,34 Q42,34 32,48 Z' },
     bob:    { back: 'M28,64 Q26,22 60,19 Q94,22 92,64 L90,76 L30,76 Z',
@@ -1347,7 +1386,7 @@ const Art = (() => {
     slick:  { back: 'M30,60 Q28,24 60,20 Q92,24 90,60 L85,55 Q86,32 60,29 Q34,32 35,55 Z',
               front:'M33,44 Q42,30 60,30 Q78,30 87,44 Q74,35 60,35 Q46,35 33,44 Z' },
     wild:   { back: 'M24,66 Q20,20 60,16 Q100,20 96,66 L88,54 Q90,28 60,26 Q30,28 32,54 Z',
-              front:'M26,54 L38,22 L46,46 L54,20 L62,46 L70,22 L78,46 L94,54 Q84,40 60,37 Q36,40 26,54 Z' },
+              front:'M26,54 Q30,28 60,27 Q90,28 94,54 Q80,38 60,35 Q40,38 26,54 Z M30,42 L38,10 L48,38 Z M46,36 L58,6 L66,36 Z M64,38 L74,9 L84,42 Z' },
     bun:    { back: 'M30,60 Q28,22 60,19 Q92,22 90,60 L86,54 Q88,30 60,27 Q32,30 34,54 Z M60,10 a9,9 0 1,0 0.1,0 Z',
               front:'M33,46 Q40,29 60,29 Q80,29 87,46 Q74,34 60,34 Q46,34 33,46 Z' },
     short:  { back: 'M30,58 Q28,23 60,20 Q92,23 90,58 L85,54 Q87,31 60,28 Q33,31 35,54 Z',
@@ -1410,21 +1449,26 @@ const Art = (() => {
 <defs>${grad(id + 'bg', aura1, aura2, 110)}${grad(id + 'h', hc, hc2, 70)}${grad(id + 'u', uni1, uni2, 90)}
 <radialGradient id="${id}gl" cx="50%" cy="38%" r="60%"><stop offset="0" stop-color="#fff" stop-opacity=".30"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient></defs>
 ${opt.bare
-  ? `<ellipse cx="60" cy="156" rx="30" ry="5" fill="#000" opacity=".4"/>
-     <ellipse cx="60" cy="96" rx="44" ry="58" fill="${aura1}" opacity=".18"/>`
+  ? `<radialGradient id="${id}sp" cx="50%" cy="46%" r="58%">
+       <stop offset="0" stop-color="${aura1}" stop-opacity=".40"/>
+       <stop offset=".62" stop-color="${aura1}" stop-opacity=".15"/>
+       <stop offset="1" stop-color="${aura1}" stop-opacity="0"/></radialGradient>
+     <ellipse cx="60" cy="86" rx="56" ry="70" fill="url(#${id}sp)"/>
+     <ellipse cx="60" cy="156" rx="30" ry="5" fill="#000" opacity=".4"/>`
   : `<rect width="120" height="160" fill="url(#${id}bg)"/>
      <circle cx="60" cy="58" r="46" fill="url(#${id}gl)"/>
      <g opacity=".30" stroke="#fff" fill="none" stroke-width="1">
        <circle cx="60" cy="60" r="40" stroke-dasharray="3 7"/><circle cx="60" cy="60" r="52" stroke-dasharray="1 9"/></g>`}
-<path d="M14,160 Q18,116 44,104 L60,112 L76,104 Q102,116 106,160 Z" fill="url(#${id}u)"/>
+<path d="M14,160 Q18,116 44,104 L60,112 L76,104 Q102,116 106,160 Z" fill="url(#${id}u)"
+  stroke="#fff" stroke-opacity="${opt.bare ? '.16' : '.07'}" stroke-width="1"/>
 <path d="M44,104 L60,112 L76,104 L70,98 L60,104 L50,98 Z" fill="#fff" opacity=".10"/>
 <rect x="52" y="86" width="16" height="16" rx="6" fill="${skin}"/>
-<path d="${hair.back}" fill="url(#${id}h)" stroke="#fff" stroke-opacity=".14" stroke-width="1"/>
+<path d="${hair.back}" fill="url(#${id}h)" stroke="#fff" stroke-opacity=".08" stroke-width="1"/>
 <ellipse cx="60" cy="58" rx="24" ry="28" fill="${skin}"/>
 <path d="M36,58 q-5,2 -3,8 q2,5 6,3 Z" fill="${skin}"/><path d="M84,58 q5,2 3,8 q-2,5 -6,3 Z" fill="${skin}"/>
 ${face}
 <path d="M55,70 q5,4 10,0" stroke="#b5786a" stroke-width="1.6" fill="none" stroke-linecap="round" opacity=".75"/>
-<path d="${hair.front}" fill="url(#${id}h)" stroke="#fff" stroke-opacity=".16" stroke-width="1"/>
+<path d="${hair.front}" fill="url(#${id}h)" stroke="#fff" stroke-opacity=".10" stroke-width="1"/>
 ${extra}
 ${opt.bare ? '' : '<path d="M0,150 Q60,138 120,150 L120,160 L0,160 Z" fill="#000" opacity=".28"/>'}
 </svg>`;
@@ -1535,7 +1579,7 @@ const DB = (() => {
     {
       id: 'yuji_s', name: '이타도리 유지', version: '1급 후보', rarity: 3, role: 'dps', el: 'phy',
       desc: '스쿠나의 그릇. 압도적인 신체 능력으로 전선을 밀어붙인다.',
-      art: { hair: 'spiky', hairColor: '#e8a0c0', hairColor2: '#c76a97', eye: '#f5b8d0', skin: '#f2cfb4', uni1: '#2a2440', uni2: '#131024', aura1: '#7a3fa8', aura2: '#170c2a', marks: 'none' },
+      art: { hair: 'spiky', hairColor: '#e8a0c0', hairColor2: '#c76a97', eye: '#f5b8d0', skin: '#f2cfb4', uni1: '#2f2848', uni2: '#1a1532', aura1: '#7a3fa8', aura2: '#170c2a', marks: 'none' },
       base: { hp: 960, atk: 84, def: 56, spd: 98, crit: 8, cdmg: 55 },
       passive: { name: '규격 외', desc: 'HP가 50% 이하일 때 주는 피해 +18%', type: 'lowHpDmg', val: .18 },
       skills: [
@@ -1551,7 +1595,7 @@ const DB = (() => {
     {
       id: 'megumi_s', name: '후시구로 메구미', version: '학생', rarity: 3, role: 'sup', el: 'spr',
       desc: '십종영법술. 식신을 부려 전장을 통제한다.',
-      art: { hair: 'spiky', hairColor: '#20222e', hairColor2: '#3d4252', eye: '#5f7a8c', skin: '#eccbb0', uni1: '#1a1c2c', uni2: '#0c0d18', aura1: '#2f5a6e', aura2: '#0d1420' },
+      art: { hair: 'spiky', hairColor: '#4d526e', hairColor2: '#757e9c', eye: '#5f7a8c', skin: '#eccbb0', uni1: '#272b43', uni2: '#15172a', aura1: '#2f5a6e', aura2: '#0d1420' },
       base: { hp: 980, atk: 74, def: 62, spd: 96, crit: 5, cdmg: 50 },
       passive: { name: '십종영법술', desc: '전투 시작 시 필살기 게이지 20% 획득', type: 'startUlt', val: 20 },
       skills: [
@@ -1570,7 +1614,7 @@ const DB = (() => {
     {
       id: 'nobara_s', name: '쿠기사키 노바라', version: '학생', rarity: 3, role: 'deb', el: 'crs',
       desc: '추령주법. 못과 망치로 저주를 새긴다.',
-      art: { hair: 'bob', hairColor: '#c8642c', hairColor2: '#8f3f18', eye: '#8d5a3a', skin: '#f3d0b6', uni1: '#241d38', uni2: '#110d20', aura1: '#8f3a5a', aura2: '#210a18' },
+      art: { hair: 'bob', hairColor: '#c8642c', hairColor2: '#ea6728', eye: '#8d5a3a', skin: '#f3d0b6', uni1: '#30274b', uni2: '#1b1533', aura1: '#8f3a5a', aura2: '#210a18' },
       base: { hp: 900, atk: 80, def: 52, spd: 100, crit: 8, cdmg: 52 },
       passive: { name: '추심', desc: '지속 피해(DOT)를 입은 적에게 주는 피해 +15%', type: 'dotBonus', val: .15 },
       skills: [
@@ -1583,7 +1627,7 @@ const DB = (() => {
     {
       id: 'miwa', name: '미와 카스미', version: '신음류', rarity: 3, role: 'sup', el: 'phy',
       desc: '평범하지만 성실한 검사. 발도술로 파고든다.',
-      art: { hair: 'long', hairColor: '#1f2338', hairColor2: '#39405e', eye: '#6fb3d2', skin: '#f5d6bd', uni1: '#1d2740', uni2: '#0d1120', aura1: '#38618f', aura2: '#0c1424' },
+      art: { hair: 'long', hairColor: '#475182', hairColor2: '#707db8', eye: '#6fb3d2', skin: '#f5d6bd', uni1: '#212c49', uni2: '#13182e', aura1: '#38618f', aura2: '#0c1424' },
       base: { hp: 920, atk: 72, def: 60, spd: 102, crit: 6, cdmg: 50 },
       passive: { name: '성실함', desc: '방어할 때 아군 전체의 방어력 10% 증가(1턴)', type: 'guardTeam', val: .1 },
       skills: [
@@ -1601,7 +1645,7 @@ const DB = (() => {
       id: 'dagon', name: '다곤', version: '주령', rarity: 3, role: 'tank', el: 'spr',
       desc: '해변의 특급 주령. 물결로 모든 것을 삼킨다.',
       isCurseChar: true,
-      art: { hair: 'short', hairColor: '#2f6f7a', hairColor2: '#15343c', eye: '#9ff0ff', skin: '#9ec8c4', uni1: '#123038', uni2: '#08161c', aura1: '#1d6a72', aura2: '#06181e', marks: 'crest' },
+      art: { hair: 'short', hairColor: '#2f6f7a', hairColor2: '#3b8ea5', eye: '#9ff0ff', skin: '#9ec8c4', uni1: '#13323b', uni2: '#0a1c24', aura1: '#1d6a72', aura2: '#06181e', marks: 'crest' },
       base: { hp: 1180, atk: 66, def: 78, spd: 90, crit: 4, cdmg: 50 },
       passive: { name: '주령의 살', desc: '매 턴 최대 HP의 4% 회복', type: 'regen', val: .04 },
       skills: [
@@ -1622,7 +1666,7 @@ const DB = (() => {
     {
       id: 'yuji_bs', name: '이타도리 유지', version: '흑섬 연쇄', rarity: 4, role: 'dps', el: 'phy',
       desc: '흑섬의 감각을 붙잡은 유지. 한 방의 무게가 다르다.',
-      art: { hair: 'spiky', hairColor: '#f0b4cd', hairColor2: '#a8437a', eye: '#ff8fb0', skin: '#f2cfb4', uni1: '#3a1030', uni2: '#160618', aura1: '#b02c6a', aura2: '#200818', marks: 'scar' },
+      art: { hair: 'spiky', hairColor: '#f0b4cd', hairColor2: '#e65ca7', eye: '#ff8fb0', skin: '#f2cfb4', uni1: '#5c1a4c', uni2: '#310d36', aura1: '#b02c6a', aura2: '#200818', marks: 'scar' },
       base: { hp: 1080, atk: 104, def: 62, spd: 101, crit: 12, cdmg: 60 },
       passive: { name: '흑섬 연쇄', desc: '치명타 발생 시 필살기 게이지 +8', type: 'critUlt', val: 8 },
       skills: [
@@ -1638,7 +1682,7 @@ const DB = (() => {
     {
       id: 'megumi_r', name: '후시구로 메구미', version: '마허라 대치', rarity: 4, role: 'brk', el: 'spr',
       desc: '한계를 넘어 식신을 부리는 메구미. 적의 방벽을 부순다.',
-      art: { hair: 'spiky', hairColor: '#171a26', hairColor2: '#4a5268', eye: '#8fd8ff', skin: '#eccbb0', uni1: '#101728', uni2: '#070a14', aura1: '#2b4f8f', aura2: '#080d1c' },
+      art: { hair: 'spiky', hairColor: '#495279', hairColor2: '#727fa0', eye: '#8fd8ff', skin: '#eccbb0', uni1: '#1e2c4b', uni2: '#10182e', aura1: '#2b4f8f', aura2: '#080d1c' },
       base: { hp: 1100, atk: 96, def: 70, spd: 97, crit: 8, cdmg: 55 },
       passive: { name: '조복', desc: '브레이크 피해 +25%', type: 'breakUp', val: .25 },
       skills: [
@@ -1655,7 +1699,7 @@ const DB = (() => {
     {
       id: 'nobara_r', name: '쿠기사키 노바라', version: '공명 각성', rarity: 4, role: 'deb', el: 'crs',
       desc: '공명이 퍼진다. 저주는 한 명에서 끝나지 않는다.',
-      art: { hair: 'bob', hairColor: '#e07a3a', hairColor2: '#a33d18', eye: '#ffb07a', skin: '#f3d0b6', uni1: '#33203c', uni2: '#160c1e', aura1: '#b02c5a', aura2: '#25081a' },
+      art: { hair: 'bob', hairColor: '#e07a3a', hairColor2: '#ff622a', eye: '#ffb07a', skin: '#f3d0b6', uni1: '#3b2545', uni2: '#23132f', aura1: '#b02c5a', aura2: '#25081a' },
       base: { hp: 1000, atk: 98, def: 58, spd: 103, crit: 10, cdmg: 55 },
       passive: { name: '공명 확산', desc: '지속 피해를 입은 적이 쓰러지면 SP 1 회복', type: 'dotKillSp', val: 1 },
       skills: [
@@ -1672,7 +1716,7 @@ const DB = (() => {
     {
       id: 'maki', name: '젠인 마키', version: '주구 사용자', rarity: 4, role: 'brk', el: 'phy',
       desc: '주력은 없다. 대신 누구보다 강한 육체가 있다.',
-      art: { hair: 'long', hairColor: '#2f4a34', hairColor2: '#16261a', eye: '#7de0a0', skin: '#f0cdb0', uni1: '#22281c', uni2: '#0e1210', aura1: '#2f6f42', aura2: '#0a1a10', marks: 'glasses' },
+      art: { hair: 'long', hairColor: '#3a5c42', hairColor2: '#528f62', eye: '#7de0a0', skin: '#f0cdb0', uni1: '#272e20', uni2: '#141a17', aura1: '#2f6f42', aura2: '#0a1a10', marks: 'glasses' },
       base: { hp: 1120, atk: 102, def: 68, spd: 106, crit: 10, cdmg: 58 },
       passive: { name: '천여주박', desc: '자신의 필살기 게이지가 50% 이상이면 공격력 12% 증가', type: 'ultAtk', val: .12 },
       skills: [
@@ -1687,7 +1731,7 @@ const DB = (() => {
     {
       id: 'todo', name: '토도 아오이', version: '부기우기', rarity: 4, role: 'sup', el: 'phy',
       desc: '「나의 친구」. 전장의 위치를 바꿔 흐름을 지배한다.',
-      art: { hair: 'short', hairColor: '#241a14', hairColor2: '#0f0a08', eye: '#e8c07a', skin: '#c99a72', uni1: '#2a1c14', uni2: '#120c08', aura1: '#8f5a20', aura2: '#1c1006' },
+      art: { hair: 'short', hairColor: '#6d4d3e', hairColor2: '#ad745e', eye: '#e8c07a', skin: '#c99a72', uni1: '#3d281d', uni2: '#22160f', aura1: '#8f5a20', aura2: '#1c1006' },
       base: { hp: 1150, atk: 94, def: 72, spd: 99, crit: 8, cdmg: 55 },
       passive: { name: '친구', desc: '아군이 행동할 때마다 필살기 게이지 +4', type: 'allyActUlt', val: 4 },
       skills: [
@@ -1706,7 +1750,7 @@ const DB = (() => {
     {
       id: 'nanami', name: '나나미 켄토', version: '시간외 근무', rarity: 4, role: 'brk', el: 'phy',
       desc: '7:3. 약점을 정확히 계산해 끊어낸다.',
-      art: { hair: 'slick', hairColor: '#c9a86a', hairColor2: '#8a6f38', eye: '#7b8ca0', skin: '#e9c7a8', uni1: '#2b2a24', uni2: '#141310', aura1: '#8a7a3a', aura2: '#1a1608', marks: 'glasses' },
+      art: { hair: 'slick', hairColor: '#c9a86a', hairColor2: '#9b7d3f', eye: '#7b8ca0', skin: '#e9c7a8', uni1: '#2e2d26', uni2: '#1a1915', aura1: '#8a7a3a', aura2: '#1a1608', marks: 'glasses' },
       base: { hp: 1120, atk: 100, def: 74, spd: 94, crit: 9, cdmg: 56 },
       passive: { name: '비율 절단', desc: '적의 HP가 50% 이하일 때 주는 피해 +20%', type: 'vsLowHp', val: .2 },
       skills: [
@@ -1725,7 +1769,7 @@ const DB = (() => {
       id: 'jogo', name: '죠고', version: '특급 주령', rarity: 4, role: 'dps', el: 'crs',
       desc: '분화구의 주령. 모든 것을 재로 만든다.',
       isCurseChar: true,
-      art: { hair: 'short', hairColor: '#3a1a12', hairColor2: '#1a0a06', eye: '#ff9a3c', skin: '#b5664a', uni1: '#3a1408', uni2: '#1a0804', aura1: '#c2431a', aura2: '#240804', marks: 'crest' },
+      art: { hair: 'short', hairColor: '#95432d', hairColor2: '#fa613a', eye: '#ff9a3c', skin: '#b5664a', uni1: '#5d200c', uni2: '#361108', aura1: '#c2431a', aura2: '#240804', marks: 'crest' },
       base: { hp: 1020, atk: 108, def: 58, spd: 95, crit: 10, cdmg: 58 },
       passive: { name: '화상 확산', desc: '지속 피해를 입은 적에게 주는 피해 +12%', type: 'dotBonus', val: .12 },
       skills: [
@@ -1739,7 +1783,7 @@ const DB = (() => {
       id: 'hanami', name: '하나미', version: '숲의 주령', rarity: 4, role: 'tank', el: 'spr',
       desc: '대지를 대변하는 주령. 뿌리로 아군을 지킨다.',
       isCurseChar: true,
-      art: { hair: 'bun', hairColor: '#4a6a2a', hairColor2: '#25381a', eye: '#d8f07a', skin: '#8fa86a', uni1: '#2a3a18', uni2: '#121a0c', aura1: '#4a7a2a', aura2: '#0e1a08', marks: 'horn' },
+      art: { hair: 'bun', hairColor: '#4a6a2a', hairColor2: '#5e8e42', eye: '#d8f07a', skin: '#8fa86a', uni1: '#2a3a18', uni2: '#131c0d', aura1: '#4a7a2a', aura2: '#0e1a08', marks: 'horn' },
       base: { hp: 1320, atk: 72, def: 86, spd: 88, crit: 4, cdmg: 50 },
       passive: { name: '대지의 축복', desc: '아군이 쓰러지지 않은 동안 아군 전체 방어력 8% 증가', type: 'teamDef', val: .08 },
       skills: [
@@ -1759,7 +1803,7 @@ const DB = (() => {
     {
       id: 'uraume', name: '우라우메', version: '빙응술', rarity: 4, role: 'deb', el: 'rev',
       desc: '스쿠나의 충복. 얼음으로 시간을 멈춘다.',
-      art: { hair: 'bob', hairColor: '#e8edf5', hairColor2: '#aab8cc', eye: '#8fe3ff', skin: '#f3e2d6', uni1: '#1a2a3a', uni2: '#0a1420', aura1: '#3a7a9a', aura2: '#081824' },
+      art: { hair: 'bob', hairColor: '#e8edf5', hairColor2: '#aab8cc', eye: '#8fe3ff', skin: '#f3e2d6', uni1: '#1d2f40', uni2: '#0d1a2b', aura1: '#3a7a9a', aura2: '#081824' },
       base: { hp: 1040, atk: 92, def: 66, spd: 100, crit: 8, cdmg: 55 },
       passive: { name: '한파', desc: '자신이 부여한 속도 감소 대상에게 주는 피해 +15%', type: 'vsSlow', val: .15 },
       skills: [
@@ -1779,7 +1823,7 @@ const DB = (() => {
     {
       id: 'shoko', name: '이에이리 쇼코', version: '반전술식', rarity: 4, role: 'sup', el: 'rev',
       desc: '반전술식의 희소한 사용자. 전선을 유지하는 생명선.',
-      art: { hair: 'long', hairColor: '#3a2a24', hairColor2: '#1c1410', eye: '#c8a87a', skin: '#f2d2b8', uni1: '#e8e8ee', uni2: '#9aa0b0', aura1: '#7a5a9a', aura2: '#1a1024' },
+      art: { hair: 'long', hairColor: '#6b4d42', hairColor2: '#a4775d', eye: '#c8a87a', skin: '#f2d2b8', uni1: '#e8e8ee', uni2: '#9aa0b0', aura1: '#7a5a9a', aura2: '#1a1024' },
       base: { hp: 1060, atk: 70, def: 70, spd: 98, crit: 4, cdmg: 50 },
       passive: { name: '반전술식', desc: '자신이 회복시킨 아군은 1턴간 받는 피해 8% 감소', type: 'healGuard', val: .08 },
       skills: [
@@ -1803,7 +1847,7 @@ const DB = (() => {
     {
       id: 'gojo_aw', name: '고죠 사토루', version: '각성', rarity: 5, role: 'dps', el: 'tec',
       desc: '최강. 무하한이 모든 것을 가로막고, 술식이 모든 것을 지운다.',
-      art: { hair: 'spiky', hairColor: '#f2f4ff', hairColor2: '#b9c4e8', eye: '#59e7ff', skin: '#f5d9c2', uni1: '#14172c', uni2: '#080a16', aura1: '#3a6fd8', aura2: '#0a1030', marks: 'blindfold' },
+      art: { hair: 'spiky', hairColor: '#f2f4ff', hairColor2: '#b9c4e8', eye: '#59e7ff', skin: '#f5d9c2', uni1: '#252a51', uni2: '#131733', aura1: '#3a6fd8', aura2: '#0a1030', marks: 'blindfold' },
       base: { hp: 1280, atk: 138, def: 78, spd: 108, crit: 12, cdmg: 62 },
       passive: { name: '무하한', desc: '받는 피해 12% 감소. 필살기 게이지 획득량 +20%', type: 'multi', list: [{ type: 'dmgCut', val: .12 }, { type: 'ultGain', val: .2 }] },
       skills: [
@@ -1829,7 +1873,7 @@ const DB = (() => {
     {
       id: 'gojo_02', name: '고죠 사토루', version: '0.2초', rarity: 5, role: 'deb', el: 'tec',
       desc: '영역을 0.2초만 전개한다. 짧게, 그러나 몇 번이고.',
-      art: { hair: 'slick', hairColor: '#eef1ff', hairColor2: '#9fb0e0', eye: '#8fd0ff', skin: '#f5d9c2', uni1: '#101a30', uni2: '#060a16', aura1: '#2a4fd8', aura2: '#080c28', marks: 'none' },
+      art: { hair: 'slick', hairColor: '#eef1ff', hairColor2: '#9fb0e0', eye: '#8fd0ff', skin: '#f5d9c2', uni1: '#1b2c51', uni2: '#0f1834', aura1: '#2a4fd8', aura2: '#080c28', marks: 'none' },
       base: { hp: 1240, atk: 120, def: 80, spd: 114, crit: 10, cdmg: 58 },
       passive: { name: '연속 전개', desc: '필살기 사용 후 SP 2를 회복한다', type: 'ultSp', val: 2 },
       skills: [
@@ -1853,7 +1897,7 @@ const DB = (() => {
     {
       id: 'sukuna_fg', name: '료멘 스쿠나', version: '푸가', rarity: 5, role: 'dps', el: 'crs',
       desc: '저주의 왕. 베고, 가르고, 태운다.',
-      art: { hair: 'spiky', hairColor: '#f3e6e0', hairColor2: '#c9a8a0', eye: '#ff3355', skin: '#f0cbb4', uni1: '#3a0a18', uni2: '#160408', aura1: '#c81e3a', aura2: '#200408', marks: 'tattoo' },
+      art: { hair: 'spiky', hairColor: '#f3e6e0', hairColor2: '#c9a8a0', eye: '#ff3355', skin: '#f0cbb4', uni1: '#761430', uni2: '#400b17', aura1: '#c81e3a', aura2: '#200408', marks: 'tattoo' },
       base: { hp: 1300, atk: 142, def: 76, spd: 104, crit: 14, cdmg: 64 },
       passive: { name: '저주의 왕', desc: '적을 쓰러뜨리면 공격력 20% 증가(3턴)', type: 'killAtk', val: .2 },
       skills: [
@@ -1871,7 +1915,7 @@ const DB = (() => {
     {
       id: 'sukuna_dom', name: '료멘 스쿠나', version: '복마어주자', rarity: 5, role: 'dps', el: 'crs',
       desc: '영역 안에서는 모든 것이 필중한다. 베어지지 않는 것은 없다.',
-      art: { hair: 'wild', hairColor: '#f5e8e2', hairColor2: '#b08a80', eye: '#ff2244', skin: '#eec8b0', uni1: '#2a0610', uni2: '#120206', aura1: '#e02a4a', aura2: '#1a0208', marks: 'tattoo' },
+      art: { hair: 'wild', hairColor: '#f5e8e2', hairColor2: '#b08a80', eye: '#ff2244', skin: '#eec8b0', uni1: '#7d1230', uni2: '#470818', aura1: '#e02a4a', aura2: '#1a0208', marks: 'tattoo' },
       base: { hp: 1350, atk: 148, def: 80, spd: 100, crit: 15, cdmg: 68 },
       passive: { name: '무자비', desc: '브레이크 상태의 적에게 주는 피해 +25%', type: 'vsBroken', val: .25 },
       skills: [
@@ -1891,7 +1935,7 @@ const DB = (() => {
     {
       id: 'yuta', name: '옷코츠 유타', version: '순애', rarity: 5, role: 'dps', el: 'rev',
       desc: '리카와 함께 싸운다. 주력의 총량은 규격 외.',
-      art: { hair: 'short', hairColor: '#1f2230', hairColor2: '#3d4356', eye: '#a0e8ff', skin: '#f0cdb0', uni1: '#161a2e', uni2: '#080a16', aura1: '#5a3ac8', aura2: '#0c0824' },
+      art: { hair: 'short', hairColor: '#4a5274', hairColor2: '#727ea1', eye: '#a0e8ff', skin: '#f0cdb0', uni1: '#232b4b', uni2: '#131733', aura1: '#5a3ac8', aura2: '#0c0824' },
       base: { hp: 1300, atk: 132, def: 82, spd: 103, crit: 12, cdmg: 60 },
       passive: { name: '리카', desc: '전투 시작 시 필살기 게이지 30% 획득. 치명타 시 HP 3% 회복', type: 'multi', list: [{ type: 'startUlt', val: 30 }, { type: 'critHeal', val: .03 }] },
       skills: [
@@ -1914,7 +1958,7 @@ const DB = (() => {
     {
       id: 'toji', name: '토우지 후시구로', version: '천여주박', rarity: 5, role: 'brk', el: 'phy',
       desc: '주력 제로. 그래서 누구보다 빠르고, 누구보다 잔혹하다.',
-      art: { hair: 'short', hairColor: '#1a1a22', hairColor2: '#34343f', eye: '#7a9a8a', skin: '#e8c4a4', uni1: '#1a1a1e', uni2: '#0a0a0e', aura1: '#5a5a66', aura2: '#0c0c12', marks: 'scar' },
+      art: { hair: 'short', hairColor: '#51516a', hairColor2: '#7c7c98', eye: '#7a9a8a', skin: '#e8c4a4', uni1: '#2b2b31', uni2: '#171720', aura1: '#5a5a66', aura2: '#0c0c12', marks: 'scar' },
       base: { hp: 1180, atk: 145, def: 70, spd: 118, crit: 16, cdmg: 66 },
       passive: { name: '천여주박', desc: '브레이크 피해 +30%. 브레이크 상태의 적에게 치명타 피해 +25%', type: 'multi', list: [{ type: 'breakUp', val: .3 }, { type: 'cdmgVsBroken', val: .25 }] },
       skills: [
@@ -1936,7 +1980,7 @@ const DB = (() => {
       id: 'mahito', name: '마히토', version: '무위전변', rarity: 5, role: 'dps', el: 'crs',
       desc: '혼의 형태를 바꾼다. 인간의 증오에서 태어난 주령.',
       isCurseChar: true,
-      art: { hair: 'long', hairColor: '#8a9aa8', hairColor2: '#4a5a68', eye: '#7affc8', skin: '#cfd8d0', uni1: '#2a3040', uni2: '#12161e', aura1: '#4a7a8a', aura2: '#0c1620', marks: 'stitches' },
+      art: { hair: 'long', hairColor: '#8a9aa8', hairColor2: '#6b8296', eye: '#7affc8', skin: '#cfd8d0', uni1: '#2a3040', uni2: '#151922', aura1: '#4a7a8a', aura2: '#0c1620', marks: 'stitches' },
       base: { hp: 1260, atk: 130, def: 74, spd: 102, crit: 11, cdmg: 60 },
       passive: { name: '무위전변', desc: '지속 피해 효과의 피해량 +30%', type: 'dotPower', val: .3 },
       skills: [
@@ -1959,7 +2003,7 @@ const DB = (() => {
     {
       id: 'geto', name: '게토 스구루', version: '주령조복', rarity: 5, role: 'sup', el: 'spr',
       desc: '주령을 삼키고 부린다. 원숭이들 위에 선 주술사.',
-      art: { hair: 'bun', hairColor: '#14141c', hairColor2: '#2e2e3c', eye: '#c8b0ff', skin: '#efcdb2', uni1: '#241c34', uni2: '#0e0a18', aura1: '#6a3a9a', aura2: '#120824' },
+      art: { hair: 'bun', hairColor: '#515170', hairColor2: '#7c7ca1', eye: '#c8b0ff', skin: '#efcdb2', uni1: '#322749', uni2: '#1c1431', aura1: '#6a3a9a', aura2: '#120824' },
       base: { hp: 1240, atk: 124, def: 80, spd: 99, crit: 9, cdmg: 56 },
       passive: { name: '주령 조복', desc: '아군이 쓰러진 적이 있으면 아군 전체 공격력 15% 증가', type: 'avengeAtk', val: .15 },
       skills: [
@@ -1981,7 +2025,7 @@ const DB = (() => {
     {
       id: 'kenjaku', name: '켄자쿠', version: '천 년의 계획', rarity: 5, role: 'deb', el: 'crs',
       desc: '천 년을 건너 뛴 두뇌. 판을 짜는 자.',
-      art: { hair: 'long', hairColor: '#141420', hairColor2: '#2e2e42', eye: '#a0ffb0', skin: '#e8cdb4', uni1: '#1e1830', uni2: '#0c0818', aura1: '#3a7a5a', aura2: '#0a1a14', marks: 'stitches' },
+      art: { hair: 'long', hairColor: '#4f4f7f', hairColor2: '#7b7bb0', eye: '#a0ffb0', skin: '#e8cdb4', uni1: '#30264e', uni2: '#1c133a', aura1: '#3a7a5a', aura2: '#0a1a14', marks: 'stitches' },
       base: { hp: 1230, atk: 126, def: 78, spd: 101, crit: 10, cdmg: 58 },
       passive: { name: '술식 이식', desc: '약화 효과가 있는 적에게 주는 피해 +6% (효과당, 최대 24%)', type: 'vsDebuff', val: .06 },
       skills: [
@@ -2063,7 +2107,7 @@ const DB = (() => {
     {
       id: 'b_hanami', name: '하나미', el: 'spr', isCurse: true, tough: 110, isBoss: true,
       art: { body1: '#4a7a2a', body2: '#0e1a08', eye: '#e8ff88', shape: 'tall', eyes: 2, horns: true },
-      base: { hp: 4200, atk: 96, def: 70, spd: 94, crit: 8, cdmg: 55 },
+      base: { hp: 2950, atk: 96, def: 66, spd: 94, crit: 8, cdmg: 55 },
       skills: [
         S('bh1', '가지 찌르기', '🌿', '단일 강공격', { power: 1.5 }),
         S('bh2', '뿌리 결계', '🌳', '자기 방어 강화', { power: 0, target: 'self', eff: [E('buff', { stat: 'def', val: .45, turns: 3, to: 'self' }), E('heal', { base: 'maxhp', val: .1, to: 'self' })] }),
@@ -2075,7 +2119,7 @@ const DB = (() => {
     {
       id: 'b_jogo', name: '죠고', el: 'crs', isCurse: true, tough: 120, isBoss: true,
       art: { body1: '#c2431a', body2: '#240804', eye: '#ffcc55', shape: 'tall', eyes: 1, horns: true },
-      base: { hp: 4800, atk: 108, def: 62, spd: 99, crit: 10, cdmg: 58 },
+      base: { hp: 3400, atk: 106, def: 60, spd: 99, crit: 10, cdmg: 58 },
       skills: [
         S('bj1', '화염탄', '🔥', '단일 + 화상', { power: 1.35, eff: [E('dot', { val: .4, turns: 2 })] }),
         S('bj2', '열기 축적', '♨', '자기 공격력 강화', { power: 0, target: 'self', eff: [E('buff', { stat: 'atk', val: .35, turns: 3, to: 'self' })] }),
@@ -2087,7 +2131,7 @@ const DB = (() => {
     {
       id: 'b_mahito', name: '마히토', el: 'crs', isCurse: true, tough: 130, isBoss: true,
       art: { body1: '#4a7a8a', body2: '#0a1620', eye: '#7affc8', shape: 'blob', eyes: 2, teeth: true },
-      base: { hp: 5600, atk: 116, def: 70, spd: 102, crit: 10, cdmg: 60 },
+      base: { hp: 4000, atk: 114, def: 66, spd: 102, crit: 10, cdmg: 60 },
       skills: [
         S('bm1', '무위전변', '👐', '단일 + 방어 감소', { power: 1.45, eff: [E('debuff', { stat: 'def', val: .22, turns: 2 })] }),
         S('bm2', '혼의 재구성', '🌀', '자가 회복 + 속도 증가', { power: 0, target: 'self', eff: [E('heal', { base: 'maxhp', val: .12, to: 'self' }), E('buff', { stat: 'spd', val: .2, turns: 3, to: 'self' })] }),
@@ -2099,7 +2143,7 @@ const DB = (() => {
     {
       id: 'b_sukuna', name: '수태의 주령 · 스쿠나', el: 'crs', isCurse: true, tough: 150, isBoss: true,
       art: { body1: '#c81e3a', body2: '#1a0206', eye: '#ff3355', shape: 'spiky', eyes: 4, horns: true, teeth: true },
-      base: { hp: 7600, atk: 132, def: 82, spd: 106, crit: 14, cdmg: 64 },
+      base: { hp: 5600, atk: 128, def: 76, spd: 106, crit: 14, cdmg: 64 },
       skills: [
         S('bs1', '해', '🔪', '단일 3회', { power: .85, hits: 3 }),
         S('bs2', '개', '⚔', '단일 대공격', { power: 2.1 }),
@@ -2959,7 +3003,7 @@ const BattleSystem = (() => {
   }
   function enemyUnit(defId, lv, idx) {
     const def = DB.ENEMY_MAP[defId]; if (!def) return null;
-    const f = 1 + 0.085 * (lv - 1);
+    const f = 1 + 0.074 * (lv - 1);
     const b = def.base;
     return {
       uid: Util.uid('e'), side: 'enemy', id: defId, def,
@@ -3097,7 +3141,7 @@ const BattleSystem = (() => {
     if (opt.bonusVsDot && hasDot(tgt)) dmg *= (1 + opt.bonusVsDot);
     if (opt.executeBonus && tgt.hp / tgt.maxHp <= opt.executeBonus.hp) dmg *= (1 + opt.executeBonus.val);
     if (tgt.broken) dmg *= 1.35;
-    if (tgt.guard) dmg *= .55;
+    if (tgt.guard) dmg *= .82;   // 방어력 1.5배 · 받는 피해 30% 감소와 합쳐 약 50% 경감
     // 치명타
     let crit = false;
     if (opt.alwaysCrit || (opt.critIfBroken && tgt.broken)) crit = true;
@@ -3778,6 +3822,7 @@ const BattleSystem = (() => {
   return {
     start, retreat, cmdAttack, cmdSkills, cmdGuard, cmdUlt, chooseSkill, selectTarget, cancel,
     get: () => B, canAct, inputLocked, previewOrder, ultReady, isStunned, nextEnemyIntent,
+    __calc: calcDamage,
     pAtk, pDef, pSpd, pCrit, aliveAllies, aliveEnemies, SP_MAX,
   };
 })();
@@ -3843,6 +3888,7 @@ const BattleUI = (() => {
     const bars = Util.el('div', 'u-bars');
     bars.innerHTML =
       '<div class="u-name"></div>' +
+      (u.isBoss ? '<div class="u-intent"></div>' : '') +
       '<div class="bar hp' + (u.side === 'ally' ? ' ally' : '') + '"><i></i></div>' +
       (u.side === 'enemy' ? '<div class="bar brk"><i></i></div>' : '') +
       '<div class="st-icons"></div>';
@@ -3853,6 +3899,7 @@ const BattleUI = (() => {
     reg.set(u.uid, {
       root, art,
       name: bars.querySelector('.u-name'),
+      intent: bars.querySelector('.u-intent'),
       hp: bars.querySelector('.bar.hp > i'),
       brkBar: bars.querySelector('.bar.brk'),
       brk: bars.querySelector('.bar.brk > i'),
@@ -3893,12 +3940,12 @@ const BattleUI = (() => {
         r.root.classList.toggle('acting', b.current === u && u.alive && !b.ended);
         const hpR = clamp(u.hp / u.maxHp, 0, 1) * 100;
         r.hp.style.width = hpR + '%';
-        let nm = u.name;
-        if (u.side === 'enemy' && u.isBoss) {
-          const intent = BattleSystem.nextEnemyIntent(u);
-          nm = u.name + (intent ? ' · 다음: ' + intent.name : '');
+        r.name.textContent = u.name;
+        if (r.intent) {
+          const intent = u.alive ? BattleSystem.nextEnemyIntent(u) : null;
+          r.intent.textContent = intent ? '다음 ▶ ' + intent.name : '';
+          r.intent.style.display = intent ? '' : 'none';
         }
-        r.name.textContent = nm;
         if (r.brkBar) {
           const t = u.toughMax > 0 ? clamp(u.tough / u.toughMax, 0, 1) * 100 : 0;
           r.brk.style.width = t + '%';
@@ -4483,8 +4530,14 @@ const UI = (() => {
     const party = GameState.party();
     const id = party[0] || GameState.ownedIds()[0] || 'yuji_s';
     const def = DB.byId(id) || DB.CHARS[0];
+    const nextStage = DB.STAGES.find(s2 => !GameState.stageCleared(s2.id)) || DB.STAGES[DB.STAGES.length - 1];
+    const doneCount = DB.STAGES.filter(s2 => GameState.stageCleared(s2.id)).length;
     hero.innerHTML =
-      '<div class="hero-char portrait">' + Art.portrait(def) + '</div>' +
+      '<button class="home-next" id="home-next"><span class="hn-ic">📍</span><span class="hn-b">' +
+      '<span class="hn-t">다음 임무 · ' + esc(nextStage.id + ' ' + nextStage.name) + '</span>' +
+      '<span class="hn-s">진행 ' + doneCount + '/' + DB.STAGES.length + ' · 보유 주술사 ' +
+      GameState.ownedIds().length + '/' + DB.CHARS.length + '</span></span><span>▶</span></button>' +
+      '<div class="hero-char">' + Art.portrait(def, { bare: true }) + '</div>' +
       '<div class="hero-info"><div class="hv">' + esc(def.version) + '</div>' +
       '<div class="hn">' + esc(def.name) + '</div>' +
       '<div class="hd">' + esc(def.desc || '') + '</div></div>';
@@ -4501,6 +4554,7 @@ const UI = (() => {
     menu.innerHTML = items.map(i =>
       '<button class="menu-btn' + (i.hi ? ' hi' : '') + '" data-nav="' + i.id + '"><span class="mi">' + i.ic + '</span>' + i.label + '</button>').join('');
     $$('.menu-btn', menu).forEach(b => onTap(b, () => { AudioSystem.sfx('click'); nav(b.dataset.nav); }));
+    onTap($('#home-next'), () => { AudioSystem.sfx('click'); nav('stage'); setTimeout(() => showStagePreview(nextStage.id), 220); });
   };
 
   /* ---------- STAGE ---------- */
@@ -4840,7 +4894,7 @@ const UI = (() => {
     if (!line) return endStory();
     const def = DB.byId(line.who) || DB.ENEMY_MAP[line.who];
     const stage = $('#story-stage');
-    if (stage) stage.innerHTML = '<div class="story-char portrait">' + (def ? Art.art(def) : '') + '</div>';
+    if (stage) stage.innerHTML = '<div class="story-char">' + (def ? Art.art(def, { bare: true }) : '') + '</div>';
     const nm = $('#story-name'), tx = $('#story-text'), ix = $('#story-idx');
     if (nm) nm.textContent = def ? def.name : '';
     if (tx) tx.textContent = line.text;
