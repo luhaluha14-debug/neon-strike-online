@@ -387,6 +387,10 @@ img{max-width:100%;}
 }
 .party-slot.filled{border-style:solid;}
 .party-slot .ps-empty{flex:1;display:grid;place-items:center;color:var(--txt-mute);font-size:calc(11px * var(--fs));}
+.party-slot .ps-line{
+  display:block; font-size:calc(10.5px * var(--fs)); line-height:1.35;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
 .party-slot .ps-x{
   position:absolute; top:3px; right:3px; z-index:3; width:26px;height:26px;border-radius:50%;
   background:rgba(200,30,60,.9); display:grid;place-items:center;font-size:13px;font-weight:900;
@@ -4715,11 +4719,14 @@ const UI = (() => {
         const def = DB.byId(id), cs = GameState.charState(id), stt = CharacterSystem.stats(id, cs);
         h += '<div class="party-slot filled rar-' + def.rarity + '" data-slot="' + i + '">' +
           '<button class="ps-x" data-rm="' + id + '" aria-label="제외">×</button>' +
+          '<span class="cc-rar" style="position:absolute;top:4px;left:4px;z-index:2">' + def.rarity + '★</span>' +
           '<span class="portrait" style="border-radius:0">' + Art.portrait(def) + '</span>' +
           '<span style="padding:5px 6px;min-width:0">' +
           '<span class="cc-name" style="display:block;font-size:calc(11.5px * var(--fs));font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(def.name) + '</span>' +
-          '<span class="tiny muted" style="display:block">Lv.' + stt.lv + ' · HP ' + fmt(stt.hp) + '</span>' +
-          '<span class="tiny" style="color:var(--gold)">ATK ' + fmt(stt.atk) + '</span></span></div>';
+          '<span class="ps-line muted">Lv.' + stt.lv + ' · HP ' + fmt(stt.hp) + '</span>' +
+          '<span class="ps-line" style="color:var(--gold)">ATK ' + fmt(stt.atk) + '</span>' +
+          '<span class="ps-line muted">' + esc((DB.ROLES[def.role] || {}).name || '') + ' · ' +
+          esc((DB.ELEMENTS[def.el] || {}).name || '') + '</span></span></div>';
       } else {
         h += '<div class="party-slot" data-slot="' + i + '"><span class="ps-empty">+ 빈 자리</span></div>';
       }
