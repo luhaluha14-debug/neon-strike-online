@@ -393,10 +393,34 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
 <div id="rotate" class="hidden"><div class="ph"></div>
   <div class="t">PLEASE ROTATE YOUR DEVICE</div>
   <div class="s">가로 모드로 전환하세요</div>
+  <button class="mbtn sm" id="rotateAnyway" style="margin-top:22px">세로로 계속하기</button>
 </div>
 
 <script>
 "use strict";
+/* ------------------------------------------------------------------ *
+   Anything that throws before the game boots would leave a black page,
+   so the reporter is installed first and prints the reason on screen.
+ * ------------------------------------------------------------------ */
+function fatal(title, detail) {
+  if (window.__fatalShown) return;
+  window.__fatalShown = 1;
+  const d = document.createElement('div');
+  d.style.cssText = 'position:fixed;inset:0;z-index:999;background:#0b0d0e;color:#e0a23c;display:flex;' +
+    'flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;' +
+    'font:700 13px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;letter-spacing:.08em';
+  d.innerHTML = '<div style="font-size:15px;letter-spacing:.2em">' + title + '</div>' +
+    '<div style="color:#8c9aa4;font-weight:400;font-size:11px;margin-top:12px;max-width:600px;' +
+    'white-space:pre-wrap;word-break:break-word;text-align:left">' + String(detail || '').slice(0, 900) + '</div>' +
+    '<div style="color:#5f6a72;font-weight:400;font-size:10px;margin-top:16px">이 메시지를 그대로 알려주시면 원인을 바로 찾을 수 있습니다</div>';
+  (document.body || document.documentElement).appendChild(d);
+}
+addEventListener('error', e => {
+  fatal('SCRIPT ERROR', (e.message || 'unknown') + '\n' + (e.filename || '') + ':' + (e.lineno || 0));
+});
+addEventListener('unhandledrejection', e => {
+  fatal('SCRIPT ERROR', String((e.reason && e.reason.message) || e.reason || 'unhandled rejection'));
+});
 /* =====================================================================
    ONE MAG — mobile first-person shooter
    single file · no libraries · WebGL renderer + Web Audio + touch UI
@@ -417,18 +441,31 @@ function fmtTime(s) { s = Math.max(0, s | 0); return ((s / 60) | 0).toString().p
 const CFG = {
   sens: 100, assist: 1, sfx: 80, music: 45, haptics: 1, quality: 2, invertY: 0, showFps: 0
 };
-function loadCfg() {
+/* localStorage throws outright on file:// in Chrome and in some private modes,
+   so every access goes through these and the game runs fine without it */
+function store(k, v) {
   try {
-    const s = JSON.parse(localStorage.getItem('onemag.cfg') || '{}');
-    for (const k in CFG) if (typeof s[k] === 'number') CFG[k] = s[k];
+    if (v === undefined) return localStorage.getItem(k);
+    localStorage.setItem(k, v);
   } catch (e) { }
-  // sensible default quality guess for weak devices
-  if (localStorage.getItem('onemag.cfg') === null) {
+  return null;
+}
+function loadCfg() {
+  const raw = store('onemag.cfg');
+  if (raw) {
+    try {
+      const s = JSON.parse(raw);
+      for (const k in CFG) if (typeof s[k] === 'number' && isFinite(s[k])) CFG[k] = s[k];
+    } catch (e) { }
+  } else {
     const cores = navigator.hardwareConcurrency || 4;
     CFG.quality = cores <= 4 ? 1 : 2;
   }
+  CFG.quality = clamp(CFG.quality | 0, 0, 2);
+  CFG.assist = clamp(CFG.assist | 0, 0, 2);
+  CFG.sens = clamp(CFG.sens, 20, 240);
 }
-function saveCfg() { try { localStorage.setItem('onemag.cfg', JSON.stringify(CFG)); } catch (e) { } }
+function saveCfg() { store('onemag.cfg', JSON.stringify(CFG)); }
 loadCfg();
 
 const QUAL = [
@@ -482,8 +519,10 @@ try {
 } catch (e) { }
 if (!gl) {
   document.body.innerHTML = '<div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;' +
-    'color:#e0a23c;font:700 14px sans-serif;letter-spacing:.2em;text-align:center;padding:24px">' +
-    'WEBGL NOT AVAILABLE<br><span style="color:#8c9aa4;font-size:11px">이 브라우저에서는 실행할 수 없습니다</span></div>';
+    'flex-direction:column;color:#e0a23c;font:700 14px sans-serif;letter-spacing:.18em;text-align:center;padding:24px">' +
+    'WEBGL NOT AVAILABLE<div style="color:#8c9aa4;font-size:11px;font-weight:400;letter-spacing:.06em;margin-top:14px;line-height:1.8">' +
+    '이 브라우저에서는 WebGL을 쓸 수 없습니다.<br>카카오톡·인스타그램 같은 앱 안의 브라우저 대신<br>' +
+    'Safari 또는 Chrome으로 직접 열어보세요.</div></div>';
   throw new Error('no webgl');
 }
 
@@ -538,9 +577,8 @@ void main(){
   for (int i = 0; i < ${nLights}; i++) {
     vec3 dv = uLP[i] - vW;
     float dd = length(dv);
-    float att = max(0.0, 1.0 - dd / uLR[i]);
+    float att = max(0.0, 1.0 - dd / max(uLR[i], 0.001));
     att *= att;
-    if (att <= 0.0) continue;
     vec3 ld = dv / max(dd, 0.001);
     float nl = max(dot(n, ld), 0.0);
     float sp = pow(max(dot(reflect(-ld, n), vd), 0.0), 18.0) * (vF > 0.5 && vF < 1.5 ? 0.42 : 0.10);
@@ -560,7 +598,11 @@ void main(){
 function compile(type, src) {
   const s = gl.createShader(type);
   gl.shaderSource(s, src); gl.compileShader(s);
-  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) { console.error(gl.getShaderInfoLog(s), src); }
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+    const log = gl.getShaderInfoLog(s);
+    console.error(log, src);
+    fatal('SHADER COMPILE FAILED', log);
+  }
   return s;
 }
 let prog = null, U = {}, A = {}, progLights = -1, progDetail = -1;
@@ -576,7 +618,11 @@ function buildProgram() {
   gl.bindAttribLocation(p, 2, 'aCol'); gl.bindAttribLocation(p, 3, 'aUv');
   gl.bindAttribLocation(p, 4, 'aFlag');
   gl.linkProgram(p);
-  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) console.error(gl.getProgramInfoLog(p));
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+    const log = gl.getProgramInfoLog(p);
+    console.error(log);
+    fatal('SHADER LINK FAILED', log);
+  }
   prog = p; gl.useProgram(p);
   U = {};
   for (const n of ['uVP', 'uCam', 'uAmb', 'uSunDir', 'uSunCol', 'uFogCol', 'uFog', 'uExposure', 'uMuzP', 'uMuzI', 'uLP', 'uLC', 'uLR'])
@@ -1277,7 +1323,9 @@ function updatePlayer(dt) {
   }
 
   /* ---- weapon timers ---- */
-  if (P.fireCd > 0) P.fireCd -= dt;
+  P.fireCd -= dt;
+  if (!IN.fire) { if (P.fireCd < 0) P.fireCd = 0; }
+  else if (P.fireCd < -0.12) P.fireCd = -0.12;
   if (P.swapT > 0) P.swapT -= dt;
   if (P.meleeT > 0) P.meleeT -= dt;
   if (P.reloadT > 0) {
@@ -1298,14 +1346,19 @@ function updatePlayer(dt) {
   P.kick = Math.max(0, P.kick - dt * 5.5);
 
   /* ---- fire ---- */
-  if (IN.fire && GS === 'play') {
-    if (P.fireCd <= 0 && P.reloadT <= 0 && P.swapT <= 0) {
-      if (P.mag > 0) shoot();
-      else {
+  if (IN.fire && GS === 'play' && P.reloadT <= 0 && P.swapT <= 0) {
+    // a slow frame must not slow the weapon down: fire off whatever the
+    // accumulated cooldown owes, with a hard cap so a stall can't dump a mag
+    let shotsThisFrame = 0;
+    while (P.fireCd <= 0 && shotsThisFrame < 3) {
+      if (P.mag <= 0) {
         P.fireCd = 0.28; sfx.dry();
         if (P.res[P.wpn] > 0) tryReload(); else showMeleeHint();
+        break;
       }
-      if (!w.auto) IN.fire = false;
+      shoot();
+      shotsThisFrame++;
+      if (!w.auto) { IN.fire = false; break; }
     }
   }
   function moving() { return speed2 > 0.4; }
@@ -1409,7 +1462,7 @@ function rayAABB(ox, oy, oz, dx, dy, dz, x0, y0, z0, x1, y1, z1, maxT) {
 function shoot() {
   const w = wpn();
   P.mag--; STAT.shots++; STAT.ammoUsed++;
-  P.fireCd = 60 / w.rpm;
+  P.fireCd += 60 / w.rpm;
   const ex = P.x, ey = P.y + eyeH(), ez = P.z;
   const sprd = (P.spread + w.hipAdd * (1 - P.aim * 0.7)) * DEG;
   let anyHit = false, anyCrit = false;
@@ -2634,7 +2687,7 @@ function showSupply() {
     c.innerHTML = '<h4>' + s.t + '</h4><div class="c2">' + s.s + '</div><p>' + s.d + '</p>';
     c.onclick = () => {
       supplyPick = s.id; sfx.ui();
-      for (const el of row.children) el.classList.remove('sel');
+      for (const el of Array.prototype.slice.call(row.children)) el.classList.remove('sel');
       c.classList.add('sel');
     };
     row.appendChild(c);
@@ -2812,10 +2865,10 @@ let prevScreen = 'sMenu';
 /* settings wiring */
 function segGroup(id, key, after) {
   const g = $(id);
-  for (const b of g.children) {
+  for (const b of Array.prototype.slice.call(g.children)) {
     b.addEventListener('click', () => {
       CFG[key] = +b.dataset.v;
-      for (const o of g.children) o.classList.toggle('on', o === b);
+      for (const o of Array.prototype.slice.call(g.children)) o.classList.toggle('on', o === b);
       saveCfg(); sfx.ui(); if (after) after();
     });
   }
@@ -2824,7 +2877,7 @@ function syncSettings() {
   $('cfgSens').value = CFG.sens; $('vSens').textContent = CFG.sens;
   $('cfgSfx').value = CFG.sfx; $('vSfx').textContent = CFG.sfx;
   $('cfgMus').value = CFG.music; $('vMus').textContent = CFG.music;
-  const mark = (id, v) => { for (const b of $(id).children) b.classList.toggle('on', +b.dataset.v === v); };
+  const mark = (id, v) => { for (const b of Array.prototype.slice.call($(id).children)) b.classList.toggle('on', +b.dataset.v === v); };
   mark('cfgAssist', CFG.assist); mark('cfgHap', CFG.haptics); mark('cfgQual', CFG.quality);
   $('cfgInv').classList.toggle('on', !!CFG.invertY);
   $('cfgFps').classList.toggle('on', !!CFG.showFps);
@@ -2840,14 +2893,20 @@ $('cfgInv').addEventListener('click', () => { CFG.invertY = CFG.invertY ? 0 : 1;
 $('cfgFps').addEventListener('click', () => { CFG.showFps = CFG.showFps ? 0 : 1; syncSettings(); saveCfg(); sfx.ui(); });
 
 /* orientation */
-let portrait = false;
+let portrait = false, forcePortrait = false;
 function checkOrientation() {
-  const p = innerHeight > innerWidth * 1.05;
+  const p = !forcePortrait && innerHeight > innerWidth * 1.05;
   if (p === portrait) return;
   portrait = p;
   $('rotate').classList.toggle('hidden', !p);
   if (p && GS === 'play') pauseGame();
 }
+$('rotateAnyway').addEventListener('click', () => {
+  // rotation-locked devices would otherwise be stuck here forever
+  forcePortrait = true; portrait = true; checkOrientation();
+  $('rotate').classList.add('hidden');
+  resize(); sfx.ui();
+});
 document.addEventListener('visibilitychange', () => { if (document.hidden && GS === 'play') pauseGame(); });
 
 /* ================================================================== loop */
