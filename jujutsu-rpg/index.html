@@ -702,6 +702,15 @@ body.reduce-motion .bg-orbs{display:none;}
 .sp-pip{width:15px;height:8px;border-radius:3px;background:rgba(255,255,255,.14);border:1px solid rgba(120,190,255,.3);transition:background .25s;}
 .sp-pip.on{background:linear-gradient(90deg,#59e7ff,#4ea8ff);box-shadow:0 0 8px rgba(89,231,255,.7);}
 .sp-label{font-size:10px;font-weight:900;color:var(--cyan);letter-spacing:.12em;}
+.sp-name{font-size:calc(11px * var(--fs));font-weight:800;color:var(--txt);max-width:34%;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.sh-sp{margin-left:auto;font-size:calc(11.5px * var(--fs));font-weight:900;color:var(--cyan);
+  background:rgba(78,168,255,.14);border:1px solid rgba(78,168,255,.4);border-radius:999px;padding:2px 9px;}
+.ac-sp{display:flex;gap:2px;align-items:center;}
+.ac-sp i{flex:1 1 0;height:4px;border-radius:2px;background:rgba(255,255,255,.14);
+  border:1px solid rgba(120,190,255,.25);transition:background .2s;}
+.ac-sp i.on{background:linear-gradient(90deg,#59e7ff,#4ea8ff);border-color:transparent;
+  box-shadow:0 0 6px rgba(89,231,255,.6);}
 
 /* 스킬 시트 */
 .sheet{
@@ -1721,6 +1730,7 @@ const DB = (() => {
       id: 'maki', name: '젠인 마키', version: '주구 사용자', rarity: 4, role: 'brk', el: 'phy',
       desc: '주력은 없다. 대신 누구보다 강한 육체가 있다.',
       art: { hair: 'long', hairColor: '#3a5c42', hairColor2: '#528f62', eye: '#7de0a0', skin: '#f0cdb0', uni1: '#272e20', uni2: '#141a17', aura1: '#2f6f42', aura2: '#0a1a10', marks: 'glasses' },
+      spMax: 4,   // 천여주박 - 주력이 거의 없다
       base: { hp: 1120, atk: 102, def: 68, spd: 106, crit: 10, cdmg: 58 },
       passive: { name: '천여주박', desc: '자신의 필살기 게이지가 50% 이상이면 공격력 12% 증가', type: 'ultAtk', val: .12 },
       skills: [
@@ -1736,6 +1746,7 @@ const DB = (() => {
       id: 'todo', name: '토도 아오이', version: '부기우기', rarity: 4, role: 'sup', el: 'phy',
       desc: '「나의 친구」. 전장의 위치를 바꿔 흐름을 지배한다.',
       art: { hair: 'short', hairColor: '#6d4d3e', hairColor2: '#ad745e', eye: '#e8c07a', skin: '#c99a72', uni1: '#3d281d', uni2: '#22160f', aura1: '#8f5a20', aura2: '#1c1006' },
+      spMax: 6,   // 주력 총량이 많은 1급 주술사
       base: { hp: 1150, atk: 94, def: 72, spd: 99, crit: 8, cdmg: 55 },
       passive: { name: '친구', desc: '아군이 행동할 때마다 필살기 게이지 +4', type: 'allyActUlt', val: 4 },
       skills: [
@@ -1828,6 +1839,7 @@ const DB = (() => {
       id: 'shoko', name: '이에이리 쇼코', version: '반전술식', rarity: 4, role: 'sup', el: 'rev',
       desc: '반전술식의 희소한 사용자. 전선을 유지하는 생명선.',
       art: { hair: 'long', hairColor: '#6b4d42', hairColor2: '#a4775d', eye: '#c8a87a', skin: '#f2d2b8', uni1: '#e8e8ee', uni2: '#9aa0b0', aura1: '#7a5a9a', aura2: '#1a1024' },
+      spMax: 6,   // 반전술식 유지에 필요한 주력 용량
       base: { hp: 1060, atk: 70, def: 70, spd: 98, crit: 4, cdmg: 50 },
       passive: { name: '반전술식', desc: '자신이 회복시킨 아군은 1턴간 받는 피해 8% 감소', type: 'healGuard', val: .08 },
       skills: [
@@ -1895,7 +1907,7 @@ const DB = (() => {
       ult: {
         name: '0.2초 무량공처', icon: '⏱', desc: '영역전개. 적 전체에게 270% 피해, 1턴 기절(90%), 행동 50% 지연, SP 2 회복.',
         power: 2.7, target: 'enemyAll', brk: 5, fx: 'void', domain: true, domainColors: ['#7aa2ff', '#0b1040'],
-        eff: [E('stun', { turns: 1, chance: .9 }), E('delay', { val: .5 }), E('sp', { val: 2 })]
+        eff: [E('stun', { turns: 1, chance: .9 }), E('delay', { val: .5 }), E('sp', { val: 2, to: 'self' })]
       },
     },
     {
@@ -1963,6 +1975,7 @@ const DB = (() => {
       id: 'toji', name: '토우지 후시구로', version: '천여주박', rarity: 5, role: 'brk', el: 'phy',
       desc: '주력 제로. 그래서 누구보다 빠르고, 누구보다 잔혹하다.',
       art: { hair: 'short', hairColor: '#51516a', hairColor2: '#7c7c98', eye: '#7a9a8a', skin: '#e8c4a4', uni1: '#2b2b31', uni2: '#171720', aura1: '#5a5a66', aura2: '#0c0c12', marks: 'scar' },
+      spMax: 4,   // 주력 제로. 순수 육체로 싸운다
       base: { hp: 1180, atk: 145, def: 70, spd: 118, crit: 16, cdmg: 66 },
       passive: { name: '천여주박', desc: '브레이크 피해 +30%. 브레이크 상태의 적에게 치명타 피해 +25%', type: 'multi', list: [{ type: 'breakUp', val: .3 }, { type: 'cdmgVsBroken', val: .25 }] },
       skills: [
@@ -2008,6 +2021,7 @@ const DB = (() => {
       id: 'geto', name: '게토 스구루', version: '주령조복', rarity: 5, role: 'sup', el: 'spr',
       desc: '주령을 삼키고 부린다. 원숭이들 위에 선 주술사.',
       art: { hair: 'bun', hairColor: '#515170', hairColor2: '#7c7ca1', eye: '#c8b0ff', skin: '#efcdb2', uni1: '#322749', uni2: '#1c1431', aura1: '#6a3a9a', aura2: '#120824' },
+      spMax: 6,   // 주령 조복으로 주력을 비축한다
       base: { hp: 1240, atk: 124, def: 80, spd: 99, crit: 9, cdmg: 56 },
       passive: { name: '주령 조복', desc: '아군이 쓰러진 적이 있으면 아군 전체 공격력 15% 증가', type: 'avengeAtk', val: .15 },
       skills: [
@@ -2023,7 +2037,7 @@ const DB = (() => {
       ],
       ult: {
         name: '극지 「우즈마키」', icon: '🌀', desc: '적 1명에게 420% 피해. 아군 전체 SP 1과 필살기 게이지 15를 준다.',
-        power: 4.2, brk: 6, fx: 'spirit', eff: [E('sp', { val: 1 }), E('ultGain', { val: 15, to: 'allies' })]
+        power: 4.2, brk: 6, fx: 'spirit', eff: [E('sp', { val: 1, to: 'allies' }), E('ultGain', { val: 15, to: 'allies' })]
       },
     },
     {
@@ -2985,7 +2999,11 @@ const FX = (() => {
  * ===================================================================== */
 const BattleSystem = (() => {
   const BASE_AV = 10000;
-  const SP_MAX = 6;
+  const SP_MAX_DEFAULT = 5;     // 캐릭터별 주력 상한 기본값 (DB 의 spMax 로 개별 지정 가능)
+  const SP_START = 3;           // 전투 시작 시 보유 주력
+  const SP_ON_ATTACK = 2;       // 공격 시 회복
+  const SP_ON_GUARD = 2;        // 방어 시 회복
+  const SP_ON_ULT = 1;          // 필살기 사용 시 회복
   const MAX_ACTIONS = 500;          // 무한 루프 방지 상한
   let B = null;                     // 현재 전투 컨텍스트
 
@@ -3003,6 +3021,7 @@ const BattleSystem = (() => {
       base: { atk: st.atk, def: st.def, spd: st.spd, crit: st.crit / 100, cdmg: st.cdmg / 100 },
       skills: def.skills, sklv, ultDef: def.ult, passive: def.passive,
       ult: 0, buffs: [], av: 0, alive: true, guard: false,
+      sp: SP_START, spMax: clamp(Math.floor(Util.num(def.spMax)) || SP_MAX_DEFAULT, 1, 9),
       tough: 0, toughMax: 0, broken: false, breakTurns: 0,
       isBoss: false, isCurse: !!def.isCurseChar,
     };
@@ -3021,6 +3040,7 @@ const BattleSystem = (() => {
       },
       skills: def.skills, sklv: def.skills.map(() => 1), ultDef: null, passive: null,
       ult: 0, buffs: [], av: 0, alive: true, guard: false,
+      sp: SP_START, spMax: SP_MAX_DEFAULT,      // 주령은 주력 제약 없이 패턴으로 행동한다
       toughMax: Math.round((def.tough || 40) * (1 + .03 * (lv - 1))),
       tough: Math.round((def.tough || 40) * (1 + .03 * (lv - 1))),
       broken: false, breakTurns: 0,
@@ -3198,7 +3218,7 @@ const BattleSystem = (() => {
       if (kp) addBuff(src, { kind: 'buff', stat: 'atk', val: kp.val, turns: 3, name: 'ATK' });
       if (hasDot(u)) { /* 이미 제거됨 */ }
       const dk = hasPassive(src, 'dotKillSp');
-      if (dk) addSp(dk.val);
+      if (dk) gainSp(src, dk.val);
     }
   }
 
@@ -3236,7 +3256,9 @@ const BattleSystem = (() => {
   }
 
   /* ---------------- SP / 필살기 게이지 ---------------- */
-  function addSp(n) { if (!B) return; B.sp = clamp(B.sp + n, 0, SP_MAX); }
+  /** 주력은 캐릭터 개인 자원이다 (공유하지 않음) */
+  function gainSp(u, n) { if (!u || !u.alive) return; u.sp = clamp(u.sp + n, 0, u.spMax); }
+  const canPaySp = (u, cost) => !!u && u.sp >= (cost || 0);
   function gainUlt(u, n) {
     if (!u || !u.alive || u.side !== 'ally') return;
     let v = n;
@@ -3317,7 +3339,7 @@ const BattleSystem = (() => {
   /* ---------------- 효과 적용 ---------------- */
   const STAT_LABEL = { atk: 'ATK', def: 'DEF', spd: 'SPD', crit: 'CRIT', cdmg: 'C.DMG', dmg: 'DMG', taken: '피해▲', takenD: '피해▼' };
   /** 대상 수와 무관하게 1회만 적용되는 효과 */
-  const GLOBAL_EFFECTS = { sp: 1, revive: 1 };
+  const GLOBAL_EFFECTS = { revive: 1 };   // 주력은 개인 자원이므로 대상마다 적용된다
   function applyEffects(actor, eff, hitTargets) {
     for (const e of (eff || [])) {
       if (GLOBAL_EFFECTS[e.k]) {
@@ -3376,7 +3398,7 @@ const BattleSystem = (() => {
         t.av = e.val >= 1 ? 0 : Math.max(0, t.av - (BASE_AV / pSpd(t)) * e.val);
         if (el) FX.textPop(el, '행동 촉진', '#ffe08a');
         break;
-      case 'sp': addSp(e.val); break;
+      case 'sp': gainSp(t, e.val); break;
       case 'ultGain': gainUlt(t, e.val); break;
       case 'cleanse': {
         const n = removeBuffs(t, b => b.kind === 'debuff' || b.kind === 'dot' || b.kind === 'stun', e.val);
@@ -3411,12 +3433,12 @@ const BattleSystem = (() => {
   async function performAttack(actor, target) {
     const sp = { power: 1.0, hits: 1, brk: 1, fx: actor.isCurse ? 'curse' : 'slash', name: '공격' };
     await runOffense(actor, sp, [target]);
-    addSp(1); gainUlt(actor, 15);
+    gainSp(actor, SP_ON_ATTACK); gainUlt(actor, 15);
   }
   async function performSkill(actor, skill, targets, slotIdx) {
     const mult = actor.side === 'ally' ? CharacterSystem.skillMult(actor.sklv[slotIdx]) : 1;
     const sp = Object.assign({}, skill, { power: (skill.power || 0) * mult, name: skill.name });
-    if (actor.side === 'ally') { addSp(-(skill.cost || 0)); gainUlt(actor, 17 + (skill.cost || 0) * 2); }
+    if (actor.side === 'ally') { gainSp(actor, -(skill.cost || 0)); gainUlt(actor, 17 + (skill.cost || 0) * 2); }
     await runOffense(actor, sp, targets);
   }
   async function performUlt(actor) {
@@ -3430,8 +3452,9 @@ const BattleSystem = (() => {
     const sp = Object.assign({}, u, { power: (u.power || 0) * mult, isUlt: true });
     const targets = resolveTargets(actor, u, B.ultTarget || opponents(actor)[0]);
     await runOffense(actor, sp, targets);
+    gainSp(actor, SP_ON_ULT);
     const p = hasPassive(actor, 'ultSp');
-    if (p) addSp(p.val);
+    if (p) gainSp(actor, p.val);
   }
   async function performGuard(actor) {
     actor.guard = true;
@@ -3439,7 +3462,7 @@ const BattleSystem = (() => {
     addBuff(actor, { kind: 'buff', stat: 'guard', val: 1, turns: 1, name: 'GUARD', guardTag: true });
     const gp = hasPassive(actor, 'guardTeam');
     if (gp) mates(actor).forEach(m => addBuff(m, { kind: 'buff', stat: 'def', val: gp.val, turns: 1, name: 'DEF' }));
-    if (actor.side === 'ally') { addSp(1); gainUlt(actor, 12); }
+    if (actor.side === 'ally') { gainSp(actor, SP_ON_GUARD); gainUlt(actor, 12); }
     log(actor.name + ' 방어 태세');
     AudioSystem.sfx('guard');
     const el = BattleUI.unitEl(actor);
@@ -3709,7 +3732,9 @@ const BattleSystem = (() => {
     const actor = B.current;
     const skill = actor.skills[idx];
     if (!skill) return;
-    if ((skill.cost || 0) > B.sp) { UI.toast('주력(SP)이 부족합니다', 'bad'); AudioSystem.sfx('error'); return; }
+    if (!canPaySp(actor, skill.cost)) {
+      UI.toast(actor.name + '의 주력이 부족합니다', 'bad'); AudioSystem.sfx('error'); return;
+    }
     B.pending = { type: 'skill', skill, idx };
     B.event('skill');
     if (!needsTarget(skill)) {
@@ -3810,7 +3835,6 @@ const BattleSystem = (() => {
       stage, waves: stage.waves, waveIdx: 0,
       allies: ids.map(allyUnit).filter(Boolean),
       enemies: [],
-      sp: 3, spMax: SP_MAX,
       state: 'INIT', busy: false, ended: false,
       log: [], actionCount: 0, turnCount: 0, totalDamage: 0,
       pending: null, current: null, ultTarget: null, allyDown: false,
@@ -3835,7 +3859,8 @@ const BattleSystem = (() => {
     start, retreat, cmdAttack, cmdSkills, cmdGuard, cmdUlt, chooseSkill, selectTarget, cancel,
     get: () => B, canAct, inputLocked, previewOrder, ultReady, isStunned, nextEnemyIntent,
     __calc: calcDamage,
-    pAtk, pDef, pSpd, pCrit, aliveAllies, aliveEnemies, SP_MAX,
+    pAtk, pDef, pSpd, pCrit, aliveAllies, aliveEnemies, canPaySp,
+    SP_MAX_DEFAULT, SP_ON_ATTACK, SP_ON_GUARD,
   };
 })();
 
@@ -3986,7 +4011,8 @@ const BattleUI = (() => {
           '<div class="ac-top"><div class="ac-p">' + Art.art(u.def) + '</div>' +
           '<div style="min-width:0;flex:1"><div class="ac-n"></div><div class="ac-hp"></div></div></div>' +
           '<div class="bar hp ally"><i></i></div>' +
-          '<div class="ult-bar"><i></i></div>';
+          '<div class="ult-bar"><i></i></div>' +
+          '<div class="ac-sp"></div>';
         onTap(c, () => {
           if (targetMode && targetMode.side === 'ally' && u.alive) BattleSystem.selectTarget(u);
         });
@@ -4005,6 +4031,16 @@ const BattleUI = (() => {
       const ub = c.querySelector('.ult-bar');
       ub.classList.toggle('full', ready);
       ub.querySelector('i').style.width = clamp(u.ult, 0, 100) + '%';
+      const spWrap = c.querySelector('.ac-sp');
+      if (spWrap) {
+        const key = u.sp + '/' + u.spMax;
+        if (spWrap.dataset.k !== key) {
+          spWrap.dataset.k = key;
+          let sh = '';
+          for (let k = 0; k < u.spMax; k++) sh += '<i class="' + (k < u.sp ? 'on' : '') + '"></i>';
+          spWrap.innerHTML = sh;
+        }
+      }
     });
   }
 
@@ -4029,9 +4065,11 @@ const BattleUI = (() => {
   function renderSp() {
     const b = B(); if (!b) return;
     const wrap = $('#sp-row'); if (!wrap) return;
-    let h = '<span class="sp-label">주력</span>';
-    for (let i = 0; i < b.spMax; i++) h += '<span class="sp-pip' + (i < b.sp ? ' on' : '') + '"></span>';
-    h += '<span class="sp-label">' + b.sp + '/' + b.spMax + '</span>';
+    const u = b.current && b.current.side === 'ally' ? b.current : null;
+    if (!u) { wrap.innerHTML = '<span class="sp-label">주력</span><span class="sp-name">적 턴</span>'; return; }
+    let h = '<span class="sp-name">' + esc(u.name) + '</span><span class="sp-label">주력</span>';
+    for (let i = 0; i < u.spMax; i++) h += '<span class="sp-pip' + (i < u.sp ? ' on' : '') + '"></span>';
+    h += '<span class="sp-label">' + u.sp + '/' + u.spMax + '</span>';
     wrap.innerHTML = h;
   }
 
@@ -4066,7 +4104,7 @@ const BattleUI = (() => {
     const grid = $('#cmd-grid'); if (!grid) return;
     const actor = b.current;
     const st = b.state;
-    const key = [st, actor ? actor.uid : '-', b.sp, actor ? Math.floor(actor.ult) : 0, b.ended].join('|');
+    const key = [st, actor ? actor.uid : '-', actor ? actor.sp : '-', actor ? Math.floor(actor.ult) : 0, b.ended].join('|');
     if (key === lastCmdKey) return;
     lastCmdKey = key;
     if (st === 'TARGET_SELECT') {
@@ -4079,7 +4117,7 @@ const BattleUI = (() => {
     const playable = st === 'PLAYER_TURN' || st === 'SKILL_SELECT';
     const dis = !playable || !actor || actor.side !== 'ally' || b.ended;
     const ultOk = actor && BattleSystem.ultReady(actor);
-    const canSkill = actor && (actor.skills || []).some(s => (s.cost || 0) <= b.sp);
+    const canSkill = actor && (actor.skills || []).some(s => (s.cost || 0) <= actor.sp);
     grid.innerHTML =
       '<button class="cmd-btn atk" id="cmd-atk"' + (dis ? ' disabled' : '') + '>공격</button>' +
       '<button class="cmd-btn skill" id="cmd-skill"' + (dis || !canSkill ? ' disabled' : '') + '>스킬</button>' +
@@ -4097,10 +4135,11 @@ const BattleUI = (() => {
     const b = B(); if (!b || !actor) return;
     const sheet = $('#skill-sheet'); if (!sheet) return;
     let h = '<div class="sheet-head"><span class="sh-t">' + esc(actor.name) + ' · 스킬</span>' +
+      '<span class="sh-sp">주력 ' + actor.sp + '/' + actor.spMax + '</span>' +
       '<div class="spacer" style="flex:1"></div><button class="btn sm ghost" id="sheet-close">닫기</button></div>';
     actor.skills.forEach((s, i) => {
       const lv = (actor.sklv && actor.sklv[i]) || 1;
-      const afford = (s.cost || 0) <= b.sp;
+      const afford = (s.cost || 0) <= actor.sp;
       h += '<button class="skill-btn" data-i="' + i + '"' + (afford ? '' : ' disabled') + '>' +
         '<span class="skill-ic">' + esc(s.icon || '✦') + '</span>' +
         '<span class="skill-meta"><span class="sn">' + esc(s.name) +
@@ -4308,9 +4347,9 @@ const Tutorial = (() => {
   let step = 0, active = false, shown = {};
   const STEPS = {
     intro: { t: '전투 개시', d: '속도가 빠른 순서대로 행동합니다. 화면 왼쪽의 <b>행동 순서</b>를 확인하세요.' },
-    attack: { t: '① 공격', d: '<b>공격</b>은 주력(SP)을 1 회복하고 필살기 게이지를 채웁니다. 가장 기본이 되는 행동입니다.', sel: '#cmd-atk' },
-    skill: { t: '② 스킬', d: '<b>스킬</b>은 주력(SP)을 소모해 강력한 효과를 냅니다. 파티 전체가 SP를 공유하니 배분이 중요합니다.', sel: '#cmd-skill' },
-    guard: { t: '③ 방어', d: '<b>방어</b>는 받는 피해를 크게 줄이고 SP를 1 회복합니다. 보스의 큰 기술 직전에 사용하세요.', sel: '#cmd-guard' },
+    attack: { t: '① 공격', d: '<b>공격</b>은 자신의 주력을 2 회복하고 필살기 게이지를 채웁니다. 스킬을 쓰려면 먼저 주력을 모아야 합니다.', sel: '#cmd-atk' },
+    skill: { t: '② 스킬', d: '<b>스킬</b>은 그 캐릭터 <b>자신의 주력</b>을 소모합니다. 주력은 공유되지 않으니, 쓸 캐릭터가 미리 공격으로 주력을 모아둬야 합니다.', sel: '#cmd-skill' },
+    guard: { t: '③ 방어', d: '<b>방어</b>는 받는 피해를 크게 줄이고 자신의 주력을 2 회복합니다. 보스의 큰 기술 직전에 사용하세요.', sel: '#cmd-guard' },
     ult: { t: '④ 필살기', d: '게이지가 100%가 되면 <b>필살기</b>를 사용할 수 있습니다. 컷인 연출과 함께 강력한 일격을 날립니다.', sel: '#cmd-ult' },
     brk: { t: '⑤ 브레이크', d: '적의 노란 <b>BREAK 게이지</b>를 모두 깎으면 적은 행동 불가가 되고 받는 피해가 35% 증가합니다. 큰 기술은 브레이크 이후에!' },
     win: { t: '⑥ 승리 보상', d: '승리하면 경험치·골드·회주를 얻습니다. 회주로 새로운 주술사를 소환할 수 있습니다.' },
