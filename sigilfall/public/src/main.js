@@ -186,15 +186,33 @@ class App {
   }
 
   onCharacterChosen(id) {
+    // in a room the pick is just a preference; in a match it lands on respawn
+    if (this.net?.connected) this.net.sendCharacter(id);
+    $('roomCharName').textContent = CHARACTERS[id].latin;
     if (!this.game.active) return;
     const p = this.game.player;
     p.pendingCharacter = id;
-    this.game.net?.sendCharacter(id);
     if (!p.alive) toast('부활할 때 ' + CHARACTERS[id].latin + ' 로 바뀝니다', 'good');
     else toast('다음 부활부터 적용됩니다');
   }
 
   openOnline() { this.online.open(); }
+
+  /* the server said go: same match code path, with the net client attached */
+  startOnlineMatch(msg) {
+    audio.init();
+    Screens.hideAll();
+    this.inMatch = true;
+    this.paused = false;
+    this.game.start({
+      mode: msg.mode, map: msg.map, character: this.cfg.character,
+      botCount: 0, playerName: this.cfg.playerName, online: this.net
+    });
+    this.net.attach(this.game, msg);
+    this.enterInput();
+    this.syncPauseButton();
+    $('netstat').classList.remove('hide');
+  }
 }
 
 const app = new App();

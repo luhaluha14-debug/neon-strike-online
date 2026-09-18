@@ -93,9 +93,11 @@ export class Game {
     this.controller = new PlayerController(this, player);
     this.hud = new Hud(this);
 
-    if (!this.net) this.fillBots();
-    this.assignTeams();
-    for (const f of this.fighters) this.scores[f.team] ??= 0;
+    if (!this.net) {
+      this.fillBots();
+      this.assignTeams();
+      for (const f of this.fighters) this.scores[f.team] ??= 0;
+    }
 
     if (!this.net) {
       let ai = 0, bi = 0, fi = 0;
@@ -443,6 +445,7 @@ export class Game {
     const now = this.now;
 
     this.controller.update(this.dt, dt);
+    this.net?.update(dt);
 
     for (const f of this.fighters) {
       if (f.isPlayer) continue;

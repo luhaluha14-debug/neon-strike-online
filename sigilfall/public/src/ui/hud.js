@@ -309,6 +309,12 @@ export class Hud {
       $('fps').classList.remove('hide');
       $('fps').textContent = g.engine.fps + ' FPS';
     }
+    if (g.net) {
+      const el2 = $('netstat');
+      el2.classList.remove('hide');
+      el2.textContent = g.net.pingMs + 'ms' + (g.net.healthy ? '' : ' · 재연결 중');
+      el2.style.color = g.net.healthy ? '' : '#ff8a7a';
+    }
   }
 
   updateStatus(now) {
