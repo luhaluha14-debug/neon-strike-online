@@ -156,6 +156,19 @@ function release(spec) {
   });
   check(tapShots > 0, 'a quick tap on the look area shoots (' + tapShots + ')');
 
+  const board = await page.evaluate(async () => {
+    const score = document.getElementById('score');
+    score.click();
+    await new Promise((r) => setTimeout(r, 260));
+    const open = !document.getElementById('board').classList.contains('hide');
+    const rows = document.querySelectorAll('#board tbody tr').length;
+    score.click();
+    await new Promise((r) => setTimeout(r, 260));
+    return { open, rows, closed: document.getElementById('board').classList.contains('hide') };
+  });
+  check(board.open && board.rows > 1, 'tapping the score opens the scoreboard (' + board.rows + ' rows)');
+  check(board.closed, 'and tapping again closes it');
+
   console.log('\naim assist');
   const assist = await page.evaluate(() => {
     const a = window.SIGILFALL, g = a.game, p = g.player;

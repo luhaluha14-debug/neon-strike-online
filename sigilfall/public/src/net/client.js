@@ -291,6 +291,10 @@ export class NetClient {
     f.alive = true;
     f.hp = m.hp;
     f.spawnSeq = m.sq;
+    if (f === g.player && f.pendingCharm && f.pendingCharm !== f.charm.id) {
+      f.setCharm(f.pendingCharm);
+      f.pendingCharm = null;
+    }
     if (f.charId !== m.ch) {
       f.setCharacter(m.ch);
       if (f === g.player) {

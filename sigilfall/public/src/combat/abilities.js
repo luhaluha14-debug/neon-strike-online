@@ -32,7 +32,7 @@ export class AbilityRuntime {
     if (!spec) return false;
     if (slot !== 'lmb' && f.isBusy(now)) return false;
     if (slot === 'lmb' && (now < f.nextFire || f.isBusy(now))) return false;
-    if (slot === 'ult') return f.ultReady && !f.ultActive;
+    if (slot === 'ult') return f.ultReady && !f.ultActive;      // busy was checked above
     if (this.cooldownLeft(f, slot) > 0) return false;
     if (spec.cost && f.energy < spec.cost) { if (!quiet) this.deny(f, 'energy'); return false; }
     if (spec.hpCost && f.hp <= spec.hpCost + 5) { if (!quiet) this.deny(f, 'hp'); return false; }

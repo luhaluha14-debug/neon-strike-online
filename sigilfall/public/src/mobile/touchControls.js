@@ -262,7 +262,7 @@ export class TouchControls {
       }
       const spec = abilityOf(p.charId, slot);
       const left = g.abilities.cooldownLeft(p, slot);
-      const total = spec.cd || 1;
+      const total = g.abilities.cooldownFor(p, slot, spec) || 1;
       b.el.classList.toggle('cool', left > 0.05);
       b.sweep.style.setProperty('--sweep', (360 * clamp(left / total, 0, 1)) + 'deg');
       b.num.textContent = left > 0.05 ? (left < 1 ? left.toFixed(1) : Math.ceil(left)) : '';

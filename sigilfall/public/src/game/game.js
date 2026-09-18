@@ -11,6 +11,7 @@ import { Fighter } from '../combat/fighter.js';
 import { makeBody, updateBody, flashBody, startDeathFall, drawNameplate } from '../combat/bodies.js';
 import { getMode, RULES } from './rules.js';
 import { PlayerController } from './player.js';
+import { ViewModel } from '../combat/viewmodel.js';
 import { ProjectileSystem } from '../combat/projectiles.js';
 import { ZoneSystem } from '../combat/zones.js';
 import { DomainSystem } from '../combat/domains.js';
@@ -231,7 +232,7 @@ export class Game {
       if (f === this.player) {
         this.hud.buildAbilities();
         this.controller.view.dispose();
-        this.controller.view = new (this.controller.view.constructor)(this, f);
+        this.controller.view = new ViewModel(this, f);
         document.getElementById('vitName').textContent = f.char.latin;
         this.emit('characterChanged', f);
       } else if (f.mesh) {

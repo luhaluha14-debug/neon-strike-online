@@ -29,6 +29,15 @@ export class Hud {
     this.miniCtx = $('minimap').querySelector('canvas').getContext('2d');
     this.lastMini = 0;
     this.boardOpen = false;
+    this.boardUntil = 0;
+    // no Tab key on a phone: the score panel is the scoreboard button
+    const score = $('score');
+    score.style.pointerEvents = 'auto';
+    score.style.cursor = 'pointer';
+    this._scoreTap = () => {
+      this.boardUntil = this.boardUntil > game.now ? 0 : game.now + 4;
+    };
+    score.addEventListener('click', this._scoreTap);
     $('scoreMode').textContent = game.mode.latin.split(' ')[0];
     $('vitName').textContent = game.player.char.latin;
     $('vitRole').textContent = game.player.char.role;
@@ -39,6 +48,7 @@ export class Hud {
   show(on) { this.root.classList.toggle('on', on); }
 
   dispose() {
+    $('score').removeEventListener('click', this._scoreTap);
     this.dmgLayer.innerHTML = '';
     $('killfeed').innerHTML = '';
     $('statusbar').innerHTML = '';
@@ -204,7 +214,7 @@ export class Hud {
         continue;
       }
       const left = g.abilities.cooldownLeft(p, slot);
-      const total = a.spec.cd || 1;
+      const total = g.abilities.cooldownFor(p, slot, a.spec) || 1;
       a.mask.style.transform = `scaleY(${clamp(left / total, 0, 1)})`;
       a.root.classList.toggle('cool', left > 0.05);
       a.num.textContent = left > 0.05 ? (left < 1 ? left.toFixed(1) : Math.ceil(left)) : '';
@@ -296,8 +306,8 @@ export class Hud {
       this.drawMini();
     }
 
-    /* scoreboard */
-    const wantBoard = g.input.isDown('scoreboard');
+    /* scoreboard: held with Tab, or tapped open from the score panel */
+    const wantBoard = g.input.isDown('scoreboard') || now < this.boardUntil;
     if (wantBoard !== this.boardOpen) {
       this.boardOpen = wantBoard;
       $('board').classList.toggle('hide', !wantBoard);
