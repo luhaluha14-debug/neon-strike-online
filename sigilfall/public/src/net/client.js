@@ -420,6 +420,7 @@ export class NetClient {
     let flags = 1;
     if (p.crouch) flags |= 2;
     if (p.ads) flags |= 4;
+    if (g.now < p.dashUntil && p.dashSpec && p.dashSpec.armor) flags |= 8;
     this.send({
       t: 'st', sq: p.spawnSeq,
       p: [r2(p.pos.x), r2(p.pos.y), r2(p.pos.z)],

@@ -276,3 +276,31 @@ test('a made-up charm name is ignored', () => {
   equal(p.charm.id, 'none');
   equal(p.maxHp, CHARACTERS.rift.hp);
 });
+
+test('a swing that connects at the edge of its arc is still accepted', () => {
+  const { room, a, b } = liveMatch();
+  a.character = 'brand';
+  a.maxHp = CHARACTERS.brand.hp;
+  const spec = CHARACTERS.brand.primary;
+  // stand them side by side, with the attacker facing forward past the target
+  const world = worldFor(room.map);
+  b.pos = { x: 2.2, y: world.supportAt(2.2, -20, 60, b.radius), z: -20 };
+  b.hist = [{ t: Date.now() / 1000, x: b.pos.x, y: b.pos.y, z: b.pos.z, h: b.height }];
+  a.pos = { x: 0, y: world.supportAt(0, -20, 60, a.radius), z: -20 };
+  a.yaw = -Math.PI / 4;                     // looking 45 degrees off the target
+  const before = b.hp;
+  room.onMessage(a.client, { t: 'hit', a: spec.id, h: [{ id: b.id, n: spec.dmg, d: 2.2 }] });
+  assert(b.hp < before, 'a melee hit inside the arc must count');
+});
+
+test('only a summoner can claim damage from a summon', () => {
+  const { room, a, b } = liveMatch();
+  a.character = 'rift';                     // rift has no summon
+  const before = b.hp;
+  room.onMessage(a.client, { t: 'hit', a: 'hound', h: [{ id: b.id, n: 40, d: 2 }] });
+  equal(b.hp, before, 'a claim for somebody else\'s sorcery is dropped');
+
+  a.character = 'warden';
+  room.onMessage(a.client, { t: 'hit', a: 'hound', h: [{ id: b.id, n: 17, d: 2 }] });
+  assert(b.hp < before, 'the summoner\'s own hound does count');
+});

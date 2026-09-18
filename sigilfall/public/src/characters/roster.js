@@ -99,14 +99,14 @@ export const CHARACTERS = {
   brand: {
     id: 'brand', name: '서결', latin: 'BRAND', role: '저주 근접',
     blurb: '맞을수록 뜨거워지는 주먹. 붙으면 놓지 않는다.',
-    hp: 235, speed: 7.5, accel: 74, airAccel: 17, radius: 0.44, jump: 8.0,
+    hp: 252, speed: 7.7, accel: 76, airAccel: 17, radius: 0.44, jump: 8.0,
     color: 0xb2482e, accent: 0xff9a5c, trim: 0x4a1d13,
     energy: { max: 100, regen: 26, delay: 0.35 },
     difficulty: 1,
 
     primary: {
       id: 'lash', icon: '✊', name: '저주 연격', latin: 'CURSE LASH', kind: 'melee',
-      dmg: 33, head: 1.25, rpm: 190, cost: 0, range: 3.1, arc: 0.78,
+      dmg: 33, head: 1.25, rpm: 190, cost: 0, range: 3.4, arc: 0.82,
       comboEvery: 3, comboMul: 1.6, stackGain: 1, color: 0xff8a4a,
       desc: '짧은 부채꼴 강타. 3연타마다 강화 타격이 나가고 각인이 쌓인다.'
     },
@@ -118,15 +118,15 @@ export const CHARACTERS = {
     },
     q: {
       id: 'surge', icon: '➤', name: '쇄도', latin: 'SURGE', kind: 'dash',
-      cd: 6, dist: 12, speed: 26, dmg: 42, radius: 1.8, knock: 9,
-      cost: 0, color: 0xff7a3c,
-      desc: '전방으로 돌진하며 닿는 적을 밀어낸다.'
+      cd: 5, dist: 12, speed: 26, dmg: 46, radius: 1.8, knock: 9,
+      cost: 0, armor: 0.6, color: 0xff7a3c,
+      desc: '전방으로 돌진하며 닿는 적을 밀어낸다. 돌진 중에는 받는 피해가 40% 줄어든다.'
     },
     a1: {
       id: 'burst', icon: '✶', name: '충격 각인', latin: 'BRAND BURST', kind: 'hitscan',
-      cd: 8, dmg: 52, head: 1.1, range: 8, width: 3.2, pierce: 99,
-      castTime: 0.14, recover: 0.2, slow: { mul: 0.72, dur: 1.4 }, color: 0xff6a2c,
-      desc: '전방 8m를 각인으로 찍어누른다. 맞은 적은 잠시 느려진다.'
+      cd: 8, dmg: 48, head: 1.1, range: 13, width: 3.4, pierce: 99,
+      castTime: 0.14, recover: 0.2, slow: { mul: 0.68, dur: 1.6 }, color: 0xff6a2c,
+      desc: '전방 13m를 각인으로 찍어누른다. 거리를 좁히는 수단이자, 맞은 적은 크게 느려진다.'
     },
     a2: {
       id: 'focus', icon: '❖', name: '집속', latin: 'FOCUS', kind: 'buff',

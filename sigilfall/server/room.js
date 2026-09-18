@@ -111,7 +111,7 @@ export class Room {
       cd: { q: 0, a1: 0, a2: 0, rmb: 0 },
       fireCredit: 2, fireAt: 0,
       markedUntil: 0, markedBy: 0, slowUntil: 0, slowMul: 1, iframeUntil: 0,
-      dashUntil: 0, energy: c.energy.max,
+      dashUntil: 0, dashArmorUntil: 0, energy: c.energy.max,
       killStreak: 0, streakAt: -99,
       stats: newStats()
     };
@@ -260,6 +260,8 @@ export class Room {
     p.pitch = clamp(num(m.pi), -1.6, 1.6);
     p.height = clamp(num(m.h, RULES.standHeight), RULES.crouchHeight - 0.05, RULES.standHeight);
     p.flags = num(m.f) & 0x3f;
+    // bit 8 means "dashing behind a sorcery that blunts damage"
+    if (p.flags & 8) p.dashArmorUntil = t + 0.12;
     p.energy = clamp(num(m.e, p.energy), 0, 100);
     p.hist.push({ t, x: nx, y: ny, z: nz, h: p.height });
     while (p.hist.length && t - p.hist[0].t > 1.2) p.hist.shift();
@@ -334,13 +336,18 @@ export class Room {
       spec.kind === 'melee' || spec.kind === 'charge';
     const maxDmg = maxDamageOf(spec) * DAMAGE_SLACK;
     const reach = reachOf(spec) + DIST_SLACK;
+    // a swing covers an arc and a beam has width: both let a hit sit legitimately
+    // off the centre line, so the tolerance has to know the shape of the attack
+    const slack = AIM_SLACK +
+      (spec.kind === 'melee' ? (spec.range || 3) * Math.sin(spec.arc || 0.8) : 0) +
+      (spec.width ? spec.width * 0.5 : 0);
     for (const h of claims.slice(0, 8)) {
       if (!h || typeof h !== 'object') continue;
       const v = this.players.get(h.id);
       if (!v || v === p || !v.alive || v.team === p.team) continue;
       const dist = Math.hypot(v.pos.x - p.pos.x, v.pos.y - p.pos.y, v.pos.z - p.pos.z);
       if (dist > reach) continue;
-      if (direct && !this.plausible(p, v, h, dist, aim)) continue;
+      if (direct && !this.plausible(p, v, h, dist, aim, slack)) continue;
       if (!direct && this.blockedFromHistory(p, v)) continue;
       let dmg = clamp(num(h.n, 0), 0, maxDmg);
       if (dmg <= 0) continue;
@@ -357,7 +364,7 @@ export class Room {
   }
 
   /* could the attacker really have hit that target, from there, just now? */
-  plausible(p, v, claim, dist, aim) {
+  plausible(p, v, claim, dist, aim, slack = AIM_SLACK) {
     const t = now();
     const eye = { x: p.pos.x, y: p.pos.y + p.height - RULES.eyeDrop, z: p.pos.z };
     const samples = [v.pos];
@@ -372,7 +379,7 @@ export class Room {
         const along = dx * aim.x + dy * aim.y + dz * aim.z;
         if (along <= 0) continue;
         const off = Math.sqrt(Math.max(0, d * d - along * along));
-        if (off > AIM_SLACK + d * 0.09) continue;
+        if (off > slack + d * 0.09) continue;
         if (!this.world.segBlocked(eye.x, eye.y, eye.z, s.x, yy, s.z)) return true;
       }
     }
@@ -457,6 +464,10 @@ export class Room {
     if (t - v.spawnAt < RULES.spawnProtect) amount *= RULES.spawnProtectMul;
     if (t < v.markedUntil) amount *= 1.14;
     if (v.charm && v.charm.mods.taken) amount *= v.charm.mods.taken;
+    if (t < (v.dashArmorUntil || 0)) {
+      const dash = abilityOf(v.character, 'q');
+      if (dash && dash.armor) amount *= dash.armor;
+    }
     const dealt = Math.max(1, Math.round(amount));
     v.hp -= dealt;
     v.lastAttackerId = attacker ? attacker.id : 0;
@@ -553,7 +564,7 @@ export class Room {
     p.ult = 0;
     p.ultActive = false;
     p.cd = { q: 0, a1: 0, a2: 0, rmb: 0 };
-    p.markedUntil = p.slowUntil = p.iframeUntil = p.dashUntil = 0;
+    p.markedUntil = p.slowUntil = p.iframeUntil = p.dashUntil = p.dashArmorUntil = 0;
     p.hist.length = 0;
     p.stats = newStats();
     p.energy = c.energy.max;
@@ -709,11 +720,12 @@ function specById(character, id) {
     const s = abilityOf(character, slot);
     if (s && s.id === id) return s;
   }
-  // summons and domain ticks report the ability that created them
-  for (const ch of CHARACTER_LIST) {
+  // a summon reports the ability that created it, and only its owner may claim it
+  if (id === 'hound') {
     for (const slot of ['a1', 'a2', 'ult']) {
-      const s = abilityOf(ch, slot);
-      if (s && s.summon && id === 'hound') return { id: 'hound', kind: 'summon', dmg: s.summon.dmg, range: 4 };
+      const s = abilityOf(character, slot);
+      const def = s && (s.summon || (s.spawn && s.spawn.dmg ? s.spawn : null));
+      if (def) return { id: 'hound', kind: 'summon', dmg: def.dmg, range: 4 };
     }
   }
   return null;

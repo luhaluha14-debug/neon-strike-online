@@ -273,7 +273,7 @@ export class BotBrain {
       if (A.tryCast(f, 'a1')) return true;
     }
     if (q && A.canCast(f, 'q')) {
-      const wantClose = melee ? dist > 5 && dist < q.dist * 1.4 : false;
+      const wantClose = melee ? dist > 4 && dist < q.dist * 1.8 : false;
       const wantOut = hpFrac < 0.42 && dist < 9;
       const dodging = Math.random() < this.cfg.dodge * 0.5 && dist < 18;
       if (wantClose || dodging) { if (A.tryCast(f, 'q')) return true; }
@@ -337,9 +337,12 @@ export class BotBrain {
         this.nextStrafeFlip = now + rnd(0.8, 2.2);
         this.strafeDir *= Math.random() < 0.6 ? -1 : 1;
       }
+      // a melee fighter that circles at range never arrives: close first
+      const melee = f.char.primary.kind === 'melee';
+      const strafe = cfg.strafe * (melee && d > 6 ? 0.2 : 1);
       const sx = -dz / d * this.strafeDir, sz = dx / d * this.strafeDir;
-      wx += sx * cfg.strafe;
-      wz += sz * cfg.strafe;
+      wx += sx * strafe;
+      wz += sz * strafe;
       if (Math.random() < cfg.jump * dt * 8 && f.onGround) jump = true;
     }
 
@@ -372,7 +375,10 @@ export class BotBrain {
 
     const len = Math.hypot(wx, wz);
     if (len > 1) { wx /= len; wz /= len; }
-    f.sprint = this.state !== 'engage' && len > 0.4;
+    const closing = this.state === 'engage' && this.target &&
+      f.char.primary.kind === 'melee' &&
+      Math.hypot(this.target.pos.x - f.pos.x, this.target.pos.z - f.pos.z) > 6;
+    f.sprint = len > 0.4 && (this.state !== 'engage' || closing);
     f.crouch = false;
 
     stepFighter(g.world, f, dt, { x: wx, z: wz, jump }, now);

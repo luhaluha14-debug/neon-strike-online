@@ -275,6 +275,7 @@ export class Game {
       if (now - victim.spawnAt < RULES.spawnProtect) amount *= RULES.spawnProtectMul;
       if (victim.hasBuff('shield', now)) amount *= victim.buff('shield', now).data;
       if (victim.mods.taken) amount *= victim.mods.taken;
+      if (now < victim.dashUntil && victim.dashSpec && victim.dashSpec.armor) amount *= victim.dashSpec.armor;
       if (now < victim.markedUntil) amount *= 1.14;
       amount *= this.domains.damageTakenMul(victim, attacker);
     }
