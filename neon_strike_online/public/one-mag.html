@@ -119,7 +119,7 @@ canvas#gl{position:fixed;inset:0;width:100%;height:100%;display:block;background
   border-color:rgba(255,255,255,.3);background:rgba(200,65,44,.26)}
 #bFire:active,#bFire.down{background:rgba(226,80,52,.55)}
 #bReload{right:calc(var(--sar) + 146px);bottom:calc(var(--sab) + 148px);width:64px;height:64px;opacity:.55}
-#bReload.need{opacity:1;border-color:var(--amber);background:rgba(224,162,60,.3);animation:pulse 1s infinite}
+.btn.need{opacity:1;border-color:var(--amber);background:rgba(224,162,60,.3);animation:pulse 1s infinite}
 @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(224,162,60,.55)}50%{box-shadow:0 0 0 9px rgba(224,162,60,0)}}
 #bJump{right:calc(var(--sar) + 30px);bottom:calc(var(--sab) + 196px);width:60px;height:60px}
 #bCrouch{right:calc(var(--sar) + 150px);bottom:calc(var(--sab) + 66px);width:62px;height:62px}
@@ -128,7 +128,7 @@ canvas#gl{position:fixed;inset:0;width:100%;height:100%;display:block;background
 #bAim.down{background:rgba(224,162,60,.5)}
 #bPick{left:50%;bottom:calc(var(--sab) + 26px);transform:translateX(-50%);width:auto;height:44px;border-radius:6px;padding:0 20px;
   flex-direction:row;gap:9px;background:rgba(224,162,60,.26);border-color:var(--amber);font-size:12px;letter-spacing:.2em}
-#bPick:active{transform:translateX(-50%) scale(.95)}
+#bPick:active,#bPick.down{transform:translateX(-50%) scale(.95)}
 #bPick .sub{font-size:10px;color:#ffd79a;letter-spacing:.1em}
 #bPause{position:absolute;pointer-events:auto;left:calc(var(--sal) + 12px);top:calc(var(--sat) + 8px);width:38px;height:30px;
   border-radius:5px;background:rgba(14,18,20,.4);border:1px solid rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:13px}
@@ -895,12 +895,28 @@ function buildLevel() {
   const pts = [[-22, -13], [-12, -14], [-20, -2], [-13, 3], [-22, 12], [-12, 14],
   [-2, -14], [4, -6], [-2, 0], [4, 8], [-3, 15], [2, 6],
   [12, -13], [18, -6], [22, 2], [13, 6], [20, 12], [11, 2]];
-  for (const p of pts) { PATROL_PTS.push({ x: p[0], z: p[1] }); }
+  for (const p of pts) { const q = nudgeClear(p[0], p[1], 0.45); if (q) PATROL_PTS.push(q); }
   const sp = [[-23, -15], [-10, -16], [-24, 15], [-11, 16], [-24, 4], [-14, 6],
   [2, -16], [6, -12], [5, 14], [-4, 16], [6, 2],
   [11, -15], [19, -14], [24, -6], [22, 6], [12, 12], [24, 15], [16, 16]];
-  for (const p of sp) SPAWNS.push({ x: p[0], z: p[1] });
+  for (const p of sp) { const q = nudgeClear(p[0], p[1], 0.55); if (q) SPAWNS.push(q); }
 }
+/* a helper point authored inside a crate or a wall makes hostiles stand in
+   geometry, where they can see and shoot straight through it — walk the point
+   out to the nearest clear spot instead of trusting the hand-placed numbers */
+function nudgeClear(x, z, r) {
+  if (!pointBlocked(x, z, r) && inBounds(x, z)) return { x, z };
+  for (let ring = 1; ring <= 8; ring++) {
+    const d = ring * 0.5;
+    for (let a = 0; a < 12; a++) {
+      const ang = a * TAU / 12 + ring * 0.26;
+      const nx = x + Math.cos(ang) * d, nz = z + Math.sin(ang) * d;
+      if (inBounds(nx, nz) && !pointBlocked(nx, nz, r)) return { x: nx, z: nz };
+    }
+  }
+  return null;
+}
+function inBounds(x, z) { return x > -25.4 && x < 25.4 && z > -17.4 && z < 17.4; }
 function crateStack(x, z, rot, n) {
   const s = 0.62;
   addBox(x, s, z, s, s, s, C.crate, 2, 0.8, true, rot);
@@ -1071,7 +1087,7 @@ const P = {
   x: -21.5, y: 0, z: 16.2, vy: 0, yaw: 0, pitch: 0, hp: 100, maxHp: 100,
   onGround: true, crouch: 0, crouchWant: 0, bob: 0, bobA: 0, step: 0,
   wpn: 'AR', mag: 30, res: { AR: 60, SMG: 0, SG: 0, SR: 0 },
-  fireCd: 0, reloadT: 0, swapT: 0, meleeT: 0, aim: 0, aimWant: 0,
+  fireCd: 0, reloadT: 0, swapT: 0, meleeT: 0, meleeHitT: 0, aim: 0, aimWant: 0,
   recoilP: 0, recoilY: 0, recoilVP: 0, recoilVY: 0, spread: 0, kick: 0,
   dead: false, hurtT: 0, regenT: 0, lastHitDir: 0, pts: 0, up: {}
 };
@@ -1328,6 +1344,7 @@ function updatePlayer(dt) {
   else if (P.fireCd < -0.12) P.fireCd = -0.12;
   if (P.swapT > 0) P.swapT -= dt;
   if (P.meleeT > 0) P.meleeT -= dt;
+  if (P.meleeHitT > 0) { P.meleeHitT -= dt; if (P.meleeHitT <= 0) resolveMelee(); }
   if (P.reloadT > 0) {
     P.reloadT -= dt;
     if (P.reloadT <= 0) finishReload();
@@ -1399,6 +1416,7 @@ function spawnCasing(x, y, z, vx, vy, vz) {
     return;
   }
 }
+function trimDecals() { while (DECALS.length > Q().decals) DECALS.shift(); }
 function addDecal(x, y, z, nx, ny, nz, s, type) {
   const lim = Q().decals;
   if (lim === 0) return;
@@ -1560,47 +1578,57 @@ function finishReload() {
 function tryMelee() {
   if (GS !== 'play' || P.meleeT > 0 || P.reloadT > 0) return;
   P.meleeT = 0.62;
+  P.meleeHitT = 0.12;              // resolved on the game clock, not wall time
   STAT.melee++;
   sfx.melee(); haptic(34);
   shake(0.05, 0.12);
-  setTimeout(() => {
-    const ex = P.x, ey = P.y + eyeH(), ez = P.z;
-    let best = null, bd = 2.5;
-    for (const e of enemies) {
-      if (!e.alive) continue;
-      const dx = e.x - ex, dz = e.z - ez, d = Math.hypot(dx, dz);
-      if (d > bd) continue;
-      const dot = (dx / d) * camFX + (dz / d) * camFZ;
-      if (dot < 0.55) continue;
-      best = e; bd = d;
-    }
-    if (best) {
-      bloodBurst(best.x, best.y + best.h * 0.6, best.z, camFX, 0.4, camFZ, 12);
-      damageEnemy(best, meleeDmg(), false, best.x, best.y + best.h * 0.6, best.z, true);
-      hitMarker(false); sfx.meleeHit(); haptic(45);
-    }
-  }, 120);
+}
+function resolveMelee() {
+  const ex = P.x, ez = P.z;
+  let best = null, bd = 2.5;
+  for (const e of enemies) {
+    if (!e.alive) continue;
+    const dx = e.x - ex, dz = e.z - ez, d = Math.hypot(dx, dz);
+    if (d > bd || d < 0.001) continue;
+    if ((dx / d) * camFX + (dz / d) * camFZ < 0.55) continue;
+    if (!losClear(ex, P.y + eyeH() - 0.25, ez, e.x, e.y + e.h * 0.72, e.z)) continue;
+    best = e; bd = d;
+  }
+  if (!best) return;
+  bloodBurst(best.x, best.y + best.h * 0.6, best.z, camFX, 0.4, camFZ, 12);
+  damageEnemy(best, meleeDmg(), false, best.x, best.y + best.h * 0.6, best.z, true);
+  hitMarker(false); sfx.meleeHit(); haptic(45);
 }
 function tryPickup() {
   if (GS !== 'play') return;
   const d = nearestDrop();
   if (!d) return;
   const old = P.wpn, oldMag = P.mag;
-  P.wpn = d.w; P.mag = d.mag;
-  P.swapT = swapTime(); P.reloadT = 0;
+  P.wpn = d.w;
+  P.mag = clamp(d.mag | 0, 0, WEAPONS[d.w].mag);   // never trust a drop's count
+  P.swapT = swapTime(); P.reloadT = 0; P.fireCd = 0;
   IN.fire = false;
   DROPS.splice(DROPS.indexOf(d), 1);
-  // the old weapon stays behind so nothing is lost for good
-  DROPS.push({ x: P.x + camFX * 0.8, y: 0.12, z: P.z + camFZ * 0.8, w: old, mag: oldMag, t: 0, rot: P.yaw });
+  // the old weapon stays behind so nothing is lost for good — and never inside a wall,
+  // which pickup's line-of-sight check would make unreachable
+  DROPS.push({ x: 0, y: 0.12, z: 0, w: old, mag: oldMag, t: 0, rot: P.yaw });
+  placeDrop(DROPS[DROPS.length - 1], P.x + camFX * 0.8, P.z + camFZ * 0.8);
   sfx.pickup(); haptic(18);
   bigFeed(WEAPONS[d.w].name, d.mag + ' / ' + WEAPONS[d.w].mag + ' ROUNDS');
   hudAmmo(); hudPickup();
+}
+function placeDrop(d, x, z) {
+  if (pointBlocked(x, z, 0.22)) { x = P.x; z = P.z; }   // never bury it in a wall
+  d.x = x; d.z = z;
 }
 function nearestDrop() {
   let best = null, bd = 2.6;
   for (const d of DROPS) {
     const dist = Math.hypot(d.x - P.x, d.z - P.z);
-    if (dist < bd) { bd = dist; best = d; }
+    if (dist >= bd) continue;
+    // must be reachable, not on the far side of a wall or a crate
+    if (!losClear(P.x, P.y + 0.9, P.z, d.x, d.y + 0.25, d.z)) continue;
+    bd = dist; best = d;
   }
   return best;
 }
@@ -1731,9 +1759,9 @@ function killEnemy(e, head, melee) {
   if (e === bossRef) {
     bossRef = null; $('bossWrap').classList.add('hidden');
     pending.length = 0; roundActive = false;
-    bigFeed('TARGET DOWN', 'HEAVY GUNNER ELIMINATED');
     for (const o of enemies) if (o.alive) { o.hp = 0; killEnemy(o, false, false); }
-    setTimeout(() => { if (GS === 'play') winGame(); }, 1500);
+    bigFeed('TARGET DOWN', 'HEAVY GUNNER ELIMINATED');
+    winT = 1.5;                     // game clock, so a retry cancels it
     return;
   }
   hudRound();
@@ -1791,6 +1819,32 @@ function steer(e, tx, tz, dt, spd) {
   e.step += moved;
   if (e.step > 1.5) { e.step = 0; if (Math.hypot(e.x - P.x, e.z - P.z) < 16) sfx.stepEnemy(Math.hypot(e.x - P.x, e.z - P.z)); }
   return d;
+}
+/* without this a wave converges into a single overlapping blob */
+function separate(e, dt) {
+  let px = 0, pz = 0;
+  for (let i = 0; i < enemies.length; i++) {
+    const o = enemies[i];
+    if (o === e || !o.alive) continue;
+    const dx = e.x - o.x, dz = e.z - o.z;
+    const r = e.rad + o.rad;
+    const d2 = dx * dx + dz * dz;
+    if (d2 >= r * r) continue;
+    const d = Math.sqrt(d2);
+    if (d < 0.0001) { px += rand(-0.2, 0.2); pz += rand(-0.2, 0.2); continue; }
+    const push = (r - d) * 0.5;
+    px += dx / d * push; pz += dz / d * push;
+  }
+  // the player is an obstacle too, but only hostiles give ground
+  const dxp = e.x - P.x, dzp = e.z - P.z;
+  const rp = e.rad + 0.42;
+  const dp2 = dxp * dxp + dzp * dzp;
+  if (dp2 < rp * rp && P.y < e.y + e.h && P.y + 1.7 > e.y) {
+    const dp = Math.sqrt(dp2);
+    if (dp < 0.0001) { px += rand(-0.3, 0.3); pz += rand(-0.3, 0.3); }
+    else { const push = rp - dp; px += dxp / dp * push; pz += dzp / dp * push; }
+  }
+  if (px || pz) moveEntity(e, px, pz, e.rad, e.y, e.h);
 }
 function faceTarget(e, tx, tz, dt, rate) {
   const want = Math.atan2(-(tx - e.x), -(tz - e.z));
@@ -1952,6 +2006,7 @@ function updateEnemy(e, dt) {
     }
   }
   if (e.fireCd > 0 && e.state !== 'ATTACK') e.fireCd -= dt;
+  separate(e, dt);
 }
 
 /* ================================================================ renderer */
@@ -2390,7 +2445,9 @@ const sfx = {
     noise(s.tail, 'lowpass', 1100, 0.5, s.g * 0.22, s.tail, s.rev);
   },
   enemyShot(dist, type) {
-    const att = clamp(1 - dist / 46, 0.05, 1);
+    const att = clamp(1 - dist / 46, 0, 1);
+    if (att < 0.09) return;                    // inaudible: skip the node graph entirely
+
     const s = type === 'HEAVY' || type === 'BOSS' ? SHOTS.smg : SHOTS.ar;
     noise(0.16, 'bandpass', s.f * rand(0.8, 1.0) * (0.5 + att * 0.5), 1.1, 0.42 * att * att, 0.13, 0.3);
     tone(90, 55, 0.1, 'sine', 0.3 * att * att, 0.2);
@@ -2601,7 +2658,7 @@ const ROUNDS = {
   7: { elite: 1, list: { ELITE: 4, RUSHER: 4, HEAVY: 2, SOLDIER: 2 } },
   8: { boss: 1, list: { BOSS: 1, SOLDIER: 4, RUSHER: 2, HEAVY: 1 } }
 };
-let pending = [], spawnCd = 0, bossRef = null;
+let pending = [], spawnCd = 0, bossRef = null, roundEndT = 0, winT = 0;
 function maxAlive() { return [4, 6, 7][CFG.quality] + Math.min(2, round >> 2); }
 
 function startRound() {
@@ -2627,7 +2684,9 @@ function spawnTick(dt) {
   if (alive >= maxAlive()) { spawnCd = 0.5; return; }
   const type = pending.shift();
   const boost = Math.max(0, (round - 1) * 0.085);
-  const p = pickSpawn(type === 'BOSS');
+  let p = pickSpawn(type === 'BOSS');
+  const clear = nudgeClear(p.x, p.z, type === 'BOSS' ? 0.8 : 0.5);
+  if (clear) p = clear;
   const e = spawnEnemy(type, p.x, p.z, boost);
   if (type === 'BOSS') { bossRef = e; hudBoss(); }
   e.state = 'SEARCH'; e.searchT = 7; e.lastX = P.x; e.lastZ = P.z;
@@ -2652,10 +2711,18 @@ function checkRoundEnd() {
   for (const e of enemies) if (e.alive) alive++;
   if (alive > 0 || pending.length > 0) return;
   roundActive = false;
-  setTimeout(endRound, 900);
+  roundEndT = 0.9;                  // game-clock timer: a restart clears it
+  releaseTrigger();
+}
+/* a held FIRE button must not carry into the next round or a menu */
+function releaseTrigger() {
+  IN.fire = false; IN.jump = false;
+  $('bFire').classList.remove('down');
 }
 function endRound() {
+  roundEndT = 0;
   if (GS !== 'play') return;
+  releaseTrigger();
   if (round >= MAXROUND) { winGame(); return; }
   sfx.roundClear(); musicSet(0.35, 2);
   P.pts += 45 + round * 12;
@@ -2725,8 +2792,11 @@ function applySupply() {
     P.res[P.wpn] = Math.min(w.resMax, P.res[P.wpn] + w.mag * 2);
   } else if (supplyPick === 'wpn') {
     const w = WEAPONS[offeredWeapon];
-    if (P.mag > 0) DROPS.push({ x: P.x + 1, y: 0.12, z: P.z, w: P.wpn, mag: P.mag, t: 0, rot: 0 });
-    P.wpn = offeredWeapon; P.mag = w.mag;
+    if (P.mag > 0) {
+      DROPS.push({ x: 0, y: 0.12, z: 0, w: P.wpn, mag: P.mag, t: 0, rot: 0 });
+      placeDrop(DROPS[DROPS.length - 1], P.x + 1, P.z);
+    }
+    P.wpn = offeredWeapon; P.mag = w.mag; P.fireCd = 0; P.swapT = 0;
     P.res[P.wpn] = Math.min(w.resMax, P.res[P.wpn] + w.mag);
   }
 }
@@ -2736,13 +2806,14 @@ function resetPlayer() {
   P.x = -21.5; P.y = 0; P.z = 16.2; P.vy = 0; P.yaw = 0.35; P.pitch = 0;
   P.up = {}; P.maxHp = 100; P.hp = 100; P.pts = 0;
   P.wpn = 'AR'; P.mag = 30; P.res = { AR: 60, SMG: 0, SG: 0, SR: 0 };
-  P.fireCd = 0; P.reloadT = 0; P.swapT = 0; P.meleeT = 0; P.aim = 0; P.dead = false;
+  P.fireCd = 0; P.reloadT = 0; P.swapT = 0; P.meleeT = 0; P.meleeHitT = 0; P.aim = 0; P.dead = false;
   P.recoilP = P.recoilY = P.recoilVP = P.recoilVY = 0; P.spread = 1; P.kick = 0;
   P.crouch = 0; P.regenT = 0; P.hurtT = 0;
   IN.fire = false; IN.aim = false; IN.crouch = false;
   $('bAim').classList.remove('down'); $('bCrouch').classList.remove('down');
   $('bMelee').classList.remove('need');
   enemies.length = 0; DROPS.length = 0; DECALS.length = 0; pending = []; bossRef = null;
+  roundEndT = 0; winT = 0; roundActive = false; releaseTrigger();
   for (const p of PARTS) p.life = 0;
   for (const t of TRACERS) t.life = 0;
   for (const c of CASINGS) c.life = 0;
@@ -2777,7 +2848,7 @@ function startGame() {
 }
 function pauseGame() {
   if (GS !== 'play') return;
-  GS = 'pause'; IN.fire = false;
+  GS = 'pause'; releaseTrigger();
   $('pauseSub').textContent = roundLabel(round);
   $('sPause').classList.remove('hidden');
   if (document.exitPointerLock) document.exitPointerLock();
@@ -2789,7 +2860,7 @@ function resumeGame() {
 function playerDie() {
   if (P.dead) return;
   P.dead = true; GS = 'over';
-  IN.fire = false;
+  roundEndT = 0; winT = 0; releaseTrigger();
   sfx.gameOver(); musicSet(0.15, 1.5);
   haptic([0, 60, 60, 120]);
   STAT.time = (performance.now() - STAT.t0) / 1000;
@@ -2802,6 +2873,8 @@ function playerDie() {
   }, 1200);
 }
 function winGame() {
+  winT = 0;
+  if (GS !== 'play') return;
   GS = 'win';
   STAT.time = (performance.now() - STAT.t0) / 1000;
   sfx.win(); musicSet(0.4, 1.5);
@@ -2885,7 +2958,7 @@ function syncSettings() {
 }
 segGroup('cfgAssist', 'assist');
 segGroup('cfgHap', 'haptics', () => haptic(20));
-segGroup('cfgQual', 'quality', () => { buildProgram(); resize(); toast('GRAPHICS: ' + ['LOW', 'MEDIUM', 'HIGH'][CFG.quality]); });
+segGroup('cfgQual', 'quality', () => { buildProgram(); resize(); trimDecals(); toast('GRAPHICS: ' + ['LOW', 'MEDIUM', 'HIGH'][CFG.quality]); });
 $('cfgSens').addEventListener('input', e => { CFG.sens = +e.target.value; $('vSens').textContent = CFG.sens; saveCfg(); });
 $('cfgSfx').addEventListener('input', e => { CFG.sfx = +e.target.value; $('vSfx').textContent = CFG.sfx; applyVolumes(); saveCfg(); });
 $('cfgMus').addEventListener('input', e => { CFG.music = +e.target.value; $('vMus').textContent = CFG.music; musicSet(musIntensity, 0.2); saveCfg(); });
@@ -2907,7 +2980,11 @@ $('rotateAnyway').addEventListener('click', () => {
   $('rotate').classList.add('hidden');
   resize(); sfx.ui();
 });
-document.addEventListener('visibilitychange', () => { if (document.hidden && GS === 'play') pauseGame(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { if (GS === 'play') pauseGame(); }
+  else if (AC && AC.state === 'suspended') AC.resume();   // mobile suspends it on the way out
+});
+addEventListener('pointerdown', () => { if (AC && AC.state === 'suspended') AC.resume(); }, { passive: true });
 
 /* ================================================================== loop */
 let last = 0, fpsAcc = 0, fpsN = 0, fpsVal = 60, autoQualT = 0;
@@ -2927,7 +3004,7 @@ function frame(ts) {
     if (GS === 'play' && fpsVal < 34 && CFG.quality > 0 && time > 6) {
       autoQualT += 0.5;
       if (autoQualT > 4) {
-        autoQualT = 0; CFG.quality--; saveCfg(); syncSettings(); buildProgram(); resize();
+        autoQualT = 0; CFG.quality--; saveCfg(); syncSettings(); buildProgram(); resize(); trimDecals();
         toast('성능을 위해 그래픽을 ' + ['LOW', 'MEDIUM', 'HIGH'][CFG.quality] + '로 낮춤');
       }
     } else autoQualT = 0;
@@ -2938,6 +3015,8 @@ function frame(ts) {
     updatePlayer(dt);
     for (let i = 0; i < enemies.length; i++) updateEnemy(enemies[i], dt);
     spawnTick(dt);
+    if (roundEndT > 0) { roundEndT -= dt; if (roundEndT <= 0) endRound(); }
+    if (winT > 0) { winT -= dt; if (winT <= 0) winGame(); }
     updateEffects(dt);
     updateCrosshair();
     hudPickup();
