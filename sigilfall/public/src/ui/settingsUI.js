@@ -160,6 +160,7 @@ export class SettingsUI {
         [[0, '무제한'], [60, '60'], [45, '45'], [30, '30']]));
       add(this.range('시야각 (FOV)', '넓을수록 주변이 보입니다', 'fov', 70, 110, 1, (v) => v + '°'));
       add(this.range('화면 흔들림', '', 'shake', 0, 1.6, 0.1, (v) => Math.round(v * 100) + '%'));
+      add(this.toggle('자동 성능 조절', '프레임이 낮으면 그래픽을 한 단계씩 낮춥니다', 'autoQuality'));
       add(this.toggle('FPS 표시', '', 'showFps'));
       add(this.toggle('미니맵', '', 'minimap'));
       add(this.toggle('피해 숫자', '', 'damageNumbers'));

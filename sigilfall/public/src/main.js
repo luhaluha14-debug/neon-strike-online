@@ -3,6 +3,7 @@
    a match together, and owns the transitions between them.
    ========================================================================== */
 import { Engine } from './core/engine.js';
+import { PerfWatch } from './core/perf.js';
 import { settings } from './core/settings.js';
 import { InputManager } from './input/inputManager.js';
 import { KeyboardMouse } from './input/keyboardMouse.js';
@@ -54,8 +55,12 @@ class App {
       if (this.inMatch) { this.paused ? this.resume() : this.pause(); }
     });
     this.buildHudButtons();
+    this.perf = new PerfWatch(this.engine);
     this.engine.start();
-    this.engine.add(() => this.touch.update());
+    this.engine.add((dt) => {
+      this.touch.update();
+      if (this.inMatch && !this.paused) this.perf.update(dt);
+    });
   }
 
   /* a pause tap for touch devices, since there is no Esc key */
@@ -97,6 +102,7 @@ class App {
     Screens.hideAll();
     this.inMatch = true;
     this.paused = false;
+    this.perf.reset();
     this.game.start(cfg);
     this.enterInput();
     this.syncPauseButton();
@@ -204,6 +210,7 @@ class App {
     Screens.hideAll();
     this.inMatch = true;
     this.paused = false;
+    this.perf.reset();
     this.game.start({
       mode: msg.mode, map: msg.map, character: this.cfg.character,
       botCount: 0, playerName: this.cfg.playerName, online: this.net

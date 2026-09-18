@@ -1,0 +1,8 @@
+services:
+  - type: web
+    name: sigilfall
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health

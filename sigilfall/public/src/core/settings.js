@@ -61,6 +61,7 @@ function baseDefaults() {
     particles: null,
     fpsCap: null,
     showFps: false,
+    autoQuality: true,
     // hud
     crosshairStyle: 'cross',
     crosshairColor: '#e9f2ff',
