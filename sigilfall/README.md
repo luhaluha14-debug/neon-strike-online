@@ -279,6 +279,7 @@ npm run test:browser                      # 아래 셋을 모두 실행
 
 node sigilfall/test/browser-smoke.cjs     # 4캐릭터 실제 전투 + 온라인 2인 대전
 node sigilfall/test/browser-ui.cjs        # 메뉴 → 캐릭터 → 부적 → 설정 → 매치 → 일시정지 → 결과
+node sigilfall/test/browser-pc.cjs        # 실제 키보드/마우스 이벤트, 키 재설정, 부활
 node sigilfall/test/browser-touch.cjs     # 터치 버튼, 가상 스틱, 조준 보정 규칙
 node sigilfall/test/browser-abilities.cjs # 4캐릭터 × 6술식을 실제로 시전하고 결과 확인
 ```

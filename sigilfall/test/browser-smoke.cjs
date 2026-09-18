@@ -260,6 +260,30 @@ async function online(browser) {
     'health agrees between the two clients (' + (hostView ? hostView.hp : '?') + ' vs ' + gu2.me.hp + ')');
   check(JSON.stringify(h2.scores) === JSON.stringify(gu2.scores), 'the score agrees on both clients');
 
+  // somebody arriving mid match should drop straight into the fight
+  const late = await newPage(browser, false);
+  const lateIn = await late.evaluate(async (c) => {
+    const a = window.SIGILFALL;
+    a.cfg.playerName = 'LATE';
+    await a.net.connect();
+    a.net.join(c, 'warden');
+    await new Promise((r) => setTimeout(r, 2500));
+    const g = a.game;
+    return {
+      active: g.active,
+      alive: g.player.alive,
+      others: g.fighters.length - 1,
+      mode: g.mode ? g.mode.id : null
+    };
+  }, code);
+  console.log('  late joiner ' + JSON.stringify(lateIn));
+  check(lateIn.active && lateIn.mode === 'tdm', 'a player joining mid match lands in the running match');
+  check(lateIn.others >= 1, 'and sees the players already fighting');
+  const seenByHost = await host.evaluate(() => window.SIGILFALL.game.fighters.some((f) => f.name === 'LATE'));
+  check(seenByHost, 'and the people already there see them arrive');
+  check(late.errors.length === 0, 'no console errors on the late joiner' + (late.errors[0] ? ' (' + late.errors[0] + ')' : ''));
+  await late.context().close();
+
   check(host.errors.length === 0, 'no console errors on the host' + (host.errors[0] ? ' (' + host.errors[0] + ')' : ''));
   check(guest.errors.length === 0, 'no console errors on the guest' + (guest.errors[0] ? ' (' + guest.errors[0] + ')' : ''));
   if (KEEP) {
