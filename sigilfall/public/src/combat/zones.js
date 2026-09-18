@@ -70,7 +70,11 @@ export class ZoneSystem {
       const spec = z.spec;
       const life = clamp((z.endsAt - now) / 0.4, 0, 1);
       z.mesh.userData.ring.rotation.z += dt * (spec.pull ? 2.6 : 0.8);
-      z.mesh.userData.pillar.material.opacity = 0.07 * life;
+      // standing in it, the column would fill the screen, so it thins out
+      const cam = g.engine.camera.position;
+      const camIn = Math.hypot(cam.x - z.x, cam.z - z.z) < z.radius + 0.5 &&
+        Math.abs(cam.y - z.y) < 3.2;
+      z.mesh.userData.pillar.material.opacity = (camIn ? 0.015 : 0.07) * life;
       z.mesh.userData.disc.material.opacity = 0.2 * life;
 
       const inside = g.fightersInSphere(z.x, z.y + 1, z.z, z.radius, z.owner);
