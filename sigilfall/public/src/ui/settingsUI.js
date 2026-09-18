@@ -4,7 +4,6 @@
    ========================================================================== */
 import { $, el } from './screens.js';
 import { settings, QUALITY_PRESETS, DEFAULT_BINDS } from '../core/settings.js';
-import { clamp } from '../core/math.js';
 
 const BIND_LABELS = {
   forward: '앞으로', back: '뒤로', left: '왼쪽', right: '오른쪽',
@@ -226,4 +225,3 @@ function keyName(code) {
     .replace('Space', 'SPACE').replace('Escape', 'ESC').replace('Tab', 'TAB');
 }
 
-export { clamp };

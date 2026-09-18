@@ -187,23 +187,76 @@ async function online(browser) {
   }
   const hostOnGuest = gu.others.find((o) => o.id === h.me.id);
   check(!!hostOnGuest, 'the guest sees the host');
-
-  // now let them actually meet, so the server has hits to judge
   const guestHpBefore = gu.me.hp;
-  await host.evaluate(CONVERGE);
-  await guest.evaluate(CONVERGE);
-  await host.waitForTimeout(9000);
+
+  // walk both of them to a spot where they can see each other, a few metres at
+  // a time so the server's movement check accepts every step, then let them
+  // shoot: this is the part that proves the server is judging real hits
+  const walkTo = async (page, target) => {
+    // stop the autopilot first: a stale movement axis would walk them back off
+    await page.evaluate(() => {
+      clearInterval(window.SIGILFALL._sim);
+      window.SIGILFALL.input.clear();
+    });
+    for (let i = 0; i < 14; i++) {
+      const done = await page.evaluate((t) => {
+        const g = window.SIGILFALL.game, p = g.player;
+        const dx = t[0] - p.pos.x, dz = t[1] - p.pos.z;
+        const d = Math.hypot(dx, dz);
+        const step = Math.min(d, 9);
+        p.pos.x += (dx / (d || 1)) * step;
+        p.pos.z += (dz / (d || 1)) * step;
+        p.pos.y = g.world.supportAt(p.pos.x, p.pos.z, p.pos.y + 3, p.radius);
+        p.vel.x = p.vel.y = p.vel.z = 0;
+        return d < 0.5;
+      }, target);
+      if (done) break;
+      await page.waitForTimeout(140);
+    }
+  };
   await host.evaluate(() => clearInterval(window.SIGILFALL._sim));
   await guest.evaluate(() => clearInterval(window.SIGILFALL._sim));
+  await walkTo(host, [0, -22]);
+  await walkTo(guest, [0, -12]);
+  await host.waitForTimeout(400);
+
+  await guest.evaluate(() => window.SIGILFALL.input.clear());
+  const facing = await host.evaluate(() => {
+    const g = window.SIGILFALL.game, p = g.player;
+    window.SIGILFALL.input.clear();
+    const foe = g.fighters.find((f) => f !== p && g.isEnemy(p, f));
+    const dx = foe.pos.x - p.pos.x, dz = foe.pos.z - p.pos.z;
+    p.yaw = Math.atan2(-dx, -dz);
+    p.pitch = Math.atan2(foe.centerY - p.eyeY, Math.hypot(dx, dz));
+    p.aimDir();
+    return { dist: Math.hypot(dx, dz), see: g.canSee(p, foe.pos.x, foe.centerY, foe.pos.z) };
+  });
+  console.log('  firing line: ' + facing.dist.toFixed(1) + ' m, clear = ' + facing.see);
+  check(facing.see, 'the two clients have a clear line between them');
+
+  const rejected = await host.evaluate(async () => {
+    const g = window.SIGILFALL.game, net = window.SIGILFALL.net;
+    const foe = g.fighters.find((f) => f !== g.player && g.isEnemy(g.player, f));
+    const before = foe.hp;
+    // a claim for absurd damage, from a distance the shooter is nowhere near
+    net.send({ t: 'hit', a: g.player.char.primary.id, h: [{ id: foe.id, n: 9999, d: 120 }] });
+    await new Promise((r) => setTimeout(r, 600));
+    return { before, after: foe.hp };
+  });
+  check(rejected.before > 0 && rejected.after === rejected.before,
+    'an impossible claim is rejected by the server (' + rejected.before + ' -> ' + rejected.after + ')');
+
+  await host.evaluate(() => window.SIGILFALL.input.setHold('fire', true));
+  await host.waitForTimeout(2500);
+  await host.evaluate(() => window.SIGILFALL.input.setHold('fire', false));
+  await host.waitForTimeout(400);
 
   const h2 = await read(host), gu2 = await read(guest);
-  console.log('  after contact host ' + JSON.stringify({ me: h2.me, scores: h2.scores }));
-  console.log('  after contact guest ' + JSON.stringify({ me: gu2.me, scores: gu2.scores }));
-  const anyScore = Object.values(h2.scores).some((v) => v > 0);
-  const hurt = gu2.me.hp < guestHpBefore || h2.me.hp < 180 || anyScore;
-  check(hurt, 'the server applied damage between the two clients');
+  const hurtBy = guestHpBefore - gu2.me.hp;
+  console.log('  guest health ' + guestHpBefore + ' -> ' + gu2.me.hp);
+  check(hurtBy > 0, 'the server accepted the host\'s hits and applied them (' + hurtBy + ')');
   const hostView = h2.others.find((o) => o.id === gu2.me.id);
-  check(!!hostView && Math.abs(hostView.hp - gu2.me.hp) <= 40,
+  check(!!hostView && Math.abs(hostView.hp - gu2.me.hp) <= 35,
     'health agrees between the two clients (' + (hostView ? hostView.hp : '?') + ' vs ' + gu2.me.hp + ')');
   check(JSON.stringify(h2.scores) === JSON.stringify(gu2.scores), 'the score agrees on both clients');
 

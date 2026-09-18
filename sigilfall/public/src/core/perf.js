@@ -45,11 +45,11 @@ export class PerfWatch {
     this.bad++;
     if (this.bad < 2) return;          // one bad window can just be a load hitch
     this.bad = 0;
-    this.stepDown(fps);
+    this.stepDown();
   }
 
   /* one notch down, cheapest thing first */
-  stepDown(fps) {
+  stepDown() {
     if (this.stepsTaken >= 4) return;
     const scale = settings.get('renderScale');
     if (settings.get('shadows') && this.stepsTaken === 0) {
@@ -69,6 +69,5 @@ export class PerfWatch {
       this.told = true;
       toast('프레임이 낮아 그래픽을 자동으로 낮췄습니다 (설정에서 변경 가능)', '', 3200);
     }
-    void fps;
   }
 }

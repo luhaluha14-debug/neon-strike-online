@@ -104,6 +104,7 @@ export function updateBody(fighter, dt, now, camPos) {
   if (!fighter.alive) {
     if (u.deathT > 0) {
       u.deathT = Math.max(0, u.deathT - dt);
+      if (fighter.isPlayer) fighter.showBody = true;
       const k = 1 - u.deathT / 1.0;
       g.visible = true;
       g.position.set(fighter.pos.x, fighter.pos.y, fighter.pos.z);
@@ -118,9 +119,10 @@ export function updateBody(fighter, dt, now, camPos) {
     return;
   }
 
-  g.visible = !fighter.isPlayer;
+  // the player's own body only appears when the camera has left their eyes
+  g.visible = !fighter.isPlayer || !!fighter.showBody;
   g.rotation.z = 0;
-  u.plate.visible = true;
+  u.plate.visible = !fighter.isPlayer;
   u.ring.material.opacity = 0.75;
   g.position.set(fighter.pos.x, fighter.pos.y, fighter.pos.z);
   g.rotation.y = fighter.yaw + Math.PI;
@@ -147,7 +149,7 @@ export function updateBody(fighter, dt, now, camPos) {
     u.parts.head.material.emissive?.setRGB(k, k * 0.25, k * 0.18);
   }
 
-  if (camPos) {
+  if (camPos && !fighter.isPlayer) {
     const d = Math.hypot(camPos.x - fighter.pos.x, camPos.z - fighter.pos.z);
     u.plate.visible = d < 46;
     u.plate.scale.set(clamp(2.0 * (d / 22), 1.4, 5.2), clamp(0.5 * (d / 22), 0.35, 1.3), 1);

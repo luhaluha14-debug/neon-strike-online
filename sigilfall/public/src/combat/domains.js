@@ -117,17 +117,12 @@ export class DomainSystem {
     if (b.ownMeleeMul && opts && (opts.kind === 'melee' || opts.kind === 'dash')) m *= b.ownMeleeMul;
     return m;
   }
-  damageTakenMul(victim, attacker) {
-    void attacker;
-    void victim;
-    return 1;
-  }
-  onDamageDealt(attacker, victim, dealt, opts) {
+  damageTakenMul() { return 1; }
+  onDamageDealt(attacker, dealt) {
     const b = this.ownBonus(attacker);
     if (!b) return;
     const steal = b.lifesteal || b.ownLifesteal || 0;
     if (steal > 0) this.game.heal(attacker, dealt * steal);
-    void victim; void opts;
   }
   onFighterDeath(f) {
     if (f.ultActive) this.closeOf(f, true);
@@ -172,7 +167,6 @@ export class DomainSystem {
       }
       const grow = clamp((now - d.born) / 0.45, 0, 1);
       const fade = clamp((d.endsAt - now) / 0.45, 0, 1);
-      const s = grow * (0.6 + 0.4 * fade) + 0.4 * fade * 0;
       d.mesh.position.set(d.x, d.y + 0.1, d.z);
       d.mesh.scale.setScalar(clamp(grow, 0.04, 1));
       const u = d.mesh.userData;
@@ -184,7 +178,6 @@ export class DomainSystem {
       u.rim.material.opacity = ((camIn ? 0.05 : 0.15) + Math.sin(u.t * 3) * 0.03) * fade;
       u.floor.material.opacity = 0.5 * fade;
       u.rim.rotation.y += dt * 0.35;
-      void s;
 
       // everything standing in it
       for (const f of g.fighters) {

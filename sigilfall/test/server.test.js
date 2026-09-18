@@ -193,15 +193,23 @@ test('bots fill an empty room and actually play', () => {
   assert(room.bots().length > 0, 'a lone player should get opponents');
   room.startMatch();
   const bot = room.bots()[0];
+  const world = worldFor(room.map);
   const start = { x: bot.pos.x, z: bot.pos.z };
-  for (let i = 0; i < 80; i++) {
+  let grounded = 0, worstDrop = 0, highest = -99;
+  for (let i = 0; i < 120; i++) {
     room.lastTick = Date.now() / 1000 - 0.05;
     room.tick();
+    // a bot may be mid jump or mid fall; it may never sink or fly
+    const floor = world.supportAt(bot.pos.x, bot.pos.z, bot.pos.y + 0.4, bot.radius * 0.85);
+    if (Math.abs(bot.pos.y - floor) < 0.25) grounded++;
+    worstDrop = Math.min(worstDrop, bot.pos.y - floor);
+    highest = Math.max(highest, bot.pos.y);
   }
   const moved = Math.hypot(bot.pos.x - start.x, bot.pos.z - start.z);
   assert(moved > 1, 'a bot should have moved somewhere, moved ' + moved.toFixed(2));
-  assert(Math.abs(bot.pos.y - worldFor(room.map).supportAt(bot.pos.x, bot.pos.z, 60, bot.radius)) < 0.6,
-    'a bot must stay on the ground');
+  assert(grounded > 60, 'a bot should spend most of its time on the ground (' + grounded + '/120)');
+  assert(worstDrop > -0.6, 'a bot must never sink into the floor (' + worstDrop.toFixed(2) + ')');
+  assert(highest < 14, 'a bot must never fly (' + highest.toFixed(2) + ')');
 });
 
 test('a player who leaves is removed and the room closes when empty', () => {

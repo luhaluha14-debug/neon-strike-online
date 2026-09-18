@@ -101,7 +101,7 @@ export class PlayerController {
     }
 
     /* ---------------- combat input ---------------- */
-    if (f.alive && g.state === 'live') this.handleActions(dt);
+    if (f.alive && g.state === 'live') this.handleActions();
     else {
       f.ads = false;
       if (f.charging) g.abilities.cancelCharge(f);
@@ -115,7 +115,7 @@ export class PlayerController {
     this.input.endFrame(realDt);
   }
 
-  handleActions(dt) {
+  handleActions() {
     const g = this.game, f = this.f, input = this.input, A = g.abilities;
     const sec = f.char.secondary;
 
@@ -135,7 +135,6 @@ export class PlayerController {
     if (input.consume('ability2')) A.tryCast(f, 'a2');
     if (input.consume('ultimate')) A.tryCast(f, 'ult');
     if (input.consume('refocus')) A.refocus(f);
-    void dt;
   }
 
   /* ---------------------------------------------------------------- camera */
@@ -196,8 +195,9 @@ export class PlayerController {
     cam.updateProjectionMatrix();
 
     this.camPos.x = cam.position.x; this.camPos.y = cam.position.y; this.camPos.z = cam.position.z;
-    this.view.setVisible(f.alive && this.thirdPerson < 0.25);
+    // hands and body trade places as the camera pulls out
+    const firstPerson = f.alive && this.thirdPerson < 0.18;
+    this.view.setVisible(firstPerson);
+    f.showBody = !firstPerson;
   }
 }
-
-export { RULES };

@@ -86,7 +86,7 @@ npm start          # http://localhost:8080
 
 ---
 
-## 4. 술사 4명
+## 4. 술사 4명과 부적
 
 | | 이름 | 계열 | 기본 공격 | 특징 |
 |---|---|---|---|---|
@@ -97,6 +97,18 @@ npm start          # http://localhost:8080
 
 각 캐릭터는 `Q`(이동기) · `1`(술식) · `2`(강한 술식) · `E`(영역)을 가집니다.
 전체 수치와 설명은 게임 안 **CHARACTERS** 화면과 `public/src/characters/roster.js` 에 있습니다.
+
+**LOADOUT** 화면에서 술사마다 부적 하나를 지닐 수 있습니다. 능력을 더 주지 않고 수치만 조금 바꿉니다.
+
+| 부적 | 효과 |
+|---|---|
+| 무각 | 보정 없음 |
+| 질주 | 이동 속도 +6%, 이동기 쿨다운 -1초 |
+| 항력 | 최대 체력 +12%, 받는 피해 -4% |
+| 순환 | 주력 회복 +30%, 술식 쿨다운 -8% |
+| 의식 | 궁극기 충전 +18%, 영역 지속 +0.8초 |
+
+체력·쿨다운·받는 피해·궁극기 충전·영역 지속은 **서버가 직접 적용**합니다. 클라이언트가 수치를 지어낼 수 없습니다.
 
 ### 영역 (Domain)
 
@@ -234,8 +246,10 @@ npm test
 
 ```bash
 npm i -D playwright
+npm run test:browser                      # 아래 셋을 모두 실행
+
 node sigilfall/test/browser-smoke.cjs     # 4캐릭터 실제 전투 + 온라인 2인 대전
-node sigilfall/test/browser-ui.cjs        # 메뉴 → 캐릭터 → 설정 → 매치 → 일시정지 → 결과
+node sigilfall/test/browser-ui.cjs        # 메뉴 → 캐릭터 → 부적 → 설정 → 매치 → 일시정지 → 결과
 node sigilfall/test/browser-touch.cjs     # 터치 버튼, 가상 스틱, 조준 보정 규칙
 ```
 

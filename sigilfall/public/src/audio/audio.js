@@ -131,7 +131,7 @@ class AudioEngine {
   }
 
   /* ============================ game sounds ============================ */
-  shoot(charId, spec, charge) {
+  shoot(charId, charge) {
     if (!this.ready) return;
     const g = 0.22;
     if (charId === 'vein') {
@@ -145,13 +145,11 @@ class AudioEngine {
       this.tone({ type: 'square', f0: 300 + c * 260, f1: 120, dur: 0.14 + c * 0.1, gain: g * (0.8 + c * 0.5), filter: 'lowpass', cutoff: 1800 });
       this.noise({ f0: 1800, f1: 400, dur: 0.12, gain: g * 0.4 });
     }
-    void spec;
   }
-  shootAt(pos, charId, spec) {
+  shootAt(pos) {
     const v = this.gainFor(pos);
     if (v < 0.04 || !this.throttle('shootAt', 40)) return;
     this.tone({ type: 'square', f0: 260, f1: 110, dur: 0.12, gain: 0.18 * v, filter: 'lowpass', cutoff: 1400 });
-    void charId; void spec;
   }
 
   beam(id) {
@@ -159,11 +157,10 @@ class AudioEngine {
     this.noise({ f0: 3400, f1: 300, dur: 0.26, gain: 0.2 });
     if (id === 'lance' || id === 'cleave') this.tone({ type: 'sine', f0: 120, f1: 60, dur: 0.4, gain: 0.22 });
   }
-  beamAt(pos, id) {
+  beamAt(pos) {
     const v = this.gainFor(pos);
     if (v < 0.05) return;
     this.tone({ type: 'sawtooth', f0: 700, f1: 160, dur: 0.26, gain: 0.2 * v, filter: 'lowpass', cutoff: 2200 });
-    void id;
   }
 
   melee(landed, isPlayer, heavy) {

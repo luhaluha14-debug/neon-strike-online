@@ -82,9 +82,9 @@ export const MAPS = {};
     theme: {
       sky: 0x1b2027, fog: 0x232a33, fogNear: 30, fogFar: 132,
       hemiSky: 0x8fa3ba, hemiGround: 0x3b332a, hemiI: 0.78,
-      sun: 0xffe2bb, sunI: 0.95, sunDir: [-0.45, 0.82, 0.35],
+      sun: 0xffe2bb, sunI: 0.8, sunDir: [-0.45, 0.82, 0.35],
       ambient: 0x3a4454, ambientI: 0.5,
-      ground: 0x544e43, grid: 0x6b6351, accent: 0xc8632f
+      ground: 0x4b463c, grid: 0x635c4c, accent: 0xc8632f
     },
     mats: {
       shell: 0x2a2f36, stone: 0x585349, roof: 0x4a3f36, pillar: 0x6b6355,

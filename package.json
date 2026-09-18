@@ -4,6 +4,7 @@
   "scripts": {
     "start": "node sigilfall/server/server.js",
     "test": "node sigilfall/test/run.js",
+    "test:browser": "node sigilfall/test/browser-smoke.cjs && node sigilfall/test/browser-ui.cjs && node sigilfall/test/browser-touch.cjs",
     "start:legacy": "node neon_strike_online/server/server.js"
   },
   "engines": {

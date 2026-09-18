@@ -69,7 +69,7 @@ export class BotBrain {
       this.decide();
     }
     this.aim(dt);
-    this.act(dt);
+    this.act();
     this.move(dt);
     f.updateEnergy(dt, now, g.domains.energyLocked(f));
   }
@@ -207,7 +207,7 @@ export class BotBrain {
   }
 
   /* ----------------------------------------------------------------- act */
-  act(dt) {
+  act() {
     const g = this.game, f = this.f, now = g.now, cfg = this.cfg, A = g.abilities;
     if (!this.target) return;
     const t = this.target;
@@ -245,11 +245,9 @@ export class BotBrain {
       this.nextFireWindow = this.fireUntil + rnd(cfg.pause[0], cfg.pause[1]);
     }
     if (now < this.fireUntil) {
-      if (f.char.secondary.kind === 'ads' && dist > 22) f.ads = true;
-      else f.ads = false;
+      f.ads = f.char.secondary.kind === 'ads' && dist > 22;
       A.tryCast(f, 'lmb');
     }
-    void dt;
   }
 
   aimOffset(t) {

@@ -114,9 +114,8 @@ export class Hud {
     this.dirMarks.push({ el: mark, t: 0 });
   }
 
-  onKill(victim, streak) {
+  onKill(streak) {
     if (streak >= 2) this.banner(streak >= 4 ? '무쌍' : streak === 3 ? '삼연격' : '연격', 0.9, 'x' + streak);
-    void victim;
   }
 
   hitMarker(head, kill) {

@@ -10,7 +10,6 @@ import { Fighter } from '../combat/fighter.js';
 import { abilityOf } from '../characters/roster.js';
 import { clamp, lerp, angleDelta } from '../core/math.js';
 import { toast } from '../ui/screens.js';
-import { RULES } from '../game/rules.js';
 
 const SEND_HZ = 20;
 const INTERP_DELAY = 0.11;      // seconds we deliberately stay behind the server
@@ -354,7 +353,7 @@ export class NetClient {
     g.hud.killFeed(a, v);
     if (a === g.player) {
       g.feel.killFlash();
-      g.hud.onKill(v, m.st || 1);
+      g.hud.onKill(m.st || 1);
     }
     if (v === g.player) {
       g.hud.onDeath(a);
@@ -470,4 +469,3 @@ export class NetClient {
 function r2(v) { return Math.round(v * 100) / 100; }
 function r3(v) { return Math.round(v * 1000) / 1000; }
 
-export { RULES };

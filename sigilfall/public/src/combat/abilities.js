@@ -131,8 +131,7 @@ export class AbilityRuntime {
       f.charge = clamp(f.charge + dt / spec.chargeTime, 0, 1);
       if (f === g.player && f.charge >= 1 && !f._chargeFull) { f._chargeFull = true; audio.chargeFull(); }
     }
-    this.updateDashes(dt);
-    void dt;
+    this.updateDashes();
   }
 
   /* dashes damage what they run through, once per target */
@@ -240,9 +239,9 @@ export class AbilityRuntime {
     g.effects.muzzle(f, spec.color || f.char.accent);
     if (f === g.player) {
       g.feel.recoil(spec.kind === 'charge' ? 1.6 : 0.85, spec);
-      audio.shoot(f.charId, spec, opts.charge);
+      audio.shoot(f.charId, opts.charge);
     } else {
-      audio.shootAt(f.pos, f.charId, spec);
+      audio.shootAt(f.pos);
     }
     f.stats.shots++;
   }
@@ -281,7 +280,7 @@ export class AbilityRuntime {
     if (f === g.player) {
       g.feel.recoil(1.1, spec);
       audio.beam(spec.id);
-    } else audio.beamAt(f.pos, spec.id);
+    } else audio.beamAt(f.pos);
   }
 
   meleeKind(f, spec, slot, opts) {
@@ -422,5 +421,3 @@ export class AbilityRuntime {
     return d;
   }
 }
-
-export { RULES };

@@ -154,11 +154,11 @@ export class Game {
   addFighter(f) {
     this.fighters.push(f);
     this.byId.set(f.id, f);
-    if (!f.isPlayer) {
-      f.mesh = makeBody(f, true);
-      f.mesh.visible = false;
-      this.engine.scene.add(f.mesh);
-    }
+    // the player gets a body too: it shows up in the death camera and in the
+    // third person beat a domain expansion takes
+    f.mesh = makeBody(f, !f.isPlayer);
+    f.mesh.visible = false;
+    this.engine.scene.add(f.mesh);
     return f;
   }
 
@@ -305,7 +305,7 @@ export class Game {
       attacker.stats.damage += Math.min(dealt, victim.hp + dealt);
       attacker.lastHitAt = now;
       if (!opts.noUlt) attacker.addUlt(dealt * RULES.ult.perDamage);
-      this.domains.onDamageDealt(attacker, victim, dealt, opts);
+      this.domains.onDamageDealt(attacker, dealt);
       if (attacker === this.player) {
         this.hud.showDamage(victim, dealt, opts.head);
         this.feel.hitMarker(opts.head, victim.hp <= 0);
@@ -363,7 +363,7 @@ export class Game {
       if (attacker === this.player) {
         this.feel.killFlash();
         audio.kill(attacker.killStreak);
-        this.hud.onKill(victim, attacker.killStreak);
+        this.hud.onKill(attacker.killStreak);
       }
     }
     this.hud.killFeed(attacker, victim, opts);
@@ -373,16 +373,15 @@ export class Game {
       audio.death();
     }
     this.emit('kill', { victim, attacker });
-    if (!this.net) this.checkVictory(attacker);
+    if (!this.net) this.checkVictory();
   }
 
-  checkVictory(scorer) {
+  checkVictory() {
     if (this.state !== 'live') return;
-    const target = this.mode.target;
     for (const [team, sc] of Object.entries(this.scores)) {
-      if (sc >= target) return this.endMatch(team, 'score');
+      if (sc >= this.mode.target) return this.endMatch(team, 'score');
     }
-    void scorer;
+    return undefined;
   }
 
   endMatch(winTeam, why) {
@@ -476,9 +475,10 @@ export class Game {
 
     const cam = this.engine.camera.position;
     for (const f of this.fighters) {
-      if (f.isPlayer) continue;
       updateBody(f, this.dt, now, cam);
-      if (f.mesh && f.alive) drawNameplate(f.mesh.userData.plate, f, this.isEnemy(this.player, f));
+      if (f.mesh && f.alive && !f.isPlayer) {
+        drawNameplate(f.mesh.userData.plate, f, this.isEnemy(this.player, f));
+      }
     }
 
     audio.setListener(this.engine.camera.position);

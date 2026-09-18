@@ -74,14 +74,13 @@ export class ZoneSystem {
       z.mesh.userData.disc.material.opacity = 0.2 * life;
 
       const inside = g.fightersInSphere(z.x, z.y + 1, z.z, z.radius, z.owner);
-      for (const { f: o, dist } of inside) {
+      for (const { f: o } of inside) {
         if (spec.pull) {
           const dx = z.x - o.pos.x, dz = z.z - o.pos.z;
           const d = Math.hypot(dx, dz) || 1;
           o.pullVec = { x: (dx / d) * spec.pull, z: (dz / d) * spec.pull };
         }
         if (spec.slow) { o.slowUntil = now + 0.25; o.slowMul = spec.slow.mul; }
-        void dist;
       }
 
       if (now >= z.nextTick) {

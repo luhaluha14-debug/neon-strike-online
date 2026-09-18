@@ -9,7 +9,7 @@ import { MODES, MODE_LIST } from '../game/rules.js';
 import { settings } from '../core/settings.js';
 import { escapeHtml } from './hud.js';
 
-const SLOT_KEYS = [['lmb', '좌클릭 / 공격'], ['rmb', '우클릭 / 보조'], ['q', 'Q'], ['a1', '1'], ['a2', '2'], ['ult', 'E · 영역']];
+const SLOT_KEYS = [['lmb', 'L'], ['rmb', 'R'], ['q', 'Q'], ['a1', '1'], ['a2', '2'], ['ult', 'E']];
 
 export class Menus {
   constructor(app) {
@@ -80,11 +80,13 @@ export class Menus {
   renderKit(id) {
     const wrap = $('kit');
     wrap.innerHTML = '';
+    wrap.appendChild(el('div', 'hint',
+      'L 기본 공격(좌클릭 · 모바일 공격)  ·  R 보조(우클릭 · 모바일 보조)  ·  E 영역 전개'));
     for (const [slot, keyLabel] of SLOT_KEYS) {
       const spec = abilityOf(id, slot);
       if (!spec) continue;
       const row = el('div', 'k');
-      row.appendChild(el('div', 'key', keyLabel.split(' ')[0]));
+      row.appendChild(el('div', 'key', keyLabel));
       const body = el('div');
       body.appendChild(el('div', 'kn', spec.name + '  ' + spec.latin));
       body.appendChild(el('div', 'kd', spec.desc || ''));
