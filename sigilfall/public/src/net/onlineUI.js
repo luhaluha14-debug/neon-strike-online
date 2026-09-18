@@ -61,6 +61,7 @@ export class OnlineUI {
     this.bound = true;
     const app = this.app, net = this.net;
     const name = () => {
+      net.charm = app.cfg.charm || 'none';
       const v = ($('inName').value || '').trim().slice(0, 12) || '술사';
       app.cfg.playerName = v;
       settings.set('name', v);

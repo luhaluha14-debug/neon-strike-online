@@ -1,6 +1,6 @@
 /* the roster: shape, completeness and rough balance */
 import { test, assert, equal } from './harness.js';
-import { CHARACTERS, CHARACTER_LIST, abilityOf, ABILITY_SLOTS } from '../public/src/characters/roster.js';
+import { CHARACTERS, CHARACTER_LIST, abilityOf, ABILITY_SLOTS, CHARMS, CHARM_LIST, getCharm } from '../public/src/characters/roster.js';
 import { fireInterval } from '../public/src/game/rules.js';
 
 const KINDS = ['projectile', 'hitscan', 'melee', 'dash', 'blink', 'zone', 'buff',
@@ -101,4 +101,31 @@ test('domains each apply their own rules, not a shared one', () => {
     assert(!sigs.has(sig), id + ' domain rules duplicate another character');
     sigs.add(sig);
   }
+});
+
+test('charms are small, readable trades and nothing more', () => {
+  const allowed = ['hp', 'speed', 'regen', 'cdMul', 'cdQ', 'taken', 'ultGain', 'domainDur'];
+  assert(CHARM_LIST.length >= 4, 'the loadout needs real choices');
+  assert(CHARMS.none && Object.keys(CHARMS.none.mods).length === 0, 'there must be a plain option');
+  for (const id of CHARM_LIST) {
+    const c = CHARMS[id];
+    assert(c.name && c.latin && c.desc && c.icon, id + ' needs a name, a description and an icon');
+    for (const [k, v] of Object.entries(c.mods)) {
+      assert(allowed.includes(k), id + ' touches something a charm may not: ' + k);
+      if (k === 'cdQ') assert(v >= -1.5 && v <= 0, id + ' cooldown charm out of band');
+      else if (k === 'domainDur') assert(v > 0 && v <= 1.2, id + ' domain charm out of band');
+      else assert(v > 0.85 && v < 1.35, id + '.' + k + ' is too strong: ' + v);
+    }
+  }
+});
+
+test('no charm is strictly better than another', () => {
+  // every charm that gives something must give something the others do not
+  const fields = CHARM_LIST.filter((id) => id !== 'none').map((id) => Object.keys(CHARMS[id].mods).sort().join(','));
+  equal(new Set(fields).size, fields.length, 'two charms modify exactly the same things');
+});
+
+test('an unknown charm falls back to the plain one', () => {
+  equal(getCharm('nonsense').id, 'none');
+  equal(getCharm(undefined).id, 'none');
 });

@@ -3,7 +3,7 @@
    read and write the app config; starting a match is the app's job.
    ========================================================================== */
 import { $, el, Screens } from './screens.js';
-import { CHARACTERS, CHARACTER_LIST, abilityOf } from '../characters/roster.js';
+import { CHARACTERS, CHARACTER_LIST, abilityOf, CHARMS, CHARM_LIST, getCharm } from '../characters/roster.js';
 import { MAPS, MAP_LIST } from '../world/mapData.js';
 import { MODES, MODE_LIST } from '../game/rules.js';
 import { settings } from '../core/settings.js';
@@ -24,6 +24,8 @@ export class Menus {
     $('btnChars').onclick = () => { this.openChars(); };
     $('btnSettings').onclick = () => { app.openSettings(); };
     $('btnHow').onclick = () => { this.renderHow(); Screens.show('screenHow'); };
+    $('btnLoadout').onclick = () => this.openLoadout();
+    $('btnLoadoutBack').onclick = () => { app.applyLoadout(); Screens.back(); };
     $('btnOnline').onclick = () => app.openOnline();
 
     $('btnPlayBack').onclick = () => Screens.back();
@@ -95,6 +97,65 @@ export class Menus {
       if (spec.dur && spec.kind === 'domain') meta.push(spec.dur + '초');
       row.appendChild(el('div', 'meta', meta.join('\n')));
       wrap.appendChild(row);
+    }
+  }
+
+  /* ------------------------------------------------------------ loadout */
+  openLoadout() {
+    this.loadoutChar = this.app.cfg.character;
+    this.renderLoadout();
+    Screens.show('screenLoadout');
+  }
+
+  renderLoadout() {
+    const charms = settings.get('charms') || {};
+    const picker = $('loadoutChars');
+    picker.innerHTML = '';
+    for (const id of CHARACTER_LIST) {
+      const b = el('button', 'btn' + (id === this.loadoutChar ? ' primary' : ' ghost'));
+      b.style.flex = '1 1 120px';
+      b.appendChild(el('span', 't', CHARACTERS[id].latin));
+      b.appendChild(el('span', 'd', getCharm(charms[id]).name));
+      b.onclick = () => { this.loadoutChar = id; this.renderLoadout(); };
+      picker.appendChild(b);
+    }
+
+    const wrap = $('charms');
+    wrap.innerHTML = '';
+    const current = charms[this.loadoutChar] || 'none';
+    for (const id of CHARM_LIST) {
+      const c = CHARMS[id];
+      const card = el('button', 'card' + (id === current ? ' on' : ''));
+      card.appendChild(el('div', 'glyph', c.icon));
+      card.appendChild(el('div', 'ltn', c.latin));
+      card.appendChild(el('div', 'nm', c.name));
+      card.appendChild(el('div', 'bl', c.desc));
+      card.onclick = () => {
+        const next = Object.assign({}, settings.get('charms') || {});
+        next[this.loadoutChar] = id;
+        settings.set('charms', next);
+        this.renderLoadout();
+        this.app.applyLoadout();
+      };
+      wrap.appendChild(card);
+    }
+
+    const sum = $('loadoutSummary');
+    sum.innerHTML = '';
+    const ch = CHARACTERS[this.loadoutChar];
+    const mods = getCharm(current).mods;
+    const rows = [
+      ['체력', Math.round(ch.hp * (mods.hp || 1)) + (mods.hp ? ' (+' + Math.round((mods.hp - 1) * 100) + '%)' : '')],
+      ['이동 속도', (ch.speed * (mods.speed || 1)).toFixed(2) + ' m/s' + (mods.speed ? ' (+' + Math.round((mods.speed - 1) * 100) + '%)' : '')],
+      ['주력 회복', Math.round(ch.energy.regen * (mods.regen || 1)) + '/초' + (mods.regen ? ' (+' + Math.round((mods.regen - 1) * 100) + '%)' : '')],
+      ['이동기 쿨다운', Math.max(0.5, ch.q.cd * (mods.cdMul || 1) + (mods.cdQ || 0)).toFixed(1) + '초'],
+      ['영역 지속', (ch.ult.dur + (mods.domainDur || 0)).toFixed(1) + '초']
+    ];
+    for (const [k, v] of rows) {
+      const r = el('div', 'opt');
+      r.appendChild(el('span', 'lbl', k));
+      r.appendChild(el('span', 'val', v));
+      sum.appendChild(r);
     }
   }
 

@@ -57,6 +57,23 @@ function check(cond, what) {
   await click('btnPickChar');
   check(await visible('screenMenu'), 'picking a character returns to the menu');
 
+  await click('btnLoadout');
+  check(await visible('screenLoadout'), 'loadout opens');
+  const charmCards = await count('#charms .card');
+  check(charmCards >= 4, 'the loadout offers charms (' + charmCards + ')');
+  const charmApplied = await page.evaluate(async () => {
+    const cards = document.querySelectorAll('#charms .card');
+    cards[1].click();
+    await new Promise((r) => setTimeout(r, 120));
+    const saved = JSON.parse(localStorage.getItem('sigilfall.settings.v1') || '{}');
+    return { charm: window.SIGILFALL.cfg.charm, saved: saved.charms };
+  });
+  check(charmApplied.charm && charmApplied.charm !== 'none', 'picking a charm updates the loadout (' + charmApplied.charm + ')');
+  check(!!charmApplied.saved, 'and it is saved per character');
+  check((await count('#loadoutSummary .opt')) >= 4, 'the loadout shows what it changes');
+  await click('btnLoadoutBack');
+  check(await visible('screenMenu'), 'loadout returns to the menu');
+
   await click('btnSettings');
   check(await visible('screenSettings'), 'settings open');
   const tabs = await count('#setTabs button');
@@ -101,6 +118,12 @@ function check(cond, what) {
   await page.waitForTimeout(700);
   const inMatch = await page.evaluate(() => window.SIGILFALL.game.active);
   check(inMatch, 'the match starts from the menu');
+  const charmLive = await page.evaluate(() => {
+    const p = window.SIGILFALL.game.player;
+    return { charm: p.charm.id, want: window.SIGILFALL.cfg.charm, hp: p.maxHp, base: p.char.hp };
+  });
+  check(!!charmLive.charm, 'the chosen charm is carried into the match (' + charmLive.charm + ')');
+  check(charmLive.charm === charmLive.want, 'the match runs the charm the loadout chose');
   check(await page.evaluate(() => document.getElementById('hud').classList.contains('on')), 'the HUD is up');
   check(await page.evaluate(() => window.SIGILFALL.game.mode.id === 'ffa'), 'it started the mode we chose');
   check((await count('#abilities .ab')) === 4 || MOBILE, 'the ability bar has four slots');

@@ -109,7 +109,18 @@ function release(spec) {
   check(sweep.cool && sweep.num !== '', 'a cooling ability shows its timer on the button');
 
   console.log('\nstick and look');
-  const before = await page.evaluate(() => ({ ...window.SIGILFALL.game.player.pos }));
+  // stand in the open street facing clear ground, so the walk test is about the
+  // stick and not about whatever the spawn happened to face
+  const before = await page.evaluate(() => {
+    const g = window.SIGILFALL.game, p = g.player;
+    p.pos.x = 0; p.pos.z = -18;
+    p.pos.y = g.world.supportAt(p.pos.x, p.pos.z, 60, p.radius);
+    p.vel.x = p.vel.y = p.vel.z = 0;
+    p.yaw = Math.PI;                       // look up the street, toward +Z
+    p.pitch = 0;
+    p.aimDir();
+    return { ...p.pos };
+  });
   await page.evaluate(gesture, { id: 13, from: [140, 300], to: [140, 200], steps: 6, hold: true });
   await page.waitForTimeout(900);
   const moving = await page.evaluate(() => {

@@ -3,7 +3,7 @@
    body mesh.  every combat rule reads from here and nothing else.
    ========================================================================== */
 import { RULES } from '../game/rules.js';
-import { getCharacter } from '../characters/roster.js';
+import { getCharacter, getCharm } from '../characters/roster.js';
 import { clamp, dirFromAngles } from '../core/math.js';
 
 let NEXT_LOCAL_ID = 1000;
@@ -34,14 +34,22 @@ export class Fighter {
     this.mesh = null;
     this.aim = { x: 0, y: 0, z: -1 };
     this.stats = newStats();
+    this.charm = getCharm(opts.charm);
     this.setCharacter(opts.character || 'rift');
   }
+
+  setCharm(id) {
+    this.charm = getCharm(id);
+    this.maxHp = Math.round(this.char.hp * (this.mods.hp || 1));
+    this.hp = Math.min(this.hp, this.maxHp);
+  }
+  get mods() { return this.charm ? this.charm.mods : {}; }
 
   setCharacter(id) {
     const c = getCharacter(id);
     this.charId = c.id;
     this.char = c;
-    this.maxHp = c.hp;
+    this.maxHp = Math.round(c.hp * (this.mods.hp || 1));
     this.radius = c.radius;
     this.maxEnergy = c.energy.max;
     this.resetCombat();
@@ -117,12 +125,12 @@ export class Fighter {
     if (now < this.castUntil) s *= 0.45;
     const sp = this.buff('speed', now);
     if (sp) s *= sp.data;
-    return s;
+    return s * (this.mods.speed || 1);
   }
 
   addUlt(amount) {
     if (this.ultActive) return;
-    this.ult = clamp(this.ult + amount, 0, RULES.ult.max);
+    this.ult = clamp(this.ult + amount * (this.mods.ultGain || 1), 0, RULES.ult.max);
   }
   get ultReady() { return this.ult >= RULES.ult.max - 0.01; }
 
@@ -143,7 +151,7 @@ export class Fighter {
   updateEnergy(dt, now, locked) {
     if (locked) return;
     if (now < this.energyBlockUntil) return;
-    const rate = this.char.energy.regen * (this.hasBuff('refocus', now) ? 4.2 : 1);
+    const rate = this.char.energy.regen * (this.mods.regen || 1) * (this.hasBuff('refocus', now) ? 4.2 : 1);
     this.energy = clamp(this.energy + rate * dt, 0, this.maxEnergy);
   }
 

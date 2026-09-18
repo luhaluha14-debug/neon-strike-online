@@ -15,7 +15,7 @@
    the same trade this style of netcode always makes, and it is written down in
    the README rather than hidden.
    ========================================================================== */
-import { MAPS, MAP_LIST, MODES, MODE_LIST, CHARACTERS, CHARACTER_LIST, abilityOf,
+import { MAPS, MAP_LIST, MODES, MODE_LIST, CHARACTERS, CHARACTER_LIST, CHARM_LIST, abilityOf, getCharm,
   RULES, falloffMul, fireInterval, worldFor, navFor } from './shared.js';
 import { ServerBot } from './bot.js';
 
@@ -97,11 +97,12 @@ export class Room {
   makeFighter(opts) {
     const ch = CHARACTER_LIST.includes(opts.character) ? opts.character : 'rift';
     const c = CHARACTERS[ch];
+    const charm = getCharm(opts.charm);
     return {
       id: opts.id, name: opts.name, client: opts.client || null,
       isBot: !!opts.isBot, brain: null,
-      character: ch, pendingCharacter: ch, team: null,
-      alive: false, hp: 0, maxHp: c.hp,
+      character: ch, pendingCharacter: ch, charm, pendingCharm: charm, team: null,
+      alive: false, hp: 0, maxHp: Math.round(c.hp * (charm.mods.hp || 1)),
       pos: { x: 0, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 },
       yaw: 0, pitch: 0, height: RULES.standHeight, radius: c.radius,
       onGround: true, crouch: false, sprint: false, flags: 0,
@@ -116,8 +117,8 @@ export class Room {
     };
   }
 
-  addPlayer(client, character) {
-    const p = this.makeFighter({ id: client.id, name: client.name, client, character });
+  addPlayer(client, character, charm) {
+    const p = this.makeFighter({ id: client.id, name: client.name, client, character, charm });
     p.team = this.teamFor(p);
     this.players.set(p.id, p);
     if (!this.hostId) this.hostId = p.id;
@@ -184,7 +185,8 @@ export class Room {
       const name = BOT_NAMES.find((n) => !used.has(n)) || ('상대' + (i + 1));
       const bot = this.makeFighter({
         id: NEXT_BOT_ID++, name, isBot: true,
-        character: CHARACTER_LIST[(Math.random() * CHARACTER_LIST.length) | 0]
+        character: CHARACTER_LIST[(Math.random() * CHARACTER_LIST.length) | 0],
+        charm: CHARM_LIST[(Math.random() * CHARM_LIST.length) | 0]
       });
       bot.team = this.teamFor(bot);
       this.players.set(bot.id, bot);
@@ -224,9 +226,10 @@ export class Room {
         break;
       }
       case 'char':
+        if (m.cm) p.pendingCharm = getCharm(m.cm);
         if (!CHARACTER_LIST.includes(m.ch)) return;
         p.pendingCharacter = m.ch;
-        if (this.state !== 'play') p.character = m.ch;
+        if (this.state !== 'play') { p.character = m.ch; p.charm = p.pendingCharm; }
         this.sendInfo();
         break;
       case 'st': this.onState(p, m); break;
@@ -291,11 +294,11 @@ export class Room {
       if (p.ult < RULES.ult.max - 0.5 || p.ultActive) return;
       p.ult = 0;
       p.ultActive = true;
-      p.ultEndsAt = t + spec.dur + spec.castTime;
+      p.ultEndsAt = t + spec.dur + spec.castTime + ((p.charm && p.charm.mods.domainDur) || 0);
       this.openDomain(p, spec, m);
     } else if (slot === 'q' || slot === 'a1' || slot === 'a2' || slot === 'rmb') {
       if (spec.cd && t < p.cd[slot] - 0.25) return;
-      if (spec.cd) p.cd[slot] = t + spec.cd;
+      if (spec.cd) p.cd[slot] = t + this.cooldownFor(p, slot, spec);
       if (spec.iframe) p.iframeUntil = t + spec.iframe;
       if (spec.hpCost) p.hp = Math.max(1, p.hp - spec.hpCost);
     } else if (slot !== 'refocus') return;
@@ -387,6 +390,14 @@ export class Room {
     return true;
   }
 
+  /* cooldowns are the server's to decide, charm included */
+  cooldownFor(p, slot, spec) {
+    const m = p.charm ? p.charm.mods : {};
+    let cd = spec.cd * (m.cdMul || 1);
+    if (slot === 'q' && m.cdQ) cd += m.cdQ;
+    return Math.max(0.5, cd);
+  }
+
   /* ------------------------------------------------------------- domains */
   openDomain(p, spec, m) {
     this.domains = this.domains.filter((d) => d.owner !== p);
@@ -445,6 +456,7 @@ export class Room {
     if (t < v.iframeUntil) return 0;
     if (t - v.spawnAt < RULES.spawnProtect) amount *= RULES.spawnProtectMul;
     if (t < v.markedUntil) amount *= 1.14;
+    if (v.charm && v.charm.mods.taken) amount *= v.charm.mods.taken;
     const dealt = Math.max(1, Math.round(amount));
     v.hp -= dealt;
     v.lastAttackerId = attacker ? attacker.id : 0;
@@ -488,7 +500,8 @@ export class Room {
 
   addUlt(p, amount) {
     if (p.ultActive) return;
-    p.ult = clamp(p.ult + amount, 0, RULES.ult.max);
+    const gain = amount * ((p.charm && p.charm.mods.ultGain) || 1);
+    p.ult = clamp(p.ult + gain, 0, RULES.ult.max);
   }
 
   /* ---------------------------------------------------------- match flow */
@@ -532,7 +545,8 @@ export class Room {
 
   resetFighter(p) {
     const c = CHARACTERS[p.character];
-    p.maxHp = c.hp;
+    if (p.pendingCharm) p.charm = p.pendingCharm;
+    p.maxHp = Math.round(c.hp * ((p.charm && p.charm.mods.hp) || 1));
     p.radius = c.radius;
     p.alive = false;
     p.hp = 0;

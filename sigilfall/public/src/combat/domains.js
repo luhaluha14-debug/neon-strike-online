@@ -26,7 +26,7 @@ export class DomainSystem {
     const d = {
       id: this.nextId++, owner, spec,
       x: opts.x ?? owner.pos.x, y: opts.y ?? owner.pos.y, z: opts.z ?? owner.pos.z,
-      radius: spec.radius, endsAt: g.now + spec.dur, nextTick: g.now + 0.3,
+      radius: spec.radius, endsAt: g.now + spec.dur + (owner.mods.domainDur || 0), nextTick: g.now + 0.3,
       follow: !!spec.follow, born: g.now
     };
     d.mesh = this.makeMesh(spec);

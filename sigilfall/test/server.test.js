@@ -1,7 +1,7 @@
 /* the room rules, driven directly: lobby, match flow, hit validation, bots */
 import { test, assert, equal } from './harness.js';
 import { Room } from '../server/room.js';
-import { CHARACTERS, RULES, worldFor } from '../server/shared.js';
+import { CHARACTERS, CHARMS, RULES, worldFor } from '../server/shared.js';
 
 /* a stand-in for a websocket client that just records what it was sent */
 function fakeClient(id, name) {
@@ -240,4 +240,31 @@ test('garbage input is ignored rather than crashing the room', () => {
   for (const m of junk) room.onMessage(c1, m);
   equal(room.state, 'play', 'the match survives nonsense');
   assert(a.alive);
+});
+
+test('the server applies the charm, so the client cannot invent its own numbers', () => {
+  const room = makeRoom();
+  const c1 = fakeClient(1, 'A'), c2 = fakeClient(2, 'B');
+  const a = room.addPlayer(c1, 'rift', 'vigor');
+  const b = room.addPlayer(c2, 'rift', 'swift');
+  room.startMatch();
+  equal(a.maxHp, Math.round(CHARACTERS.rift.hp * CHARMS.vigor.mods.hp), 'the health charm is applied on spawn');
+  equal(a.hp, a.maxHp);
+
+  const before = a.hp;
+  room.damage(a, 100, b, {});
+  const taken = before - a.hp;
+  assert(taken < 100, 'the damage reduction applies: ' + taken);
+
+  const t = Date.now() / 1000;
+  room.onAbility(b, { s: 'q', d: [0, 0, 1] });
+  const shortened = b.cd.q - t;
+  assert(shortened < CHARACTERS.rift.q.cd - 0.5, 'the cooldown charm shortens the dash: ' + shortened.toFixed(2));
+});
+
+test('a made-up charm name is ignored', () => {
+  const room = makeRoom();
+  const p = room.addPlayer(fakeClient(1, 'A'), 'rift', 'godmode');
+  equal(p.charm.id, 'none');
+  equal(p.maxHp, CHARACTERS.rift.hp);
 });

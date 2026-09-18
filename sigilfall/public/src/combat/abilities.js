@@ -64,7 +64,7 @@ export class AbilityRuntime {
       g.effects.bloodCost(f);
     }
     if (slot === 'lmb') f.nextFire = now + fireInterval(spec) * this.rateMul(f);
-    else if (SLOT_CD[slot]) f.cd[SLOT_CD[slot]] = now + spec.cd * this.cdMul(f);
+    else if (SLOT_CD[slot]) f.cd[SLOT_CD[slot]] = now + this.cooldownFor(f, slot, spec);
     else if (slot === 'ult') { f.ult = 0; }
 
     const cast = spec.castTime || 0;
@@ -87,6 +87,14 @@ export class AbilityRuntime {
   cdMul(f) {
     const d = this.game.domains.ownBonus(f);
     return d && d.ownCdRate ? 1 / d.ownCdRate : 1;
+  }
+
+  /* the one place a cooldown length is decided: ability, domain, charm */
+  cooldownFor(f, slot, spec) {
+    const m = f.mods || {};
+    let cd = spec.cd * this.cdMul(f) * (m.cdMul || 1);
+    if (slot === 'q' && m.cdQ) cd += m.cdQ;
+    return Math.max(0.5, cd);
   }
 
   startupFx(f, spec, slot) {

@@ -81,7 +81,8 @@ function baseDefaults() {
     music: 0.45,
     // misc
     name: '',
-    lastCharacter: 'rift'
+    lastCharacter: 'rift',
+    charms: { rift: 'none', brand: 'none', warden: 'none', vein: 'none' }
   };
 }
 

@@ -12,6 +12,38 @@
               summon | parry | ads | charge | domain
    ========================================================================== */
 
+/* loadout: one charm per character.  they are small, readable trades, never a
+   second set of abilities, and the four fields below are the only things any
+   charm may touch - the server applies the same numbers. */
+export const CHARMS = {
+  none: {
+    id: 'none', name: '무각', latin: 'PLAIN', icon: '○',
+    desc: '보정 없음. 기본 수치 그대로 싸운다.', mods: {}
+  },
+  swift: {
+    id: 'swift', name: '질주 부적', latin: 'SWIFT', icon: '⋙',
+    desc: '이동 속도 +6%, 이동기(Q) 쿨다운 -1초.',
+    mods: { speed: 1.06, cdQ: -1 }
+  },
+  vigor: {
+    id: 'vigor', name: '항력 부적', latin: 'VIGOR', icon: '❰',
+    desc: '최대 체력 +12%, 받는 피해 -4%.',
+    mods: { hp: 1.12, taken: 0.96 }
+  },
+  flux: {
+    id: 'flux', name: '순환 부적', latin: 'FLUX', icon: '∿',
+    desc: '주력 회복 +30%, 술식 쿨다운 -8%.',
+    mods: { regen: 1.3, cdMul: 0.92 }
+  },
+  rite: {
+    id: 'rite', name: '의식 부적', latin: 'RITE', icon: '✦',
+    desc: '궁극기 충전 +18%, 영역 지속 +0.8초.',
+    mods: { ultGain: 1.18, domainDur: 0.8 }
+  }
+};
+export const CHARM_LIST = Object.keys(CHARMS);
+export function getCharm(id) { return CHARMS[id] || CHARMS.none; }
+
 export const ENERGY_REFOCUS = { dur: 0.85, cd: 1.1, name: '재집중', latin: 'REFOCUS' };
 
 export const CHARACTERS = {

@@ -61,7 +61,7 @@ export class Hub {
         const mode = MODE_LIST.includes(m.mode) ? m.mode : 'tdm';
         const map = MAP_LIST.includes(m.map) || m.map === 'random' ? m.map : 'shrine';
         const room = this.newRoom(false, mode, map);
-        this.join(c, room, m.ch);
+        this.join(c, room, m.ch, m.cm);
         break;
       }
       case 'join': {
@@ -70,7 +70,7 @@ export class Hub {
         if (room.isFull()) return c.send({ t: 'err', m: '방이 가득 찼습니다' });
         if (c.room === room) return;
         this.leave(c);
-        this.join(c, room, m.ch);
+        this.join(c, room, m.ch, m.cm);
         break;
       }
       case 'quick': {
@@ -82,7 +82,7 @@ export class Hub {
           if (!best || r.humans().length > best.humans().length) best = r;
         }
         const room = best || this.newRoom(true, MODE_LIST.includes(m.mode) ? m.mode : 'tdm', 'random');
-        this.join(c, room, m.ch);
+        this.join(c, room, m.ch, m.cm);
         break;
       }
       case 'leave':
@@ -113,9 +113,9 @@ export class Hub {
     return code;
   }
 
-  join(c, room, character) {
+  join(c, room, character, charm) {
     c.room = room;
-    room.addPlayer(c, CHARACTER_LIST.includes(character) ? character : 'rift');
+    room.addPlayer(c, CHARACTER_LIST.includes(character) ? character : 'rift', charm);
   }
 
   leave(c) {

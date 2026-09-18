@@ -13,7 +13,7 @@ import { Menus } from './ui/menus.js';
 import { SettingsUI } from './ui/settingsUI.js';
 import { OnlineUI } from './net/onlineUI.js';
 import { $, el, Screens, toast } from './ui/screens.js';
-import { CHARACTERS } from './characters/roster.js';
+import { CHARACTERS, getCharm } from './characters/roster.js';
 import { MODES } from './game/rules.js';
 import { MAP_LIST } from './world/mapData.js';
 import { audio } from './audio/audio.js';
@@ -33,7 +33,8 @@ class App {
       character: settings.get('lastCharacter') || 'rift',
       botCount: 5,
       botLevel: 'normal',
-      playerName: settings.get('name') || '나'
+      playerName: settings.get('name') || '나',
+      charm: (settings.get('charms') || {})[settings.get('lastCharacter') || 'rift'] || 'none'
     };
     if (!CHARACTERS[this.cfg.character]) this.cfg.character = 'rift';
 
@@ -80,12 +81,22 @@ class App {
   }
 
   /* ------------------------------------------------------------- flow */
+  /* the charm follows whichever character is selected */
+  applyLoadout() {
+    const charms = settings.get('charms') || {};
+    this.cfg.charm = charms[this.cfg.character] || 'none';
+    $('menuCharmName').textContent = getCharm(this.cfg.charm).name;
+    if (this.net?.connected) this.net.sendCharacter(this.cfg.character, this.cfg.charm);
+    if (this.game.active && this.game.player) this.game.player.pendingCharm = this.cfg.charm;
+  }
+
   boot() {
     const d = settings.device;
     $('deviceHint').textContent = d.isMobile
       ? `모바일 감지 · 그래픽 ${settings.preset.name} · 터치 조작 + 조준 보정`
       : `PC · 그래픽 ${settings.preset.name} · 마우스 + 키보드`;
     $('menuCharName').textContent = CHARACTERS[this.cfg.character].latin;
+    this.applyLoadout();
     Screens.reset('screenMenu');
     // the first tap or click is what lets the audio engine start
     const unlock = () => { audio.init(); window.removeEventListener('pointerdown', unlock); };
@@ -193,7 +204,8 @@ class App {
 
   onCharacterChosen(id) {
     // in a room the pick is just a preference; in a match it lands on respawn
-    if (this.net?.connected) this.net.sendCharacter(id);
+    this.applyLoadout();
+    if (this.net?.connected) this.net.sendCharacter(id, this.cfg.charm);
     $('roomCharName').textContent = CHARACTERS[id].latin;
     if (!this.game.active) return;
     const p = this.game.player;

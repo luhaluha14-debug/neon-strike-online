@@ -2,7 +2,7 @@
    screen stack and toasts.  every full page panel lives in index.html; this
    just decides which one is visible and remembers where "back" goes.
    ========================================================================== */
-const ids = ['screenBoot', 'screenMenu', 'screenPlay', 'screenChars', 'screenSettings',
+const ids = ['screenBoot', 'screenMenu', 'screenPlay', 'screenChars', 'screenLoadout', 'screenSettings',
   'screenHow', 'screenLobby', 'screenRoom', 'screenPause', 'screenEnd'];
 
 export const $ = (id) => document.getElementById(id);

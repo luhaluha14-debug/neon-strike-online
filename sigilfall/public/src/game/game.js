@@ -21,7 +21,7 @@ import { AbilityRuntime } from '../combat/abilities.js';
 import { BotBrain } from '../ai/bot.js';
 import { Hud } from '../ui/hud.js';
 import { audio } from '../audio/audio.js';
-import { CHARACTER_LIST } from '../characters/roster.js';
+import { CHARACTER_LIST, CHARM_LIST } from '../characters/roster.js';
 import { clamp, dist2, pick, rndInt } from '../core/math.js';
 
 const BOT_NAMES = ['서리', '단목', '유하', '나린', '청명', '해인', '도경', '소랑', '이후', '결', '무향', '천류'];
@@ -86,7 +86,7 @@ export class Game {
     /* local player */
     const player = new Fighter({
       id: this.net ? this.net.selfId : 1, name: this.cfg.playerName || '나',
-      character: this.cfg.character, isPlayer: true, team: 'a'
+      character: this.cfg.character, charm: this.cfg.charm, isPlayer: true, team: 'a'
     });
     this.addFighter(player);
     this.player = player;
@@ -143,7 +143,8 @@ export class Game {
     for (let i = 0; i < want; i++) {
       const name = names.length ? names.splice(rndInt(0, names.length - 1), 1)[0] : 'BOT' + i;
       const bot = new Fighter({
-        name, character: pick(CHARACTER_LIST), isBot: true, botLevel: this.cfg.botLevel
+        name, character: pick(CHARACTER_LIST), charm: pick(CHARM_LIST),
+        isBot: true, botLevel: this.cfg.botLevel
       });
       bot.brain = new BotBrain(this, bot, this.cfg.botLevel);
       this.addFighter(bot);
@@ -219,7 +220,11 @@ export class Game {
 
   spawnFighter(f, slot) {
     const s = this.spawnPoint(f, slot);
-    // a character swap made while dead takes effect here
+    // a character or charm swap made while dead takes effect here
+    if (f.pendingCharm && f.pendingCharm !== f.charm.id) {
+      f.setCharm(f.pendingCharm);
+      f.pendingCharm = null;
+    }
     if (f.pendingCharacter && f.pendingCharacter !== f.charId) {
       f.setCharacter(f.pendingCharacter);
       f.pendingCharacter = null;
@@ -268,6 +273,7 @@ export class Game {
       }
       if (now - victim.spawnAt < RULES.spawnProtect) amount *= RULES.spawnProtectMul;
       if (victim.hasBuff('shield', now)) amount *= victim.buff('shield', now).data;
+      if (victim.mods.taken) amount *= victim.mods.taken;
       if (now < victim.markedUntil) amount *= 1.14;
       amount *= this.domains.damageTakenMul(victim, attacker);
     }

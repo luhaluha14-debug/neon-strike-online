@@ -6,7 +6,7 @@
 import { MAPS, MAP_LIST } from '../public/src/world/mapData.js';
 import { World } from '../public/src/world/collision.js';
 import { NavGrid } from '../public/src/world/nav.js';
-import { CHARACTERS, CHARACTER_LIST, abilityOf } from '../public/src/characters/roster.js';
+import { CHARACTERS, CHARACTER_LIST, abilityOf, CHARMS, CHARM_LIST, getCharm } from '../public/src/characters/roster.js';
 import { MODES, MODE_LIST, RULES, falloffMul, fireInterval } from '../public/src/game/rules.js';
 
 const worlds = new Map();
@@ -21,4 +21,4 @@ export function navFor(mapId) {
   return navs.get(mapId);
 }
 
-export { MAPS, MAP_LIST, CHARACTERS, CHARACTER_LIST, abilityOf, MODES, MODE_LIST, RULES, falloffMul, fireInterval };
+export { MAPS, MAP_LIST, CHARACTERS, CHARACTER_LIST, abilityOf, CHARMS, CHARM_LIST, getCharm, MODES, MODE_LIST, RULES, falloffMul, fireInterval };

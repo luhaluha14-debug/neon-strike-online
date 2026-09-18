@@ -29,6 +29,7 @@ export class NetClient {
     this.claims = new Map();          // ability id -> [claims]
     this.buffers = new Map();         // fighter id -> snapshot buffer
     this.latency = 0;
+    this.charm = app.cfg.charm || 'none';
     this.pingAt = 0;
     this.pingSeq = 0;
     this.lastSnapshotAt = 0;
@@ -94,13 +95,16 @@ export class NetClient {
   /* ------------------------------------------------------------ lobby */
   setName(name) { this.send({ t: 'hello', name }); }
   listRooms() { this.send({ t: 'rooms' }); }
-  quick(character, mode) { this.send({ t: 'quick', ch: character, mode }); }
-  create(mode, map, character) { this.send({ t: 'create', mode, map, ch: character }); }
-  join(code, character) { this.send({ t: 'join', code, ch: character }); }
+  quick(character, mode) { this.send({ t: 'quick', ch: character, cm: this.charm, mode }); }
+  create(mode, map, character) { this.send({ t: 'create', mode, map, ch: character, cm: this.charm }); }
+  join(code, character) { this.send({ t: 'join', code, ch: character, cm: this.charm }); }
   leave() { this.send({ t: 'leave' }); this.room = null; }
   setSettings(s) { this.send(Object.assign({ t: 'settings' }, s)); }
   startMatch() { this.send({ t: 'start' }); }
-  sendCharacter(ch) { this.send({ t: 'char', ch }); }
+  sendCharacter(ch, charm) {
+    if (charm) this.charm = charm;
+    this.send({ t: 'char', ch, cm: this.charm });
+  }
 
   /* ----------------------------------------------------------- inbound */
   onMessage(m) {

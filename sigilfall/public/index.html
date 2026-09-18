@@ -99,6 +99,7 @@
       <button class="btn primary" id="btnPlay"><span class="t">Play</span><span class="d">봇 대전 · 훈련</span></button>
       <button class="btn" id="btnOnline"><span class="t">Online</span><span class="d">방 만들기 · 참가</span></button>
       <button class="btn" id="btnChars"><span class="t">Characters</span><span class="d" id="menuCharName">RIFT</span></button>
+      <button class="btn" id="btnLoadout"><span class="t">Loadout</span><span class="d" id="menuCharmName">무각</span></button>
       <button class="btn" id="btnSettings"><span class="t">Settings</span><span class="d">조작 · 그래픽</span></button>
       <button class="btn ghost" id="btnHow"><span class="t">How to play</span><span class="d">조작법</span></button>
     </div>
@@ -128,6 +129,17 @@
       <button class="btn primary" id="btnPickChar" style="flex:1"><span class="t">Select</span><span class="d" id="pickName"></span></button>
       <button class="btn ghost" id="btnCharsBack"><span class="t">Back</span></button>
     </div>
+  </div>
+</section>
+
+<section class="screen hide" id="screenLoadout">
+  <div class="stack">
+    <h2 class="title">Loadout · 부적</h2>
+    <div class="hint">술사마다 부적 하나를 지닐 수 있습니다. 능력을 더 주지 않고, 수치를 조금 바꿉니다.</div>
+    <div class="row tight" id="loadoutChars"></div>
+    <div class="roster" id="charms"></div>
+    <div class="panel"><div class="list" id="loadoutSummary"></div></div>
+    <button class="btn primary" id="btnLoadoutBack"><span class="t">Done</span></button>
   </div>
 </section>
 
