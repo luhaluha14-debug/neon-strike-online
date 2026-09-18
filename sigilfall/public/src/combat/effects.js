@@ -154,20 +154,28 @@ export class Effects {
   }
 
   beam(eye, dir, len, color, width) {
-    const mesh = this.takeQuad(this.cylGeo, color, 0.8);
-    mesh.scale.set(width * 0.5, len, width * 0.5);
-    const mid = { x: eye.x + dir.x * len / 2, y: eye.y + dir.y * len / 2, z: eye.z + dir.z * len / 2 };
-    mesh.position.set(mid.x, mid.y, mid.z);
-    mesh.lookAt(eye.x + dir.x * len, eye.y + dir.y * len, eye.z + dir.z * len);
+    // start it clear of the camera: a bright cylinder through the lens reads as
+    // a white flash, not as a beam leaving the hand
+    const near = Math.min(1.6, len * 0.3);
+    const span = Math.max(0.2, len - near);
+    const from = { x: eye.x + dir.x * near, y: eye.y + dir.y * near, z: eye.z + dir.z * near };
+    // the core stays thin even for a wide attack; the width shows in the sparks
+    const core = Math.min(width, 0.7);
+    const mesh = this.takeQuad(this.cylGeo, color, 0.75);
+    mesh.scale.set(core * 0.5, span, core * 0.5);
+    mesh.position.set(from.x + dir.x * span / 2, from.y + dir.y * span / 2, from.z + dir.z * span / 2);
+    mesh.lookAt(from.x + dir.x * span, from.y + dir.y * span, from.z + dir.z * span);
     mesh.rotateX(Math.PI / 2);
     this.pushEffect(mesh, 0.16, (m, k) => {
-      m.material.opacity = 0.8 * (1 - k);
-      m.scale.x = width * 0.5 * (1 - k * 0.6);
+      m.material.opacity = 0.75 * (1 - k);
+      m.scale.x = core * 0.5 * (1 - k * 0.6);
       m.scale.z = m.scale.x;
-    }, 0.8);
-    for (let i = 0; i < 10 * this.q; i++) {
-      const t = rnd(0.1, 1) * len;
-      this.emit(eye.x + dir.x * t, eye.y + dir.y * t, eye.z + dir.z * t,
+    }, 0.75);
+    const spread = width * 0.5;
+    for (let i = 0; i < 14 * this.q; i++) {
+      const t = near + rnd(0.05, 1) * span;
+      this.emit(eye.x + dir.x * t + rnd(-spread, spread), eye.y + dir.y * t + rnd(-spread, spread) * 0.6,
+        eye.z + dir.z * t + rnd(-spread, spread),
         rnd(-1, 1), rnd(-0.5, 1.5), rnd(-1, 1), 0.3, color, 0.13, 0.4);
     }
   }
