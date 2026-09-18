@@ -1,13 +1,16 @@
 {
-  "name": "neon-strike-online",
+  "name": "sigilfall-online",
   "private": true,
   "scripts": {
-    "start": "node neon_strike_online/server/server.js"
+    "start": "node sigilfall/server/server.js",
+    "test": "node sigilfall/test/run.js",
+    "start:legacy": "node neon_strike_online/server/server.js"
   },
   "engines": {
     "node": ">=18"
   },
   "dependencies": {
+    "three": "0.128.0",
     "ws": "^8.18.0"
   }
 }

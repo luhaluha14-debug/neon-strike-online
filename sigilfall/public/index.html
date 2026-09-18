@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0b0e12">
+<meta name="description" content="SIGILFALL — PC와 모바일에서 함께 즐기는 고속 주술 액션 FPS">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>SIGILFALL · 주술 액션 FPS</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%230b0e12'/><path d='M16 4 L27 16 L16 28 L5 16 Z' fill='none' stroke='%23c8632f' stroke-width='2.4'/><circle cx='16' cy='16' r='3' fill='%23f09140'/></svg>">
+<link rel="stylesheet" href="styles/ui.css">
+</head>
+<body>
+<canvas id="view"></canvas>
+
+<!-- ============================== HUD ============================== -->
+<div id="hud">
+  <div id="minimap"><canvas width="300" height="300"></canvas></div>
+
+  <div id="score">
+    <div>
+      <div class="row tight" style="gap:10px;align-items:center">
+        <span class="s a mono" id="scoreA">0</span>
+        <span class="mid" id="scoreMode">TDM</span>
+        <span class="s b mono" id="scoreB">0</span>
+      </div>
+      <div id="timer" class="mono"></div>
+    </div>
+  </div>
+
+  <div id="killfeed"></div>
+  <div id="dmgLayer"></div>
+  <div id="dirLayer"></div>
+  <div id="lowhp"></div>
+  <div id="domainEdge"></div>
+
+  <div id="crosshair">
+    <span class="ln" id="chT"></span><span class="ln" id="chB"></span>
+    <span class="ln" id="chL"></span><span class="ln" id="chR"></span>
+    <span class="dot" id="chDot"></span>
+  </div>
+  <div id="hitmark"><div style="transform:rotate(45deg) translate(-9px,0)"></div>
+    <div style="transform:rotate(-45deg) translate(-9px,0)"></div>
+    <div style="transform:rotate(45deg) translate(9px,0)"></div>
+    <div style="transform:rotate(-45deg) translate(9px,0)"></div></div>
+  <div id="autoaimTag">AIM ASSIST</div>
+
+  <div id="banner"></div>
+  <div id="statusbar"></div>
+
+  <div id="respawn" class="hide">
+    <div class="t">부활</div><div class="n mono" id="respawnN">3</div>
+    <div class="by" id="respawnBy"></div>
+  </div>
+
+  <div id="vitals">
+    <div class="name"><span id="vitName">RIFT</span> <span id="vitRole" style="color:var(--dim2)"></span></div>
+    <div id="hpwrap"><div id="hpghost"></div><div id="hpfill"></div><div id="hptext" class="mono">180</div></div>
+    <div id="energywrap"><div id="energyfill"></div></div>
+    <div id="stacks"></div>
+  </div>
+
+  <div id="abilities"></div>
+  <div id="fps" class="mono hide"></div>
+  <div id="netstat" class="mono hide"></div>
+</div>
+
+<!-- ======================== touch controls ========================= -->
+<div id="touch">
+  <div class="zone" id="moveZone"></div>
+  <div class="zone" id="lookZone"></div>
+  <div id="stick"><div id="stickNub"></div></div>
+</div>
+
+<div id="board" class="hide"></div>
+<div id="toast"></div>
+<div id="rotate">가로 화면으로 돌려주세요<br><span style="font-size:26px">⟳</span></div>
+
+<!-- ============================ screens ============================ -->
+<section class="screen" id="screenBoot">
+  <div class="stack">
+    <div class="brand">
+      <h1>SIGILFALL</h1>
+      <div class="sub">sorcery action fps</div>
+    </div>
+    <div class="hint" id="bootMsg">준비 중…</div>
+  </div>
+</section>
+
+<section class="screen hide" id="screenMenu">
+  <div class="stack">
+    <div class="brand">
+      <h1>SIGILFALL</h1>
+      <div class="sub">sorcery action fps</div>
+      <div class="kr">고속 주술 액션 FPS · PC / 모바일</div>
+    </div>
+    <div class="menu">
+      <button class="btn primary" id="btnPlay"><span class="t">Play</span><span class="d">봇 대전 · 훈련</span></button>
+      <button class="btn" id="btnOnline"><span class="t">Online</span><span class="d">방 만들기 · 참가</span></button>
+      <button class="btn" id="btnChars"><span class="t">Characters</span><span class="d" id="menuCharName">RIFT</span></button>
+      <button class="btn" id="btnSettings"><span class="t">Settings</span><span class="d">조작 · 그래픽</span></button>
+      <button class="btn ghost" id="btnHow"><span class="t">How to play</span><span class="d">조작법</span></button>
+    </div>
+    <div class="hint" id="deviceHint"></div>
+  </div>
+</section>
+
+<section class="screen hide" id="screenPlay">
+  <div class="stack">
+    <h2 class="title">Match setup · 대전 설정</h2>
+    <div class="panel">
+      <div class="list" id="setupList"></div>
+    </div>
+    <div class="row">
+      <button class="btn primary" id="btnStartMatch" style="flex:1"><span class="t">Start</span><span class="d">전투 시작</span></button>
+      <button class="btn ghost" id="btnPlayBack"><span class="t">Back</span></button>
+    </div>
+  </div>
+</section>
+
+<section class="screen hide" id="screenChars">
+  <div class="stack">
+    <h2 class="title">Characters · 술사 선택</h2>
+    <div class="roster" id="roster"></div>
+    <div class="kit" id="kit"></div>
+    <div class="row">
+      <button class="btn primary" id="btnPickChar" style="flex:1"><span class="t">Select</span><span class="d" id="pickName"></span></button>
+      <button class="btn ghost" id="btnCharsBack"><span class="t">Back</span></button>
+    </div>
+  </div>
+</section>
+
+<section class="screen hide" id="screenSettings">
+  <div class="stack">
+    <h2 class="title">Settings · 설정</h2>
+    <div class="tabs" id="setTabs"></div>
+    <div class="panel"><div class="list" id="setList"></div></div>
+    <div class="row">
+      <button class="btn ghost" id="btnSetReset"><span class="t">Reset</span><span class="d">기본값</span></button>
+      <button class="btn primary" id="btnSetBack" style="flex:1"><span class="t">Done</span></button>
+    </div>
+  </div>
+</section>
+
+<section class="screen hide" id="screenHow">
+  <div class="stack">
+    <h2 class="title">How to play · 조작법</h2>
+    <div class="panel"><div class="list" id="howList"></div></div>
+    <button class="btn primary" id="btnHowBack"><span class="t">Back</span></button>
+  </div>
+</section>
+
+<section class="screen hide" id="screenLobby">
+  <div class="stack">
+    <h2 class="title">Online · 온라인</h2>
+    <div class="panel">
+      <div class="list">
+        <div class="opt"><span class="lbl">이름<small>다른 플레이어에게 보이는 이름</small></span>
+          <input class="text" id="inName" maxlength="12" style="flex:0 0 190px" placeholder="PLAYER"></div>
+      </div>
+    </div>
+    <div class="row">
+      <button class="btn primary" id="btnQuick" style="flex:1"><span class="t">Quick match</span><span class="d">바로 참가</span></button>
+      <button class="btn" id="btnCreate"><span class="t">Create</span><span class="d">방 만들기</span></button>
+    </div>
+    <div class="row">
+      <input class="text" id="inCode" maxlength="4" placeholder="CODE" style="flex:0 0 150px">
+      <button class="btn" id="btnJoin" style="flex:1"><span class="t">Join</span><span class="d">코드로 입장</span></button>
+    </div>
+    <h2 class="title">공개 방</h2>
+    <div class="roomlist" id="roomList"></div>
+    <button class="btn ghost" id="btnLobbyBack"><span class="t">Back</span></button>
+  </div>
+</section>
+
+<section class="screen hide" id="screenRoom">
+  <div class="stack">
+    <h2 class="title">Room · <span id="roomCode" style="color:var(--ember2);letter-spacing:.3em"></span></h2>
+    <div class="panel"><div class="list" id="roomSetup"></div></div>
+    <div class="players" id="roomPlayers"></div>
+    <div class="hint" id="roomHint"></div>
+    <div class="row">
+      <button class="btn" id="btnRoomChar"><span class="t">Character</span><span class="d" id="roomCharName"></span></button>
+      <button class="btn primary" id="btnRoomStart" style="flex:1"><span class="t">Start</span></button>
+      <button class="btn ghost" id="btnRoomLeave"><span class="t">Leave</span></button>
+    </div>
+  </div>
+</section>
+
+<section class="screen overlay hide" id="screenPause">
+  <div class="stack" style="max-width:420px">
+    <h2 class="title">Paused · 일시 정지</h2>
+    <div class="menu">
+      <button class="btn primary" id="btnResume"><span class="t">Resume</span><span class="d">계속</span></button>
+      <button class="btn" id="btnPauseChar"><span class="t">Character</span><span class="d">부활 시 적용</span></button>
+      <button class="btn" id="btnPauseSettings"><span class="t">Settings</span></button>
+      <button class="btn ghost" id="btnQuit"><span class="t">Leave match</span><span class="d">나가기</span></button>
+    </div>
+  </div>
+</section>
+
+<section class="screen hide" id="screenEnd">
+  <div class="stack">
+    <div id="endTitle">VICTORY</div>
+    <div class="hint" id="endSub"></div>
+    <div id="endBoard" style="width:100%"></div>
+    <div class="row">
+      <button class="btn primary" id="btnAgain" style="flex:1"><span class="t">Play again</span></button>
+      <button class="btn ghost" id="btnEndMenu"><span class="t">Menu</span></button>
+    </div>
+  </div>
+</section>
+
+<script>
+/* three.js is served from node_modules by our own server; the CDNs are only a
+   fallback for static hosting.  once it is up we hand over to the ES modules. */
+(function () {
+  var sources = [
+    'vendor/three.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',
+    'https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js'
+  ];
+  var msg = document.getElementById('bootMsg');
+  function next(i) {
+    if (i >= sources.length) { msg.textContent = '엔진을 불러오지 못했습니다. 새로고침해 주세요.'; return; }
+    var s = document.createElement('script');
+    s.src = sources[i];
+    s.onload = function () {
+      if (!window.THREE) return next(i + 1);
+      msg.textContent = '자원 준비 중…';
+      import('./src/main.js').catch(function (e) {
+        console.error(e);
+        msg.textContent = '실행 오류: ' + (e && e.message ? e.message : e);
+      });
+    };
+    s.onerror = function () { next(i + 1); };
+    document.head.appendChild(s);
+  }
+  next(0);
+})();
+</script>
+</body>
+</html>
