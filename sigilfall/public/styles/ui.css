@@ -221,7 +221,7 @@ h2.title{font-size:13px;letter-spacing:.34em;color:var(--dim);text-transform:upp
   background:rgba(14,19,25,.62);border:2px solid rgba(255,255,255,.26);color:#e7edf3;
   font-weight:800;pointer-events:auto;user-select:none}
 .tbtn .lab{font-size:11px;letter-spacing:.06em;opacity:.9}
-.tbtn .sub{position:absolute;bottom:5px;font-size:9px;opacity:.6}
+.tbtn .sub{position:absolute;bottom:5px;font-size:.30em;opacity:.65;white-space:nowrap;max-width:96%;overflow:hidden;text-overflow:ellipsis}
 .tbtn.down{background:rgba(200,99,47,.5);border-color:var(--ember2);transform:scale(.94)}
 .tbtn.cool{opacity:.45}
 .tbtn .cdn{position:absolute;font-size:17px;font-weight:800;color:#fff}
@@ -293,6 +293,6 @@ body.touchui #score{top:8px}
 }
 #rotate{position:fixed;inset:0;z-index:90;display:none;place-items:center;text-align:center;background:var(--bg);
   font-size:14px;color:var(--dim);letter-spacing:.1em;padding:20px}
-@media (max-width:900px) and (orientation:portrait){
+@media (max-width:700px) and (orientation:portrait){
   body.ingame #rotate{display:grid}
 }

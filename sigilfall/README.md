@@ -54,6 +54,10 @@ npm start          # http://localhost:8080
 
 ### 모바일 (가로 화면 권장)
 
+아이패드도 같은 터치 조작을 씁니다. iPadOS Safari는 맥 사용자 에이전트를 보내기 때문에
+화면 크기가 아니라 터치 지원 여부로 기기를 판별합니다. 태블릿은 가로·세로 모두 그대로 플레이할 수 있고,
+마우스나 트랙패드를 붙이면 그 즉시 수동 조준이 우선합니다(조준 보정은 터치 입력에만 작동합니다).
+
 - **왼쪽 화면**: 아무 데나 누르면 그 자리에 가상 스틱이 생깁니다. 끝까지 밀면 달립니다.
 - **오른쪽 화면**: 드래그로 시점, 짧게 탭하면 사격.
 - **오른쪽 버튼 묶음**: 공격 · 보조 · 점프 · `Q` · `1` · `2` · `E`
@@ -281,6 +285,7 @@ node sigilfall/test/browser-smoke.cjs     # 4캐릭터 실제 전투 + 온라인
 node sigilfall/test/browser-ui.cjs        # 메뉴 → 캐릭터 → 부적 → 설정 → 매치 → 일시정지 → 결과
 node sigilfall/test/browser-pc.cjs        # 실제 키보드/마우스 이벤트, 키 재설정, 부활
 node sigilfall/test/browser-touch.cjs     # 터치 버튼, 가상 스틱, 조준 보정 규칙
+node sigilfall/test/browser-tablet.cjs    # 아이패드/안드로이드 태블릿 인식과 배치
 node sigilfall/test/browser-abilities.cjs # 4캐릭터 × 6술식을 실제로 시전하고 결과 확인
 ```
 

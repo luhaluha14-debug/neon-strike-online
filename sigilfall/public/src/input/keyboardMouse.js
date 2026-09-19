@@ -9,6 +9,8 @@ export class KeyboardMouse {
     this.input = input;
     this.canvas = canvas;
     this.locked = false;
+    this.dragLook = false;              // set when pointer lock is unavailable
+    this.dragging = false;
     this.rebindCapture = null;          // set by the settings screen
     this.onLockChange = null;
 
@@ -35,25 +37,30 @@ export class KeyboardMouse {
     this._blur = () => this.input.clear();
 
     this._mousedown = (e) => {
-      if (!this.locked) return;
+      if (!this.locked && !this.dragLook) return;
       this.input.lastDevice = 'kbm';
+      if (this.dragLook) this.dragging = true;
       if (e.button === 0) this.input.setHold('fire', true);
       else if (e.button === 2) this.input.setHold('altFire', true);
     };
     this._mouseup = (e) => {
+      this.dragging = false;
       if (e.button === 0) this.input.setHold('fire', false);
       else if (e.button === 2) this.input.setHold('altFire', false);
     };
     this._mousemove = (e) => {
-      if (!this.locked) return;
+      if (!this.locked && !(this.dragLook && this.dragging)) return;
       const s = settings.lookSensitivity;
       const inv = settings.get('invertY') ? -1 : 1;
       const adsMul = this.adsActive ? settings.get('sensitivityAds') : 1;
-      this.input.addLook(-e.movementX * s * adsMul, -e.movementY * s * adsMul * inv, 'kbm');
+      const dx = e.movementX !== undefined ? e.movementX : 0;
+      const dy = e.movementY !== undefined ? e.movementY : 0;
+      this.input.addLook(-dx * s * adsMul, -dy * s * adsMul * inv, 'kbm');
     };
     this._contextmenu = (e) => { if (this.locked) e.preventDefault(); };
     this._lockchange = () => {
       this.locked = document.pointerLockElement === this.canvas;
+      if (this.locked) { this.dragLook = false; this.dragging = false; }
       if (!this.locked) this.input.clear();
       this.onLockChange?.(this.locked);
     };
@@ -97,12 +104,28 @@ export class KeyboardMouse {
     i.setMove(x, z, 'kbm');
   }
 
+  /* asks for pointer lock; if the browser will not give it (an iframe without
+     the permission, or a tablet), the mouse falls back to drag-to-look */
   requestLock() {
     if (this.locked) return;
-    const p = this.canvas.requestPointerLock?.();
-    if (p && p.catch) p.catch(() => {});
+    this.dragging = false;
+    let denied = false;
+    try {
+      const p = this.canvas.requestPointerLock?.();
+      if (p && p.catch) p.catch(() => { denied = true; this.dragLook = true; });
+    } catch (e) { denied = true; this.dragLook = true; }
+    clearTimeout(this._lockTimer);
+    this._lockTimer = setTimeout(() => {
+      if (!this.locked) this.dragLook = true;
+      else this.dragLook = false;
+      void denied;
+    }, 500);
   }
-  exitLock() { if (document.pointerLockElement) document.exitPointerLock(); }
+  exitLock() {
+    clearTimeout(this._lockTimer);
+    this.dragging = false;
+    if (document.pointerLockElement) document.exitPointerLock();
+  }
 
   dispose() {
     window.removeEventListener('keydown', this._keydown);

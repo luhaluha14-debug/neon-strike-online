@@ -235,7 +235,10 @@ export class TouchControls {
       b.el.title = spec ? spec.name : '';
       let sub = b.el.querySelector('.sub');
       if (!sub) { sub = el('span', 'sub'); b.el.appendChild(sub); }
-      sub.textContent = spec ? spec.name.slice(0, 4) : '';
+      // the full name when the button is wide enough for it, shortened when not
+      const name = spec ? spec.name : '';
+      const room = Math.round(b.def.r * this.scale / 3.4);
+      sub.textContent = name.length <= room ? name : name.slice(0, Math.max(3, room)) + '…';
     }
   }
 

@@ -48,7 +48,8 @@ class App {
 
     this.game.on('end', (r) => this.onMatchEnd(r));
     this.kbm.onLockChange = (locked) => {
-      if (!locked && this.inMatch && !this.paused && !settings.device.isMobile) this.pause();
+      // losing the lock mid-fight means the player alt-tabbed or hit escape
+      if (!locked && this.inMatch && !this.paused && !this.kbm.dragLook && settings.device.fine) this.pause();
     };
     window.addEventListener('keydown', (e) => {
       if (e.code !== 'Escape') return;
@@ -92,9 +93,11 @@ class App {
 
   boot() {
     const d = settings.device;
-    $('deviceHint').textContent = d.isMobile
-      ? `모바일 감지 · 그래픽 ${settings.preset.name} · 터치 조작 + 조준 보정`
-      : `PC · 그래픽 ${settings.preset.name} · 마우스 + 키보드`;
+    const kind = d.isPhone ? '모바일' : d.isTablet ? '태블릿' : 'PC';
+    const how = d.touch
+      ? (d.fine ? '터치 + 마우스/키보드' : '터치 조작 + 조준 보정')
+      : '마우스 + 키보드';
+    $('deviceHint').textContent = `${kind} 감지 · 그래픽 ${settings.preset.name} · ${how}`;
     $('menuCharName').textContent = CHARACTERS[this.cfg.character].latin;
     this.applyLoadout();
     Screens.reset('screenMenu');
@@ -120,10 +123,9 @@ class App {
   }
 
   enterInput() {
-    if (settings.device.isMobile || settings.device.touch) {
-      this.touch.setEnabled(true, this.game);
-    }
-    if (!settings.device.isMobile) this.kbm.requestLock();
+    if (settings.device.touch) this.touch.setEnabled(true, this.game);
+    // only a device with a real pointer gets asked for pointer lock
+    if (settings.device.fine) this.kbm.requestLock();
     this.input.enabled = true;
   }
   exitInput() {

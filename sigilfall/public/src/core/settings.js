@@ -86,20 +86,35 @@ function baseDefaults() {
   };
 }
 
+/* what is in the player's hand, not how wide the screen is.  iPadOS Safari
+   reports a Macintosh user agent, so a tablet has to be recognised by its
+   touch points; orientation is deliberately ignored, or turning the device
+   would change the verdict. */
 export function detectDevice() {
   const ua = navigator.userAgent || '';
-  const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+  const mm = (q) => (window.matchMedia ? window.matchMedia(q).matches : false);
+  const coarse = mm('(pointer: coarse)');
+  const fine = mm('(pointer: fine)');
   const touch = ('ontouchstart' in window) || (navigator.maxTouchPoints || 0) > 0;
-  const mobileUa = /Android|iPhone|iPad|iPod|Windows Phone|Mobile/i.test(ua);
-  const isIpad = /Macintosh/.test(ua) && (navigator.maxTouchPoints || 0) > 1;
-  const isMobile = (touch && coarse && mobileUa) || isIpad || (touch && coarse && window.innerWidth < 1024);
+  const phoneUa = /Android.*Mobile|iPhone|iPod|Windows Phone/i.test(ua);
+  const tabletUa = /iPad|Tablet|PlayBook|Silk/i.test(ua) ||
+    (/Macintosh/.test(ua) && touch) ||               // iPadOS in its Mac disguise
+    (/Android/i.test(ua) && !/Mobile/i.test(ua));
+  const short = Math.min(window.innerWidth || 1024, window.innerHeight || 768);
+
+  const isTablet = touch && (tabletUa || (coarse && !phoneUa && short >= 600));
+  const isPhone = touch && !isTablet && (phoneUa || (coarse && short < 600));
+  const isMobile = isPhone || isTablet;
+
   const cores = navigator.hardwareConcurrency || 4;
   const mem = navigator.deviceMemory || (isMobile ? 4 : 8);
   const dpr = window.devicePixelRatio || 1;
-  let tier = 'high';
-  if (isMobile) tier = (cores >= 8 && mem >= 6) ? 'medium' : 'low';
-  else if (cores <= 4 || mem <= 4) tier = 'medium';
-  return { isMobile, touch, cores, mem, dpr, tier };
+  let tier;
+  if (isPhone) tier = (cores >= 8 && mem >= 6) ? 'medium' : 'low';
+  else if (isTablet) tier = 'medium';
+  else tier = (cores <= 4 || mem <= 4) ? 'medium' : 'high';
+
+  return { isMobile, isPhone, isTablet, touch, coarse, fine, cores, mem, dpr, tier };
 }
 
 export class Settings {
@@ -112,8 +127,10 @@ export class Settings {
     this.data.shadows = preset.shadows;
     this.data.particles = preset.particles;
     this.data.fpsCap = preset.fpsCap;
-    this.data.aimAssist = this.device.isMobile;
-    if (this.device.isMobile) this.data.fov = 86;
+    // a finger aims worse than a mouse, so any touch-first device gets the
+    // assist; it only ever acts on touch input anyway
+    this.data.aimAssist = this.device.touch && this.device.coarse;
+    if (this.device.isPhone) this.data.fov = 86;
     this.load();
     this.listeners = new Set();
   }
