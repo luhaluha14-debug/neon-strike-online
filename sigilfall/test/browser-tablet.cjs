@@ -43,8 +43,16 @@ function check(cond, what) {
     });
     const page = await ctx.newPage();
     const errors = [];
+    const noise = (t) => /favicon/i.test(t);   // the host supplies the tab icon
     page.on('pageerror', (e) => errors.push(e.message));
-    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+    page.on('console', (m) => {
+      if (m.type() !== 'error') return;
+      const t = m.text();
+      if (!noise(t) && !(m.location() && noise(m.location().url || ''))) errors.push(t);
+    });
+    page.on('response', (r) => {
+      if (r.status() >= 400 && !noise(r.url())) errors.push(r.status() + ' ' + r.url());
+    });
     await page.goto(URL, { waitUntil: 'load' });
     await page.waitForFunction(() => !!window.SIGILFALL, null, { timeout: 20000 });
 

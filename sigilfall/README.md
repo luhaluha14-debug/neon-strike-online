@@ -293,7 +293,25 @@ node sigilfall/test/browser-abilities.cjs # 4캐릭터 × 6술식을 실제로 �
 
 ---
 
-## 11. 인터넷에 공개하기
+## 11. 서버 없이 배포하기 (정적 빌드)
+
+서버가 없는 곳(정적 호스팅, 링크 공유, USB)에 올릴 수 있는 사본을 만듭니다.
+스타일은 페이지에 인라인되고, three.js는 `node_modules` 에서 복사되며, 온라인 대전 버튼은 숨겨집니다.
+봇 대전은 전부 그대로 동작합니다.
+
+```bash
+node sigilfall/tools/build-artifact.js            # build/artifact 에 생성
+node sigilfall/tools/preview-artifact.js          # http://localhost:8090 에서 확인
+```
+
+프리뷰 서버는 페이지를 호스트와 같은 방식으로 감싸서 보여주므로, 올리기 전에 브라우저 테스트를
+그대로 돌려 볼 수 있습니다.
+
+```bash
+SIGILFALL_URL=http://localhost:8090/ node sigilfall/test/browser-tablet.cjs
+```
+
+## 12. 인터넷에 공개하기
 
 `render.yaml` 이 들어 있어 [Render](https://render.com) 에서 **New → Blueprint** 로 바로 배포됩니다.
 직접 설정한다면 Build `npm install`, Start `npm start`, 포트는 `PORT` 환경변수를 씁니다.

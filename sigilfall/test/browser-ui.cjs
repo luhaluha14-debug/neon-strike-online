@@ -151,6 +151,15 @@ function check(cond, what) {
   check(await visible('screenMenu'), 'and returns to the menu');
 
   console.log('\nonline lobby');
+  const onlineOffered = await page.evaluate(() =>
+    !document.getElementById('btnOnline').classList.contains('hide'));
+  if (!onlineOffered) {
+    check(true, 'a build with no server hides online play instead of offering it');
+    check(errors.length === 0, 'no console errors' + (errors[0] ? ' (' + errors[0] + ')' : ''));
+    await browser.close();
+    console.log('\n' + (fail.length ? fail.length + ' checks failed' : 'all interface checks passed'));
+    process.exit(fail.length ? 1 : 0);
+  }
   await click('btnOnline');
   await page.waitForTimeout(900);
   check(await visible('screenLobby'), 'the online lobby opens');

@@ -93,6 +93,11 @@ class App {
 
   boot() {
     const d = settings.device;
+    // a static build (artifact page, file share) has no server to talk to
+    if (window.SIGILFALL_OFFLINE) {
+      $('btnOnline').classList.add('hide');
+      $('btnPlay').querySelector('.d').textContent = '봇 대전 · 훈련';
+    }
     const kind = d.isPhone ? '모바일' : d.isTablet ? '태블릿' : 'PC';
     const how = d.touch
       ? (d.fine ? '터치 + 마우스/키보드' : '터치 조작 + 조준 보정')
