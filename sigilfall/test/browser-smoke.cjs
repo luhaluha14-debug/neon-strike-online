@@ -65,7 +65,10 @@ const DRIVE = `(() => {
 async function offline(browser) {
   console.log('\noffline match');
   const page = await newPage(browser, MOBILE);
-  const plan = [['rift', 'shrine', 'tdm'], ['brand', 'market', 'ffa'], ['warden', 'sunken', 'tdm'], ['vein', 'shrine', 'duel']];
+  const roster = await page.evaluate(() => window.SIGILFALL.roster);
+  const maps = ['shrine', 'market', 'sunken'];
+  const modes = ['tdm', 'ffa', 'tdm', 'duel'];
+  const plan = roster.map((c, i) => [c, maps[i % maps.length], modes[i % modes.length]]);
   for (const [character, map, mode] of plan) {
     await page.evaluate(([c, m, mo]) => {
       const a = window.SIGILFALL;

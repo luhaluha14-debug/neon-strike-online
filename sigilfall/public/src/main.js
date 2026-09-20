@@ -13,7 +13,7 @@ import { Menus } from './ui/menus.js';
 import { SettingsUI } from './ui/settingsUI.js';
 import { OnlineUI } from './net/onlineUI.js';
 import { $, el, Screens, toast } from './ui/screens.js';
-import { CHARACTERS, getCharm } from './characters/roster.js';
+import { CHARACTERS, CHARACTER_LIST, getCharm } from './characters/roster.js';
 import { MODES } from './game/rules.js';
 import { MAP_LIST } from './world/mapData.js';
 import { audio } from './audio/audio.js';
@@ -36,7 +36,7 @@ class App {
       playerName: settings.get('name') || '나',
       charm: (settings.get('charms') || {})[settings.get('lastCharacter') || 'rift'] || 'none'
     };
-    if (!CHARACTERS[this.cfg.character]) this.cfg.character = 'rift';
+    if (!CHARACTERS[this.cfg.character]) this.cfg.character = CHARACTER_LIST[0];
 
     this.menus = new Menus(this);
     this.settingsUI = new SettingsUI(() => this.onSettingsChanged());
@@ -82,6 +82,8 @@ class App {
   }
 
   /* ------------------------------------------------------------- flow */
+  get roster() { return CHARACTER_LIST.slice(); }
+
   /* the charm follows whichever character is selected */
   applyLoadout() {
     const charms = settings.get('charms') || {};

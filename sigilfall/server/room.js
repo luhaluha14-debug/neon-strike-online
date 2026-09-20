@@ -731,7 +731,8 @@ function specById(character, id) {
   return null;
 }
 function maxDamageOf(spec) {
-  const parts = [spec.dmgMax || 0, spec.dmg || 0, (spec.tickDmg || 0) * 2, spec.dmg || 0];
+  const parts = [spec.dmgMax || 0, spec.dmg || 0, (spec.tickDmg || 0) * 2,
+    spec.summon ? spec.summon.dmg : 0, spec.spawn ? spec.spawn.dmg : 0];
   let best = Math.max(...parts);
   if (spec.head) best *= spec.head;
   if (spec.comboMul) best *= spec.comboMul;
@@ -743,7 +744,8 @@ function maxDamageOf(spec) {
 }
 function reachOf(spec) {
   return Math.max(spec.range || 0, spec.radius || 0, spec.dist || 0,
-    spec.splash ? spec.splash.radius : 0, spec.summon ? 40 : 0, 6);
+    spec.splash ? spec.splash.radius : 0,
+    spec.summon || spec.spawn ? 40 : 0, 6);
 }
 
 export { newStats };

@@ -6,7 +6,12 @@ import { fireInterval } from '../public/src/game/rules.js';
 const KINDS = ['projectile', 'hitscan', 'melee', 'dash', 'blink', 'zone', 'buff',
   'summon', 'parry', 'ads', 'charge', 'domain'];
 
-test('four distinct characters with different roles', () => {
+/* a shotgun's damage is per pellet, so a fair comparison multiplies them back */
+function primaryDps(p) {
+  return (p.dmg * (p.pellets || 1)) / fireInterval(p);
+}
+
+test('a roster of distinct characters with different roles', () => {
   assert(CHARACTER_LIST.length >= 4, 'expected at least four characters');
   const roles = new Set(CHARACTER_LIST.map((id) => CHARACTERS[id].role));
   equal(roles.size, CHARACTER_LIST.length, 'each character needs its own role');
@@ -75,10 +80,10 @@ test('strong sorcery costs a cooldown, a resource or a wind-up', () => {
 test('basic attacks land in a comparable damage band', () => {
   for (const id of CHARACTER_LIST) {
     const p = CHARACTERS[id].primary;
-    const dps = p.dmg / fireInterval(p);
+    const dps = primaryDps(p);
     assert(dps > 80 && dps < 140, id + ' primary dps out of band: ' + Math.round(dps));
     assert(p.head >= 1 && p.head <= 2.1, id + ' headshot multiplier out of band');
-    if (p.cost) assert(p.cost * (60 / p.rpm ? 1 : 1) < CHARACTERS[id].energy.max, id + ' one shot must not empty the pool');
+    if (p.cost) assert(p.cost < CHARACTERS[id].energy.max * 0.5, id + ' one shot must not empty the pool');
   }
 });
 

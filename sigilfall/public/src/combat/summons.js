@@ -23,16 +23,19 @@ export class SummonSystem {
     const dist = opts.fromDomain ? rnd(2, opts.fromDomain.radius * 0.6) : 1.4;
     const x = owner.pos.x + Math.sin(ang) * dist;
     const z = owner.pos.z + Math.cos(ang) * dist;
+    const stationary = !def.speed;
     const s = {
-      owner, kind: 'hound', team: owner.team,
+      owner, kind: stationary ? 'turret' : 'hound', team: owner.team,
+      abilityId: opts.abilityId || 'hound',
       hp: def.hp, maxHp: def.hp, speed: def.speed, dmg: def.dmg,
       rate: def.rate, range: def.range || 2.2,
       dieAt: g.now + def.dur, nextBite: 0,
       pos: { x, y: g.world.supportAt(x, z, owner.pos.y + 2, 0.34), z },
-      vel: { x: 0, y: 0, z: 0 }, radius: 0.34, height: 0.9, onGround: true,
+      vel: { x: 0, y: 0, z: 0 },
+      radius: stationary ? 0.45 : 0.34, height: stationary ? 1.25 : 0.9, onGround: true,
       target: null, retargetAt: 0, boost: 1
     };
-    s.mesh = this.makeHound(owner);
+    s.mesh = stationary ? this.makeTurret(owner) : this.makeHound(owner);
     this.group.add(s.mesh);
     this.list.push(s);
     return s;
@@ -78,6 +81,31 @@ export class SummonSystem {
       }
     }
     g.userData = { bob: rnd(0, 6) };
+    return g;
+  }
+
+  /* something bolted together out of whatever was lying around, and left to
+     shoot on its own */
+  makeTurret(owner) {
+    const c = owner.char;
+    const g = new THREE.Group();
+    const base = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.34, 0.62),
+      new THREE.MeshLambertMaterial({ color: c.trim }));
+    base.position.y = 0.17;
+    g.add(base);
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.44, 0.46),
+      new THREE.MeshLambertMaterial({ color: c.color }));
+    body.position.y = 0.58;
+    g.add(body);
+    const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.7),
+      new THREE.MeshLambertMaterial({ color: c.accent }));
+    barrel.position.set(0, 0.62, -0.42);
+    g.add(barrel);
+    const eye = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.08, 0.05),
+      new THREE.MeshBasicMaterial({ color: c.accent }));
+    eye.position.set(0, 0.72, -0.24);
+    g.add(eye);
+    g.userData = { bob: 0, barrel, turret: true };
     return g;
   }
 
@@ -136,7 +164,25 @@ export class SummonSystem {
         s.retargetAt = now + 1.2;
       }
       const boost = g.domains.ownBonus(s.owner)?.summonBoost || 1;
-      if (s.target) {
+      if (s.target && s.kind === 'turret') {
+        // it cannot chase, so it only fires at what it can actually see
+        const dx = s.target.pos.x - s.pos.x, dz = s.target.pos.z - s.pos.z;
+        const d = Math.hypot(dx, dz) || 1;
+        s.yaw = Math.atan2(-dx, -dz);
+        s.vel.x = s.vel.z = 0;
+        const eyeY = s.pos.y + 0.7;
+        const clear = d <= s.range &&
+          !g.world.segBlocked(s.pos.x, eyeY, s.pos.z, s.target.pos.x, s.target.centerY, s.target.pos.z);
+        if (clear && now >= s.nextBite) {
+          s.nextBite = now + s.rate;
+          g.damage(s.target, s.dmg * boost, s.owner, { kind: 'summon', ability: s.abilityId, flinch: false });
+          g.effects.beam({ x: s.pos.x, y: eyeY, z: s.pos.z },
+            { x: -Math.sin(s.yaw), y: (s.target.centerY - eyeY) / d, z: -Math.cos(s.yaw) },
+            d, s.owner.char.accent, 0.3);
+          g.effects.impact(s.target.pos.x, s.target.centerY, s.target.pos.z, s.owner.char.accent, 0.7);
+          audio.houndBite(s.pos);
+        }
+      } else if (s.target) {
         const dx = s.target.pos.x - s.pos.x, dz = s.target.pos.z - s.pos.z;
         const d = Math.hypot(dx, dz) || 1;
         const want = s.speed * boost;
@@ -150,7 +196,7 @@ export class SummonSystem {
           s.vel.x *= 0.7; s.vel.z *= 0.7;
           if (now >= s.nextBite) {
             s.nextBite = now + s.rate;
-            g.damage(s.target, s.dmg * boost, s.owner, { kind: 'summon', ability: 'hound', flinch: false });
+            g.damage(s.target, s.dmg * boost, s.owner, { kind: 'summon', ability: s.abilityId, flinch: false });
             g.effects.impact(s.target.pos.x, s.target.centerY, s.target.pos.z, s.owner.char.accent, 0.9);
             audio.houndBite(s.pos);
           }
@@ -163,7 +209,8 @@ export class SummonSystem {
 
       const u = s.mesh.userData;
       u.bob += dt * 9;
-      s.mesh.position.set(s.pos.x, s.pos.y + Math.abs(Math.sin(u.bob)) * 0.06, s.pos.z);
+      const hop = u.turret ? 0 : Math.abs(Math.sin(u.bob)) * 0.06;
+      s.mesh.position.set(s.pos.x, s.pos.y + hop, s.pos.z);
       s.mesh.rotation.y = (s.yaw || 0) + Math.PI;
     }
   }

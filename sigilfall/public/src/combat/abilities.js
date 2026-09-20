@@ -221,7 +221,22 @@ export class AbilityRuntime {
 
   projectileKind(f, spec, slot, opts) {
     const g = this.game;
-    const dir = this.aimDir(f, spec, opts);
+    // a shot can be one bolt or a handful of pellets; everything else is shared
+    const pellets = Math.max(1, spec.pellets || 1);
+    for (let i = 0; i < pellets; i++) this.oneProjectile(f, spec, slot, opts, pellets > 1);
+    g.effects.muzzle(f, spec.color || f.char.accent);
+    if (f === g.player) {
+      g.feel.recoil(spec.kind === 'charge' ? 1.6 : (pellets > 1 ? 1.4 : 0.85), spec);
+      audio.shoot(f.charId, opts.charge);
+    } else {
+      audio.shootAt(f.pos);
+    }
+    f.stats.shots += pellets;
+  }
+
+  oneProjectile(f, spec, slot, opts, scatter) {
+    const g = this.game;
+    const dir = this.aimDir(f, spec, opts, false, scatter);
     let dmg = opts.charge !== undefined
       ? lerp(spec.dmg, spec.dmgMax || spec.dmg, opts.charge)
       : spec.dmg;
@@ -233,17 +248,9 @@ export class AbilityRuntime {
       gravity: spec.gravity || 0, pierce: spec.pierce || 0,
       homing: spec.homing || 0, homingMarked: spec.homingMarked || 0,
       splash: spec.splash || null, color: spec.color || f.char.accent,
-      scale: opts.charge !== undefined ? 0.7 + opts.charge * 0.9 : 1,
+      scale: opts.charge !== undefined ? 0.7 + opts.charge * 0.9 : (scatter ? 0.8 : 1),
       zone: spec.kind === 'zone' ? spec : null
     });
-    g.effects.muzzle(f, spec.color || f.char.accent);
-    if (f === g.player) {
-      g.feel.recoil(spec.kind === 'charge' ? 1.6 : 0.85, spec);
-      audio.shoot(f.charId, opts.charge);
-    } else {
-      audio.shootAt(f.pos);
-    }
-    f.stats.shots++;
   }
 
   zoneKind(f, spec, slot, opts) {
@@ -265,7 +272,7 @@ export class AbilityRuntime {
       if (count++ >= (spec.pierce || 1)) break;
       const dealt = g.damage(h.f, spec.dmg, f, {
         head: h.head, headMul: spec.head, kind: 'beam', ability: spec.id,
-        dist: h.dist, dir: { x: dir.x, z: dir.z }
+        dist: h.dist, falloff: spec.falloff, dir: { x: dir.x, z: dir.z }
       });
       if (dealt > 0) f.stats.hits++;
       if (spec.slow) { h.f.slowUntil = g.now + spec.slow.dur; h.f.slowMul = spec.slow.mul; }
@@ -379,7 +386,7 @@ export class AbilityRuntime {
   summonKind(f, spec) {
     const g = this.game;
     for (let i = 0; i < (spec.count || 1); i++) {
-      g.summons.spawn(f, spec.summon, { angle: rnd(-0.6, 0.6) + i * 0.7 });
+      g.summons.spawn(f, spec.summon, { angle: rnd(-0.6, 0.6) + i * 0.7, abilityId: spec.id });
     }
     g.effects.summonRing(f, spec.color || f.char.accent);
     audio.summon(f === g.player);
@@ -402,14 +409,14 @@ export class AbilityRuntime {
   }
 
   /* ---------------------------------------------------------------- utils */
-  aimDir(f, spec, opts, flatten = false) {
+  aimDir(f, spec, opts, flatten = false, scatter = false) {
     const d = opts.dir ? { x: opts.dir.x, y: opts.dir.y, z: opts.dir.z } : dirFromAngles(f.yaw, f.pitch, {});
     if (flatten) {
       d.y = 0;
       const l = Math.hypot(d.x, d.z) || 1;
       d.x /= l; d.z /= l;
     }
-    const spread = spec.spread || 0;
+    const spread = scatter ? (spec.spread || 0.05) : (spec.spread || 0);
     if (spread > 0) {
       const mul = f.ads ? (f.char.secondary.spreadMul || 1) : 1;
       d.x += rnd(-spread, spread) * mul;

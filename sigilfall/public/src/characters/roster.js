@@ -236,6 +236,151 @@ export const CHARACTERS = {
       finish: { dmg: 45, radius: 13 },
       desc: '영역 안의 적은 계속 피를 흘리고, 그 피가 전부 시전자에게 돌아온다.'
     }
+  },
+
+  /* ------------------------------------------------------------ 하야 마나마 */
+  haya: {
+    id: 'haya', name: '하야 마나마', latin: 'HAYA', role: '액체 조작',
+    blurb: '물을 쏘고, 비를 부르고, 마지막에는 잠기게 한다. 젖은 상대는 느려진다.',
+    hp: 190, speed: 7.0, accel: 62, airAccel: 15, radius: 0.42, jump: 7.6,
+    color: 0x2a6f8f, accent: 0x8fe0ff, trim: 0x10333f,
+    energy: { max: 100, regen: 20, delay: 0.5 },
+    difficulty: 2,
+
+    primary: {
+      id: 'jetstream', icon: '≈', name: '속수 (速水)', latin: 'JET STREAM', kind: 'projectile',
+      dmg: 23, head: 1.6, rpm: 300, cost: 7, speed: 95, range: 80, radius: 0.26,
+      falloff: [45, 78, 0.75], slow: { mul: 0.86, dur: 0.9 },
+      color: 0x8fe0ff, spread: 0.009,
+      desc: '압축한 물을 빠르게 쏜다. 맞은 상대는 젖어서 잠깐 느려진다.'
+    },
+    secondary: {
+      id: 'spray', icon: '❈', name: '물보라', latin: 'SPRAY', kind: 'zone',
+      cd: 7, dmg: 32, tickDmg: 0, radius: 5, dur: 0.8, speed: 26, range: 14,
+      gravity: 8, slow: { mul: 0.68 }, cost: 16, color: 0x6fc8e8,
+      desc: '발밑에서 물을 터뜨린다. 가까이 붙은 상대를 적시고 밀어 낸다.'
+    },
+    q: {
+      id: 'current', icon: '⇝', name: '유수 (流水)', latin: 'CURRENT', kind: 'dash',
+      cd: 6, dist: 11, speed: 25, iframe: 0.12, color: 0x8fe0ff,
+      desc: '물살을 타고 미끄러진다.'
+    },
+    a1: {
+      id: 'downpour', icon: '☂', name: '비 (雨)', latin: 'DOWNPOUR', kind: 'zone',
+      cd: 12, dmg: 18, tickDmg: 15, radius: 8, dur: 6, speed: 24, range: 45,
+      gravity: 12, slow: { mul: 0.8 }, castTime: 0.15, color: 0x4fa8c8,
+      desc: '넓은 범위에 비를 내린다. 그 아래 있는 모두가 계속 젖고 닳는다.'
+    },
+    a2: {
+      id: 'watercut', icon: '⟋', name: '수압 절단', latin: 'WATER CUTTER', kind: 'hitscan',
+      cd: 8, dmg: 68, head: 1.3, range: 40, width: 1.1, pierce: 99,
+      castTime: 0.2, recover: 0.22, color: 0xb9f0ff,
+      desc: '가늘게 모은 물줄기가 앞의 모든 것을 그어 버린다.'
+    },
+    ult: {
+      id: 'drown', icon: '≋', name: '익사 (溺死)', latin: 'DROWN', kind: 'domain',
+      castTime: 0.55, radius: 14, dur: 7, follow: false, color: 0x17607d,
+      inside: { enemySlow: 0.55, enemyTick: 13, ownDmgMul: 1.1 },
+      finish: { dmg: 48, radius: 14 },
+      desc: '영역 안이 물로 찬다. 숨 쉴 곳이 없고, 걸음이 무거워진다.'
+    }
+  },
+
+  /* ------------------------------------------------------------ 아시 모토미 */
+  ashi: {
+    id: 'ashi', name: '아시 모토미', latin: 'ASHI', role: '물건 개조',
+    blurb: '의자는 칼이 되고 표지판은 총이 된다. 손에 잡히는 건 전부 무기다.',
+    hp: 205, speed: 7.2, accel: 70, airAccel: 16, radius: 0.43, jump: 7.7,
+    color: 0x6b5a2e, accent: 0xffd16a, trim: 0x2a2210,
+    energy: { max: 100, regen: 22, delay: 0.45 },
+    difficulty: 1,
+
+    primary: {
+      id: 'sidearm', icon: '➹', name: '개조 권총', latin: 'SIDEARM', kind: 'hitscan',
+      dmg: 28, head: 1.9, rpm: 180, cost: 9, range: 55, width: 0.5, pierce: 1,
+      falloff: [22, 45, 0.55], color: 0xffd16a,
+      desc: '표지판을 접어 만든 권총. 정확하지만 멀어질수록 힘이 빠진다.'
+    },
+    secondary: {
+      id: 'chairblade', icon: '⚔', name: '개조 검', latin: 'CHAIR BLADE', kind: 'melee',
+      cd: 2.2, dmg: 55, head: 1.2, range: 3.4, arc: 0.8, rpm: 60, cost: 0,
+      color: 0xffb347,
+      desc: '의자를 그 자리에서 칼로 바꿔 휘두른다. 붙으면 한 방이 무겁다.'
+    },
+    q: {
+      id: 'scrapdash', icon: '➤', name: '파편 도약', latin: 'SCRAP DASH', kind: 'dash',
+      cd: 6, dist: 10.5, speed: 24, color: 0xffd16a,
+      desc: '주변 잡동사니를 걷어차며 파고든다.'
+    },
+    a1: {
+      id: 'scattergun', icon: '✺', name: '개조 산탄총', latin: 'SCATTERGUN', kind: 'projectile',
+      cd: 8, dmg: 16, pellets: 7, head: 1.3, speed: 85, range: 22, radius: 0.22,
+      spread: 0.06, falloff: [10, 22, 0.55], color: 0xffc04a,
+      desc: '파이프를 잘라 만든 산탄총. 붙어서 쏠수록 전부 박힌다.'
+    },
+    a2: {
+      id: 'turret', icon: '⌸', name: '개조 포탑', latin: 'TURRET', kind: 'summon',
+      cd: 14, count: 1, castTime: 0.25,
+      summon: { hp: 95, speed: 0, dmg: 11, rate: 1.05, dur: 12, range: 18, shape: 'turret' },
+      color: 0xffa83c,
+      desc: '자판기를 포탑으로 바꿔 세운다. 제자리에서 알아서 쏜다.'
+    },
+    ult: {
+      id: 'armory', icon: '⌘', name: '만물 병기화', latin: 'ARMORY', kind: 'domain',
+      castTime: 0.5, radius: 13, dur: 7, follow: false, color: 0xa8761f,
+      inside: { enemyTick: 5, ownRateMul: 1.3, summonBoost: 1.5 },
+      spawn: { count: 2, hp: 80, speed: 0, dmg: 10, rate: 0.8, dur: 7, range: 16, shape: 'turret' },
+      finish: { dmg: 38, radius: 13 },
+      desc: '영역 안의 물건이 전부 무기가 된다. 포탑이 서고, 내 연사도 빨라진다.'
+    }
+  },
+
+  /* ------------------------------------------------------------- 다카 커져 */
+  daka: {
+    id: 'daka', name: '다카 커져', latin: 'DAKA', role: '우주 조작',
+    blurb: '자기장을 비틀고 중력을 끌어온다. 마지막에는 별이 무너지는 자리를 연다.',
+    hp: 180, speed: 6.8, accel: 58, airAccel: 15, radius: 0.42, jump: 7.5,
+    color: 0x3b2a6b, accent: 0xc0a8ff, trim: 0x160f2e,
+    energy: { max: 100, regen: 16, delay: 0.6 },
+    difficulty: 3,
+
+    primary: {
+      id: 'gravshot', icon: '◌', name: '중력탄', latin: 'GRAVITY SHOT', kind: 'projectile',
+      dmg: 25, head: 1.7, rpm: 250, cost: 8, speed: 68, range: 85, radius: 0.3,
+      homing: 3.2, homingMarked: 6, falloff: [48, 82, 0.72],
+      color: 0xc0a8ff, spread: 0.008,
+      desc: '중력으로 휘는 탄. 목표 쪽으로 스스로 굽어 들어간다.'
+    },
+    secondary: {
+      id: 'repulsion', icon: '⊘', name: '자기 반발', latin: 'REPULSION', kind: 'parry',
+      window: 0.4, cd: 6, refund: 2.5, dmg: 30, range: 5, knock: 12, stackGain: 0,
+      color: 0xd8c8ff,
+      desc: '0.4초간 자기장을 뒤집어 날아오는 것을 튕겨 낸다. 막으면 밀어낸다.'
+    },
+    q: {
+      id: 'fold', icon: '⇥', name: '공간 도약', latin: 'FOLD', kind: 'blink',
+      cd: 7, dist: 8.5, iframe: 0.18, color: 0xc0a8ff,
+      desc: '좌표를 접어 8.5m 앞으로 건너뛴다.'
+    },
+    a1: {
+      id: 'magnetfield', icon: '◎', name: '자기장 (磁場)', latin: 'MAGNET FIELD', kind: 'zone',
+      cd: 10, dmg: 20, tickDmg: 10, radius: 6.5, dur: 3.5, speed: 30, range: 40,
+      pull: 12, slow: { mul: 0.8 }, castTime: 0.12, color: 0x8f7ae0,
+      desc: '자기장을 세워 안의 적을 중심으로 끌어당긴다.'
+    },
+    a2: {
+      id: 'gravcollapse', icon: '✜', name: '중력 붕괴', latin: 'GRAVITY COLLAPSE', kind: 'hitscan',
+      cd: 12, dmg: 80, head: 1.25, range: 55, width: 1.4, pierce: 99, cost: 24,
+      castTime: 0.3, recover: 0.3, color: 0x9a5cff,
+      desc: '한 줄기 공간을 무너뜨린다. 선딜이 길지만 전부 관통한다.'
+    },
+    ult: {
+      id: 'blackhole', icon: '⬤', name: '블랙홀 소환', latin: 'BLACK HOLE', kind: 'domain',
+      castTime: 0.6, radius: 13, dur: 6.5, follow: false, color: 0x241a4a,
+      inside: { enemyPull: 16, enemyTick: 11, enemySlow: 0.6 },
+      finish: { dmg: 60, radius: 13 },
+      desc: '중심으로 모든 것이 끌려 들어간다. 빠져나가려면 계속 반대로 달려야 한다.'
+    }
   }
 };
 

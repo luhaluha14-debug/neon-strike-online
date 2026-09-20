@@ -36,10 +36,10 @@ const LEVEL = arg('level', 'hard');
     await page.evaluate(([m, level]) => {
       const a = window.SIGILFALL;
       a.game.stop();
-      a.startMatch({ mode: 'ffa', map: m, character: 'rift', botCount: 7, botLevel: level });
+      const roster = a.roster;            // whatever the roster holds today
+      a.startMatch({ mode: 'ffa', map: m, character: roster[0], botCount: 7, botLevel: level });
       const g = a.game;
       // one of each sorcerer among the bots; the human sits this one out
-      const roster = ['rift', 'brand', 'warden', 'vein'];
       g.fighters.filter((f) => f.isBot).forEach((f, i) => {
         f.setCharacter(roster[i % roster.length]);
         f.resetStats();

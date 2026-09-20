@@ -40,7 +40,9 @@ export class DomainSystem {
 
     if (spec.spawn) {
       for (let i = 0; i < spec.spawn.count; i++) {
-        g.summons.spawn(owner, spec.spawn, { angle: (i / spec.spawn.count) * Math.PI * 2, fromDomain: d });
+        g.summons.spawn(owner, spec.spawn, {
+          angle: (i / spec.spawn.count) * Math.PI * 2, fromDomain: d, abilityId: spec.id
+        });
       }
     }
     g.effects.domainOpen(d);
@@ -187,6 +189,11 @@ export class DomainSystem {
         const enemy = g.isEnemy(d.owner, f);
         if (enemy) {
           if (inside.enemySlow) { f.slowUntil = now + 0.25; f.slowMul = inside.enemySlow; }
+          if (inside.enemyPull) {
+            const dx = d.x - f.pos.x, dz = d.z - f.pos.z;
+            const len = Math.hypot(dx, dz) || 1;
+            f.pullVec = { x: (dx / len) * inside.enemyPull, z: (dz / len) * inside.enemyPull };
+          }
           if (inside.revealEnemies) { f.markedUntil = Math.max(f.markedUntil, now + 0.4); f.markedBy = d.owner.id; }
         } else if (f === d.owner) {
           if (inside.ownSpeedMul) f.addBuff('speed', 0.2, now, inside.ownSpeedMul);

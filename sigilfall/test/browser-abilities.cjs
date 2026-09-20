@@ -83,7 +83,9 @@ function snapshot() {
     }
   };
 
-  for (const charId of ['rift', 'brand', 'warden', 'vein']) {
+  const roster = await page.evaluate(() => window.SIGILFALL.roster);
+  console.log('roster: ' + roster.join(', '));
+  for (const charId of roster) {
     console.log('\n' + charId);
     await page.evaluate((c) => {
       const a = window.SIGILFALL;
@@ -111,7 +113,9 @@ function snapshot() {
     }
 
     /* ---- secondary ---- */
-    staged = await page.evaluate(stage, kind.secondary === 'parry' ? 3 : 12);
+    // a secondary that swings has to be staged in reach, like the primary
+    const closeSecondary = ['parry', 'melee'].includes(kind.secondary);
+    staged = await page.evaluate(stage, closeSecondary ? 3 : 12);
     if (kind.secondary === 'charge') {
       await cast('altFire', 1100);
       s = await page.evaluate(snapshot);
@@ -126,6 +130,10 @@ function snapshot() {
       await cast('altFire');
       s = await page.evaluate(snapshot);
       check(s.parry || s.cd, charId + ': the counter stance goes up');
+    } else if (kind.secondary === 'melee') {
+      await cast('altFire');
+      s = await page.evaluate(snapshot);
+      check(s.foeHp < staged.foeHp, charId + ': the secondary swing connects');
     } else {
       await cast('altFire');
       s = await page.evaluate(snapshot);
@@ -154,6 +162,18 @@ function snapshot() {
         s.projectiles > 0 || s.foeSlowed || s.buffs.length > before.buffs.length;
       check(did, charId + '.' + slot + ' (' + kind[slot] + ') did something observable');
       check(s.cd[slot] > 0, charId + '.' + slot + ' started its cooldown');
+      const shape = await page.evaluate((sl) => {
+        const g = window.SIGILFALL.game, spec = g.player.char[sl];
+        return { pellets: spec.pellets || 0, summons: g.summons.list.length,
+          stationary: g.summons.list.filter((x) => x.kind === 'turret').length };
+      }, slot);
+      if (shape.pellets > 1) {
+        check(before.projectiles + shape.pellets - 2 <= s.projectiles + 6,
+          charId + '.' + slot + ' fires a spread of ' + shape.pellets);
+      }
+      if (kind[slot] === 'summon') {
+        check(shape.summons > 0, charId + '.' + slot + ' put something on the field');
+      }
     }
 
     /* ---- domain: each one has its own rules, so check the ones it claims ---- */
@@ -163,18 +183,35 @@ function snapshot() {
     s = await page.evaluate(snapshot);
     check(s.domains > 0 && s.ultActive, charId + ': the domain opened');
     const inside = await page.evaluate(() => {
-      const g = window.SIGILFALL.game;
+      const g = window.SIGILFALL.game, p = g.player;
       const d = g.domains.list[0];
-      return d ? { holds: g.domains.contains(d, g.player), rules: Object.keys(d.spec.inside) } : null;
+      if (!d) return null;
+      const foe = g.fighters.find((f) => f !== p && g.isEnemy(p, f));
+      return {
+        holds: g.domains.contains(d, p),
+        rules: Object.keys(d.spec.inside),
+        foeDist: foe ? Math.hypot(foe.pos.x - d.x, foe.pos.z - d.z) : 0
+      };
     });
     check(!!inside && inside.holds, charId + ': and the caster is inside it');
     await page.waitForTimeout(1600);
     const effect = await page.evaluate(() => {
       const g = window.SIGILFALL.game, p = g.player;
       const foe = g.fighters.find((f) => f !== p && g.isEnemy(p, f));
-      const rules = g.domains.list[0] ? g.domains.list[0].spec.inside : {};
+      const d = g.domains.list[0];
+      const rules = d ? d.spec.inside : {};
       return {
         rules,
+        foeDist: d && foe ? Math.hypot(foe.pos.x - d.x, foe.pos.z - d.z) : 999,
+        // a pull is a force, not a teleport: check the vector the domain hands
+        // to the physics step, pointing from the target toward the middle
+        pullsInward: (() => {
+          if (!d || !foe || !foe.pullVec) return false;
+          const dx = d.x - foe.pos.x, dz = d.z - foe.pos.z;
+          const len = Math.hypot(dx, dz) || 1;
+          const plen = Math.hypot(foe.pullVec.x, foe.pullVec.z) || 1;
+          return ((dx / len) * (foe.pullVec.x / plen) + (dz / len) * (foe.pullVec.z / plen)) > 0.9;
+        })(),
         ult: p.ult,
         tick: foe.hp < foe.maxHp,
         slowed: g.now < foe.slowUntil,
@@ -193,6 +230,7 @@ function snapshot() {
     if (r.ownMeleeMul) claims.push(['근접 강화', effect.meleeMul > 1]);
     if (r.ownDmgMul) claims.push(['피해 강화', effect.dmgMul > 1]);
     if (r.enemyEnergyLock) claims.push(['주력 봉쇄', effect.energyLocked]);
+    if (r.enemyPull) claims.push(['중심으로 끌어당김', effect.pullsInward]);
     check(claims.length > 0, charId + ': the domain declares what it does');
     for (const [what, ok] of claims) check(ok, charId + ': the domain actually applies ' + what);
     if (inside && inside.rules && effect.summons !== undefined && r.summonBoost !== undefined) {
