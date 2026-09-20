@@ -1809,6 +1809,7 @@ function hostageHit(h, px, py, pz) {
     return;
   }
   h.dead = true;
+  if (h.free) { h.free = false; hostagesFreed = Math.max(0, hostagesFreed - 1); }
   groundBlood(h.x, h.z);
   sfx.death(false);
   missionFailed('HOSTAGE DOWN');
@@ -2948,17 +2949,19 @@ function spawnTick(dt) {
 }
 function pickSpawn(far) {
   const sec = sectorOf(round);
-  let best = SPAWNS[0], bs = -1e9;
+  let best = null, bs = -1e9, inSector = null, fallbackScore = -1e9;
   for (let i = 0; i < SPAWNS.length; i++) {
     const s = SPAWNS[i];
     if (s.x < sec.x0 || s.x > sec.x1) continue;      // hostiles come from the sector being pushed
     const d = Math.hypot(s.x - P.x, s.z - P.z);
+    // remember the furthest in-sector point in case everything is too close
+    if (d > fallbackScore) { fallbackScore = d; inSector = s; }
     if (d < 11) continue;
     const vis = losClear(P.x, P.y + eyeH(), P.z, s.x, 1.2, s.z);
     let sc = -Math.abs(d - (far ? 24 : 18)) - (vis ? 25 : 0) + rand(0, 9);
     if (sc > bs) { bs = sc; best = s; }
   }
-  return best;
+  return best || inSector || SPAWNS[0];
 }
 function checkRoundEnd() {
   if (!roundActive) return;
@@ -2971,8 +2974,9 @@ function checkRoundEnd() {
 }
 /* a held FIRE button must not carry into the next round or a menu */
 function releaseTrigger() {
-  IN.fire = false; IN.jump = false;
+  IN.fire = false; IN.jump = false; IN.free = false;
   $('bFire').classList.remove('down');
+  $('bFree').classList.remove('down');
 }
 function endRound() {
   roundEndT = 0;
