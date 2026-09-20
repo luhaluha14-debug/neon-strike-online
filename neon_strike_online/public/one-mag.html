@@ -130,6 +130,15 @@ canvas#gl{position:fixed;inset:0;width:100%;height:100%;display:block;background
   flex-direction:row;gap:9px;background:rgba(224,162,60,.26);border-color:var(--amber);font-size:12px;letter-spacing:.2em}
 #bPick:active,#bPick.down{transform:translateX(-50%) scale(.95)}
 #bPick .sub{font-size:10px;color:#ffd79a;letter-spacing:.1em}
+#bFree{left:50%;bottom:calc(var(--sab) + 26px);transform:translateX(-50%);width:auto;height:44px;border-radius:6px;padding:0 20px;
+  flex-direction:row;gap:9px;background:rgba(58,178,204,.26);border-color:#5fd0e8;font-size:12px;letter-spacing:.2em;overflow:hidden}
+#bFree:active,#bFree.down{transform:translateX(-50%) scale(.95);background:rgba(58,178,204,.5)}
+#bFree .sub{font-size:10px;color:#a8e8f5;letter-spacing:.1em}
+#bFreeBar{position:absolute;left:0;bottom:0;height:3px;width:0;background:#8fe6f7}
+#hostDir{position:fixed;inset:0;pointer-events:none;z-index:11}
+#hostDir i{position:absolute;left:50%;top:50%;width:0;height:0;display:block}
+#hostDir i::after{content:"";position:absolute;left:-13px;top:-128px;width:26px;height:15px;opacity:.9;
+  background:#5fd0e8;clip-path:polygon(50% 0,100% 100%,0 100%)}
 #bPause{position:absolute;pointer-events:auto;left:calc(var(--sal) + 12px);top:calc(var(--sat) + 8px);width:38px;height:30px;
   border-radius:5px;background:rgba(14,18,20,.4);border:1px solid rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:13px}
 #meleeOnly{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(var(--sab) + 78px);font-size:11px;letter-spacing:.26em;color:#e8503a;text-shadow:0 2px 8px #000;pointer-events:none}
@@ -270,6 +279,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
 
 <div id="vig"></div><div id="breath"></div><div id="flash"></div>
 <div id="dmgDir"></div>
+<div id="hostDir" class="hidden"><i></i></div>
 
 <div id="touch" class="hidden">
   <div id="movezone"></div>
@@ -282,6 +292,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
   <div class="btn" id="bMelee"><div class="ic">🗡</div>MELEE</div>
   <div class="btn" id="bAim"><div class="ic">◎</div>AIM</div>
   <div class="btn hidden" id="bPick">PICK UP<span class="sub" id="bPickSub"></span></div>
+  <div class="btn hidden" id="bFree">FREE HOSTAGE<span class="sub" id="bFreeSub">HOLD</span><i id="bFreeBar"></i></div>
   <div id="bPause">❚❚</div>
   <div id="meleeOnly" class="hidden">NO AMMO — USE MELEE</div>
 </div>
@@ -298,8 +309,8 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
     <button class="mbtn p" id="mPlay">Play</button>
     <button class="mbtn" id="mHow">How to play</button>
     <button class="mbtn" id="mSet">Settings</button>
-    <div class="tag" style="margin-top:22px;font-size:9px;letter-spacing:.3em">HEADSHOT = +1 AMMO · 적의 무기를 빼앗아 살아남아라</div>
-    <div class="tag" id="buildTag" style="margin-top:8px;font-size:8px;letter-spacing:.24em;color:#5f6a72">BUILD 6</div>
+    <div class="tag" style="margin-top:22px;font-size:9px;letter-spacing:.3em">인질 3명을 구출하라 · HEADSHOT = +1 AMMO</div>
+    <div class="tag" id="buildTag" style="margin-top:8px;font-size:8px;letter-spacing:.24em;color:#5f6a72">BUILD 7 · RESCUE</div>
   </div>
 </div>
 
@@ -308,6 +319,9 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
   <div class="panel">
     <div class="h2">HOW TO PLAY</div><div class="sub">Mobile FPS · Landscape</div>
     <div class="how">
+      <b>임무</b> — 시설에 인질 3명이 잡혀 있다. 구역을 하나씩 밀고 들어가 전부 구출하라.<div class="hr"></div>
+      <b>인질</b> — 인질 옆에서 <b>FREE</b>를 2초간 누르고 있으면 풀려나 스스로 탈출한다. 화면 위쪽 하늘색 화살표가 방향을 가리킨다.<div class="hr"></div>
+      <b>오사 주의</b> — 인질을 쏘면 경고 한 번, 두 번째는 임무 실패다. 쏘기 전에 표적을 확인하라.<div class="hr"></div>
       <b>이동</b> — 화면 왼쪽을 엄지로 눌러 조이스틱 이동.<div class="hr"></div>
       <b>시점</b> — 화면 오른쪽을 드래그해 조준. 감도는 SETTINGS에서 조절.<div class="hr"></div>
       <b>사격</b> — 오른쪽 아래 큰 FIRE 버튼. 자동 무기는 누르고 있으면 연사.<div class="hr"></div>
@@ -316,7 +330,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
       <b>근접</b> — 탄약이 0이어도 MELEE로 적을 처치할 수 있다.<div class="hr"></div>
       <b>무기 획득</b> — 적이 떨어뜨린 무기 근처에서 <b>PICK UP</b>. 남은 탄약 그대로 획득.<div class="hr"></div>
       <b>보급</b> — 라운드 사이에 회복·탄약·무기·업그레이드를 선택한다.<div class="hr"></div>
-      <b>PC</b> — WASD 이동 / 마우스 조준(클릭해 잠금) / 좌클릭 사격 / R 재장전 / Space 점프 / Shift 앉기 / V 근접 / F 획득 / 우클릭 정조준
+      <b>PC</b> — WASD 이동 / 마우스 조준(클릭해 잠금) / 좌클릭 사격 / R 재장전 / Space 점프 / Shift 앉기 / V 근접 / F 획득·인질 해방 / 우클릭 정조준
     </div>
     <button class="mbtn sm" id="howBack" style="margin-top:20px">Back</button>
   </div>
@@ -383,7 +397,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
 <div class="screen hidden" id="sWin">
   <div class="panel">
     <div class="title" style="font-size:clamp(26px,6vw,54px)">MISSION <span>COMPLETE</span></div>
-    <div class="tag">모든 적대 세력 제거됨</div>
+    <div class="tag">인질 전원 구출 완료</div>
     <div class="rule"></div>
     <div class="stats" id="winStats"></div>
     <button class="mbtn p sm" id="wRetry">Play again</button>
@@ -1118,7 +1132,7 @@ function eyeH() { return lerp(1.62, 1.08, P.crouch); }
 const IN = {
   mx: 0, my: 0,            // pending look delta (css px)
   jx: 0, jy: 0,            // joystick -1..1
-  fire: false, jump: false, crouch: false, melee: false, reload: false, aim: false, pick: false,
+  fire: false, jump: false, crouch: false, melee: false, reload: false, aim: false, pick: false, free: false,
   keys: {}
 };
 const elStick = $('stick'), elStickN = $('stickN');
@@ -1219,6 +1233,7 @@ btn($('bCrouch'), () => { IN.crouch = !IN.crouch; $('bCrouch').classList.toggle(
 btn($('bMelee'), () => { tryMelee(); });
 btn($('bAim'), () => { IN.aim = !IN.aim; $('bAim').classList.toggle('down', IN.aim); }, () => { });
 btn($('bPick'), () => { tryPickup(); });
+btn($('bFree'), () => { IN.free = true; }, () => { IN.free = false; });
 btn($('bPause'), () => { if (GS === 'play') pauseGame(); });
 
 /* keyboard / mouse (PC) */
@@ -1226,11 +1241,11 @@ addEventListener('keydown', e => {
   IN.keys[e.code] = true;
   if (e.code === 'KeyR') tryReload();
   if (e.code === 'KeyV') tryMelee();
-  if (e.code === 'KeyF' || e.code === 'KeyE') tryPickup();
+  if (e.code === 'KeyF' || e.code === 'KeyE') { if (nearestHostage()) IN.free = true; else tryPickup(); }
   if (e.code === 'Space') { IN.jump = true; e.preventDefault(); }
   if (e.code === 'Escape' && GS === 'play') pauseGame();
 });
-addEventListener('keyup', e => { IN.keys[e.code] = false; });
+addEventListener('keyup', e => { IN.keys[e.code] = false; if (e.code === 'KeyF' || e.code === 'KeyE') IN.free = false; });
 function wantPointerLock() {
   if (isTouch || GS !== 'play' || pointerLocked) return false;
   try { if (canvas.requestPointerLock) { canvas.requestPointerLock(); return true; } } catch (err) { }
@@ -1565,7 +1580,20 @@ function castBullet(ox, oy, oz, dx, dy, dz, w, fromPlayer) {
       e.x - e.rad, e.y + 0.05, e.z - e.rad, e.x + e.rad, e.y + e.h - hr * 2.05, e.z + e.rad, hitT);
     if (tb > 0 && tb < hitT) { hitT = tb; hitE = e; head = false; }
   }
+  let hitH = null;
+  for (let i = 0; i < HOSTAGES.length; i++) {
+    const h = HOSTAGES[i];
+    if (h.dead) continue;
+    const top = h.free ? 1.75 : 1.32;
+    const th = rayAABB(ox, oy, oz, dx, dy, dz, h.x - 0.36, h.y + 0.02, h.z - 0.36, h.x + 0.36, h.y + top, h.z + 0.36, hitT);
+    if (th > 0 && th < hitT) { hitT = th; hitH = h; hitE = null; }
+  }
   const px = ox + dx * hitT, py = oy + dy * hitT, pz = oz + dz * hitT;
+  if (hitH) {
+    if (fromPlayer) spawnTracer(ox + dx * 0.7, oy + dy * 0.7 - 0.08, oz + dz * 0.7, px, py, pz, 1.0, 0.82, 0.45, 0.018);
+    hostageHit(hitH, px, py, pz);
+    return 0;
+  }
   if (fromPlayer) spawnTracer(ox + dx * 0.7 + camUX * -0.05, oy + dy * 0.7 - 0.08, oz + dz * 0.7, px, py, pz, 1.0, 0.82, 0.45, 0.018);
   if (hitE) {
     let dmg = w.dmg;
@@ -1668,7 +1696,122 @@ function hurtPlayer(dmg, sx, sz) {
   shake(0.055 + dmg * 0.0014, 0.2);
   sfx.hurt(); haptic(dmg > 14 ? 40 : 18);
   hudHp();
-  if (P.hp <= 0) { P.hp = 0; playerDie(); }
+  if (P.hp <= 0) { P.hp = 0; failReason = 'KIA'; playerDie(); }
+}
+
+/* ================================================================ hostages
+   The mission is a rescue: each sector holds one prisoner, and the push only
+   moves on once they are out. Bullets can hit them, which is what gives the
+   ammo economy its teeth — you cannot spray into a room you have not read. */
+const SECTORS = [
+  { round: 3, name: 'WEST WING', x0: -27, x1: -6, hx: -21, hz: -12 },
+  { round: 6, name: 'MAIN HALL', x0: -7, x1: 9, hx: 2, hz: 4.5 },
+  { round: 8, name: 'EAST YARD', x0: 8, x1: 27, hx: 19.5, hz: 8 }
+];
+const HOSTAGE_TOTAL = SECTORS.length;
+function sectorOf(r) { return r <= 3 ? SECTORS[0] : (r <= 6 ? SECTORS[1] : SECTORS[2]); }
+const HOSTAGES = [];
+let hostagesFreed = 0, ffWarned = false, failReason = 'KIA';
+
+function spawnHostage(sec) {
+  const p = nudgeClear(sec.hx, sec.hz, 0.6) || { x: sec.hx, z: sec.hz };
+  HOSTAGES.push({
+    x: p.x, y: 0, z: p.z, sector: sec.name,
+    free: false, dead: false, wounded: false,
+    freeT: 0, escT: 0, yaw: rand(-PI, PI), anim: Math.random() * 10,
+    stuck: 0, slip: 1, slipT: 0,
+    ex: 0, ez: 0
+  });
+}
+function hostagePending() {
+  for (let i = 0; i < HOSTAGES.length; i++) { const h = HOSTAGES[i]; if (!h.free && !h.dead) return h; }
+  return null;
+}
+function nearestHostage() {
+  let best = null, bd = 2.2;
+  for (let i = 0; i < HOSTAGES.length; i++) {
+    const h = HOSTAGES[i];
+    if (h.free || h.dead) continue;
+    const d = Math.hypot(h.x - P.x, h.z - P.z);
+    if (d < bd) { bd = d; best = h; }
+  }
+  return best;
+}
+function updateHostages(dt) {
+  const near = nearestHostage();
+  for (let i = HOSTAGES.length - 1; i >= 0; i--) {
+    const h = HOSTAGES[i];
+    h.anim += dt;
+    if (h.dead) continue;
+    if (h.free) {
+      h.escT += dt;
+      let dx = h.ex - h.x, dz = h.ez - h.z;
+      const d = Math.hypot(dx, dz);
+      if (d > 0.5) {
+        dx /= d; dz /= d;
+        // without this they sprint straight into the nearest crate and stand there
+        if (h.slipT > 0) {
+          h.slipT -= dt;
+          const nx = dx * 0.3 - dz * h.slip, nz = dz * 0.3 + dx * h.slip;
+          const l = Math.hypot(nx, nz) || 1; dx = nx / l; dz = nz / l;
+        } else if (pointBlocked(h.x + dx * 1.1, h.z + dz * 1.1, 0.4)) {
+          h.slip = pointBlocked(h.x - dz * 1.1, h.z + dx * 1.1, 0.4) ? -1 : 1;
+          h.slipT = 0.5;
+          const nx = dx * 0.3 - dz * h.slip, nz = dz * 0.3 + dx * h.slip;
+          const l = Math.hypot(nx, nz) || 1; dx = nx / l; dz = nz / l;
+        }
+        const px = h.x, pz = h.z;
+        moveEntity(h, dx * 4.4 * dt, dz * 4.4 * dt, 0.3, 0, 1.7);
+        if (Math.hypot(h.x - px, h.z - pz) < 4.4 * dt * 0.35) {
+          h.stuck += dt;
+          if (h.stuck > 0.25) { h.stuck = 0; h.slip = -(h.slip || 1); h.slipT = 0.7; }
+        } else h.stuck = 0;
+        h.yaw = Math.atan2(-dx, -dz);
+      }
+      if (h.escT > 7) HOSTAGES.splice(i, 1);
+      continue;
+    }
+    const dp = Math.hypot(P.x - h.x, P.z - h.z);
+    if (dp < 7) {
+      const want = Math.atan2(-(P.x - h.x), -(P.z - h.z));
+      h.yaw += clamp(angDelta(h.yaw, want), -1.8 * dt, 1.8 * dt);
+    }
+    if (h === near && IN.free && GS === 'play') {
+      h.freeT += dt;
+      if (h.freeT >= 2) freeHostage(h);
+    } else if (h.freeT > 0) h.freeT = Math.max(0, h.freeT - dt * 1.6);
+  }
+}
+function freeHostage(h) {
+  h.free = true; h.freeT = 2; h.escT = 0;
+  // pick the exit we can actually see from here
+  let bx = h.x < 0 ? -24.5 : 24.5, bz = h.z < 0 ? -16 : 16, bs = -1e9;
+  for (const c of [[-24.5, -16], [-24.5, 16], [24.5, -16], [24.5, 16], [h.x, -16.5], [h.x, 16.5], [-24.5, h.z], [24.5, h.z]]) {
+    if (!inBounds(c[0], c[1]) || pointBlocked(c[0], c[1], 0.5)) continue;
+    const sc = (losClear(h.x, 1.0, h.z, c[0], 1.0, c[1]) ? 30 : 0) - Math.hypot(c[0] - h.x, c[1] - h.z);
+    if (sc > bs) { bs = sc; bx = c[0]; bz = c[1]; }
+  }
+  h.ex = bx; h.ez = bz;
+  hostagesFreed++;
+  P.pts += 120;
+  bigFeed('HOSTAGE SECURED', hostagesFreed + ' / ' + HOSTAGE_TOTAL);
+  sfx.rescue(); haptic([0, 40, 50, 70]);
+  hudRound();
+  checkRoundEnd();
+}
+function hostageHit(h, px, py, pz) {
+  bloodBurst(px, py, pz, 0, 1, 0, 8);
+  if (!ffWarned) {
+    ffWarned = true; h.wounded = true;
+    bigFeed('HOLD FIRE', '인질이다 — 다음 오사는 임무 실패');
+    sfx.ffWarn(); haptic([0, 130]);
+    hitFlashT = 0.25; shake(0.11, 0.4);
+    return;
+  }
+  h.dead = true;
+  groundBlood(h.x, h.z);
+  sfx.death(false);
+  missionFailed('HOSTAGE DOWN');
 }
 
 /* ================================================================= enemies */
@@ -1785,10 +1928,12 @@ function killEnemy(e, head, melee) {
   }
   if (e === bossRef) {
     bossRef = null; $('bossWrap').classList.add('hidden');
-    pending.length = 0; roundActive = false;
+    pending.length = 0;
     for (const o of enemies) if (o.alive) { o.hp = 0; killEnemy(o, false, false); }
-    bigFeed('TARGET DOWN', 'HEAVY GUNNER ELIMINATED');
-    winT = 1.5;                     // game clock, so a retry cancels it
+    // the boss was guarding the last prisoner: the fight is over, the mission is not
+    bigFeed('TARGET DOWN', hostagePending() ? '마지막 인질을 풀어내라' : 'HEAVY GUNNER ELIMINATED');
+    hudRound();
+    checkRoundEnd();
     return;
   }
   hudRound();
@@ -2169,6 +2314,33 @@ function drawCorpse(e) {
   box(b, e.x + fx * 0.52, y + 0.02, e.z + fz * 0.52, e.headR, e.headR, e.headR, yaw, [0.34 * fade, 0.28 * fade, 0.24 * fade], 0, 3);
   if (Q().shadows) groundQuad(B_ALPHA, e.x, e.z, 0.8, 0, 0, 0, 0.3 * fade);
 }
+function drawHostage(h) {
+  if (h.dead) return;
+  const b = B_DYN;
+  const yaw = h.yaw;
+  const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
+  const rx = Math.cos(yaw), rz = -Math.sin(yaw);
+  const cloth = h.wounded ? [0.52, 0.22, 0.10] : [0.60, 0.33, 0.11];   // high-visibility, never mistaken for a trooper
+  const skin = [0.46, 0.37, 0.31];
+  if (h.free) {
+    // on their feet and running out
+    const swing = Math.sin(h.escT * 11) * 0.24;
+    box(b, h.x + rx * 0.12 + fx * swing * 0.5, 0.42, h.z + rz * 0.12 + fz * swing * 0.5, 0.11, 0.42, 0.12, yaw, [0.20, 0.20, 0.22], 0, 1.6);
+    box(b, h.x - rx * 0.12 - fx * swing * 0.5, 0.42, h.z - rz * 0.12 - fz * swing * 0.5, 0.11, 0.42, 0.12, yaw, [0.20, 0.20, 0.22], 0, 1.6);
+    box(b, h.x, 1.17, h.z, 0.28, 0.33, 0.18, yaw, cloth, 2, 1.7);
+    box(b, h.x, 1.62, h.z, 0.15, 0.15, 0.15, yaw, skin, 0, 3.2);
+  } else {
+    // kneeling, hands bound behind the back — a silhouette nothing else shares
+    const tremble = Math.sin(h.anim * 7) * 0.012;
+    box(b, h.x, 0.22, h.z, 0.30, 0.22, 0.34, yaw, [0.20, 0.20, 0.22], 0, 1.6);
+    box(b, h.x + tremble, 0.74, h.z, 0.27, 0.32, 0.17, yaw, cloth, 2, 1.7);
+    box(b, h.x - fx * 0.22, 0.72, h.z - fz * 0.22, 0.13, 0.10, 0.09, yaw, skin, 0, 2.4);   // bound hands
+    box(b, h.x + tremble, 1.18, h.z, 0.145, 0.145, 0.145, yaw, skin, 0, 3.2);
+    const pulse = 0.5 + 0.5 * Math.sin(h.anim * 3);
+    sprite(B_ADD, h.x, 1.75 + pulse * 0.06, h.z, 0.13, 0.32, 0.80, 0.92, 0.55 + pulse * 0.35);
+  }
+  if (Q().shadows) groundQuad(B_ALPHA, h.x, h.z, 0.55, 0, 0, 0, 0.35);
+}
 function drawDrop(d) {
   const w = WEAPONS[d.w];
   const bob = Math.sin(time * 2 + d.x) * 0.045;
@@ -2323,6 +2495,7 @@ function render(dt) {
     if (e.alive || e.fade > 0) drawEnemy(e);
   }
   for (let i = 0; i < DROPS.length; i++) drawDrop(DROPS[i]);
+  for (let i = 0; i < HOSTAGES.length; i++) drawHostage(HOSTAGES[i]);
   /* casings */
   for (let i = 0; i < CASINGS.length; i++) {
     const c = CASINGS[i];
@@ -2530,6 +2703,15 @@ const sfx = {
   roundStart() { [392, 523, 659].forEach((f, i) => tone(f, f, 0.2, 'triangle', 0.16, 0.5, i * 0.13)); },
   roundClear() { [523, 659, 784, 1046].forEach((f, i) => tone(f, f, 0.32, 'triangle', 0.15, 0.6, i * 0.1)); },
   gameOver() { [330, 262, 196, 131].forEach((f, i) => tone(f, f * 0.98, 0.7, 'sawtooth', 0.13, 0.6, i * 0.28)); },
+  rescue() {
+    [523, 784, 1046].forEach((f, i) => tone(f, f, 0.22, 'triangle', 0.17, 0.5, i * 0.09));
+    noise(0.2, 'highpass', 3200, 1, 0.2, 0.18, 0.3);
+  },
+  ffWarn() {
+    tone(220, 180, 0.35, 'square', 0.2, 0.3);
+    tone(180, 150, 0.4, 'sawtooth', 0.14, 0.3, 0.12);
+    noise(0.3, 'lowpass', 500, 1, 0.35, 0.28, 0.2);
+  },
   win() { [523, 659, 784, 1046, 1318].forEach((f, i) => tone(f, f, 0.5, 'triangle', 0.16, 0.7, i * 0.14)); }
 };
 /* ambient bed */
@@ -2622,12 +2804,27 @@ function hudRound() {
   for (const e of enemies) if (e.alive) alive++;
   const left = alive + pending.length;
   elRound.textContent = roundLabel(round);
-  elRoundSub.textContent = bossRef ? 'ELIMINATE THE TARGET' : 'HOSTILES ' + left;
+  const hp = hostagePending();
+  let sub;
+  if (left > 0) sub = 'HOSTILES ' + left + (hp ? ' · HOSTAGE HELD' : '');
+  else if (hp) sub = 'REACH THE HOSTAGE';
+  else sub = bossRef ? 'ELIMINATE THE TARGET' : 'SECTOR CLEAR';
+  elRoundSub.textContent = 'RESCUED ' + hostagesFreed + '/' + HOSTAGE_TOTAL + ' · ' + sub;
 }
 function roundLabel(r) {
-  if (r === MAXROUND) return 'FINAL — BOSS';
-  if (ROUNDS[r] && ROUNDS[r].elite) return 'ROUND ' + r + ' — ELITE';
-  return 'ROUND ' + r;
+  const sec = sectorOf(r);
+  const n = SECTORS.indexOf(sec) + 1;
+  if (r === MAXROUND) return 'SECTOR ' + n + ' — ' + sec.name + ' · BOSS';
+  return 'SECTOR ' + n + ' — ' + sec.name;
+}
+let hostDirShown = false;
+function hudHostageDir() {
+  const h = hostagePending();
+  const show = !!h && GS === 'play';
+  if (show !== hostDirShown) { hostDirShown = show; $('hostDir').classList.toggle('hidden', !show); }
+  if (!show) return;
+  const ang = Math.atan2(h.x - P.x, -(h.z - P.z)) + P.yaw;
+  $('hostDir').firstElementChild.style.transform = 'rotate(' + (ang * 180 / PI) + 'deg)';
 }
 function hudBoss() {
   if (!bossRef) { $('bossWrap').classList.add('hidden'); return; }
@@ -2635,9 +2832,16 @@ function hudBoss() {
   $('bossName').textContent = bossRef.t.name;
   $('bossFill').style.width = clamp(bossRef.hp / bossRef.maxHp, 0, 1) * 100 + '%';
 }
-let pickShown = false;
+let pickShown = false, freeShown = false;
 function hudPickup() {
-  const d = nearestDrop();
+  const h = nearestHostage();                     // freeing a prisoner outranks grabbing a rifle
+  const showFree = !!h && GS === 'play';
+  if (showFree !== freeShown) { freeShown = showFree; $('bFree').classList.toggle('hidden', !showFree); }
+  if (showFree) {
+    $('bFreeBar').style.width = (clamp(h.freeT / 2, 0, 1) * 100) + '%';
+    $('bFreeSub').textContent = h.freeT > 0.05 ? Math.round(clamp(h.freeT / 2, 0, 1) * 100) + '%' : 'HOLD';
+  }
+  const d = showFree ? null : nearestDrop();
   const show = !!d && GS === 'play';
   if (show !== pickShown) { pickShown = show; elPick.classList.toggle('hidden', !show); }
   if (show) elPickSub.textContent = WEAPONS[d.w].name + ' ' + d.mag + '/' + WEAPONS[d.w].mag;
@@ -2703,7 +2907,7 @@ const ROUNDS = {
   7: { elite: 1, list: { ELITE: 4, RUSHER: 4, HEAVY: 2, SOLDIER: 2 } },
   8: { boss: 1, list: { BOSS: 1, SOLDIER: 4, RUSHER: 2, HEAVY: 1 } }
 };
-let pending = [], spawnCd = 0, bossRef = null, roundEndT = 0, winT = 0;
+let pending = [], spawnCd = 0, bossRef = null, roundEndT = 0;
 function maxAlive() { return [4, 6, 7][CFG.quality] + Math.min(2, round >> 2); }
 
 function startRound() {
@@ -2716,7 +2920,11 @@ function startRound() {
   for (let i = rest.length - 1; i > 0; i--) { const j = randi(0, i); const t = rest[i]; rest[i] = rest[j]; rest[j] = t; }
   pending = boss.concat(rest);
   roundKills = 0; roundActive = true; spawnCd = 0.4;
-  bigFeed(roundLabel(round), cfg.boss ? '최종 목표 — HEAVY GUNNER' : (cfg.elite ? 'ELITE HOSTILES INBOUND' : 'HOSTILES INBOUND'));
+  const sec = sectorOf(round);
+  if (sec.round === round && !HOSTAGES.some(h => h.sector === sec.name)) spawnHostage(sec);
+  const hasHostage = !!hostagePending();
+  bigFeed(roundLabel(round), cfg.boss ? '보스가 인질을 붙잡고 있다' :
+    (hasHostage ? '인질 확보 — 구역을 정리하고 풀어내라' : (cfg.elite ? 'ELITE HOSTILES INBOUND' : 'HOSTILES INBOUND')));
   sfx.roundStart(); musicSet(0.85, 1.5);
   hudRound();
 }
@@ -2739,9 +2947,11 @@ function spawnTick(dt) {
   hudRound();
 }
 function pickSpawn(far) {
+  const sec = sectorOf(round);
   let best = SPAWNS[0], bs = -1e9;
   for (let i = 0; i < SPAWNS.length; i++) {
     const s = SPAWNS[i];
+    if (s.x < sec.x0 || s.x > sec.x1) continue;      // hostiles come from the sector being pushed
     const d = Math.hypot(s.x - P.x, s.z - P.z);
     if (d < 11) continue;
     const vis = losClear(P.x, P.y + eyeH(), P.z, s.x, 1.2, s.z);
@@ -2754,7 +2964,7 @@ function checkRoundEnd() {
   if (!roundActive) return;
   let alive = 0;
   for (const e of enemies) if (e.alive) alive++;
-  if (alive > 0 || pending.length > 0) return;
+  if (alive > 0 || pending.length > 0 || hostagePending()) return;
   roundActive = false;
   roundEndT = 0.9;                  // game-clock timer: a restart clears it
   releaseTrigger();
@@ -2859,7 +3069,10 @@ function resetPlayer() {
   $('bAim').classList.remove('down'); $('bCrouch').classList.remove('down');
   $('bMelee').classList.remove('need');
   enemies.length = 0; DROPS.length = 0; DECALS.length = 0; pending = []; bossRef = null;
-  roundEndT = 0; winT = 0; roundActive = false; releaseTrigger();
+  HOSTAGES.length = 0; hostagesFreed = 0; ffWarned = false; failReason = 'KIA'; IN.free = false;
+  $('bFree').classList.add('hidden'); freeShown = false;
+  $('hostDir').classList.add('hidden'); hostDirShown = false;
+  roundEndT = 0; roundActive = false; releaseTrigger();
   for (const p of PARTS) p.life = 0;
   for (const t of TRACERS) t.life = 0;
   for (const c of CASINGS) c.life = 0;
@@ -2903,23 +3116,27 @@ function pauseGame() {
 function resumeGame() {
   hideScreens(); GS = 'play'; musicSet(0.8, 0.6);
 }
+function missionFailed(reason) {
+  if (GS !== 'play' || P.dead) return;
+  failReason = reason;
+  playerDie();
+}
 function playerDie() {
   if (P.dead) return;
   P.dead = true; GS = 'over';
-  roundEndT = 0; winT = 0; releaseTrigger();
+  roundEndT = 0; releaseTrigger();
   sfx.gameOver(); musicSet(0.15, 1.5);
   haptic([0, 60, 60, 120]);
   STAT.time = (performance.now() - STAT.t0) / 1000;
   setTimeout(() => {
     $('hud').classList.add('hidden'); $('touch').classList.add('hidden');
-    $('overSub').textContent = 'KIA · ' + roundLabel(round);
+    $('overSub').textContent = failReason + ' · ' + roundLabel(round);
     $('overStats').innerHTML = statHtml(false);
     $('sOver').classList.remove('hidden');
     dropPointerLock();
   }, 1200);
 }
 function winGame() {
-  winT = 0;
   if (GS !== 'play') return;
   GS = 'win';
   STAT.time = (performance.now() - STAT.t0) / 1000;
@@ -2935,7 +3152,8 @@ function winGame() {
 function statHtml(win) {
   const acc = STAT.shots ? Math.round(STAT.hits / STAT.shots * 100) : 0;
   const rows = [
-    ['ROUND', win ? MAXROUND + ' / ' + MAXROUND : round],
+    ['SECTOR', win ? SECTORS.length + ' / ' + SECTORS.length : (SECTORS.indexOf(sectorOf(round)) + 1)],
+    ['RESCUED', hostagesFreed + ' / ' + HOSTAGE_TOTAL],
     ['KILLS', STAT.kills],
     ['HEADSHOTS', STAT.hs],
     ['AMMO USED', STAT.ammoUsed],
@@ -3078,12 +3296,13 @@ function frame(ts) {
     if (meleeHintT > 0) { meleeHintT -= dt; if (meleeHintT <= 0) $('bMelee').classList.remove('need'); }
     updatePlayer(dt);
     for (let i = 0; i < enemies.length; i++) updateEnemy(enemies[i], dt);
+    updateHostages(dt);
     spawnTick(dt);
     if (roundEndT > 0) { roundEndT -= dt; if (roundEndT <= 0) endRound(); }
-    if (winT > 0) { winT -= dt; if (winT <= 0) winGame(); }
     updateEffects(dt);
     updateCrosshair();
     hudPickup();
+    hudHostageDir();
     if (hitFlashT > 0) hitFlashT -= dt;
     updateVig();
     if (bossRef) hudBoss();
