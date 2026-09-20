@@ -299,6 +299,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
     <button class="mbtn" id="mHow">How to play</button>
     <button class="mbtn" id="mSet">Settings</button>
     <div class="tag" style="margin-top:22px;font-size:9px;letter-spacing:.3em">HEADSHOT = +1 AMMO · 적의 무기를 빼앗아 살아남아라</div>
+    <div class="tag" id="buildTag" style="margin-top:8px;font-size:8px;letter-spacing:.24em;color:#5f6a72">BUILD 5</div>
   </div>
 </div>
 
@@ -412,7 +413,11 @@ function fatal(title, detail) {
   d.innerHTML = '<div style="font-size:15px;letter-spacing:.2em">' + title + '</div>' +
     '<div style="color:#8c9aa4;font-weight:400;font-size:11px;margin-top:12px;max-width:600px;' +
     'white-space:pre-wrap;word-break:break-word;text-align:left">' + String(detail || '').slice(0, 900) + '</div>' +
-    '<div style="color:#5f6a72;font-weight:400;font-size:10px;margin-top:16px">이 메시지를 그대로 알려주시면 원인을 바로 찾을 수 있습니다</div>';
+    '<div style="color:#5f6a72;font-weight:400;font-size:10px;margin-top:16px">이 메시지를 그대로 알려주시면 원인을 바로 찾을 수 있습니다</div>' +
+    '<div style="color:#e0a23c;font-weight:700;font-size:11px;margin-top:18px;letter-spacing:.2em;' +
+    'border:1px solid #3a444c;padding:9px 18px;border-radius:4px">닫고 계속하기</div>';
+  // never leave the player stuck behind the report
+  d.addEventListener('click', () => { d.remove(); window.__fatalShown = 0; });
   (document.body || document.documentElement).appendChild(d);
 }
 addEventListener('error', e => {
@@ -1211,6 +1216,9 @@ function wantPointerLock() {
   if (isTouch || GS !== 'play' || pointerLocked) return false;
   try { if (canvas.requestPointerLock) { canvas.requestPointerLock(); return true; } } catch (err) { }
   return false;
+}
+function dropPointerLock() {
+  try { if (document.exitPointerLock) document.exitPointerLock(); } catch (e) { }
 }
 $('lookzone').addEventListener('pointerdown', e => { if (e.pointerType === 'mouse') wantPointerLock(); });
 $('movezone').addEventListener('pointerdown', e => { if (e.pointerType === 'mouse') wantPointerLock(); });
@@ -2371,12 +2379,24 @@ const _lightUsed = new Uint8Array(64);
 function shake(a, t) { shakeA = Math.max(shakeA * 0.5, a); shakeT = Math.max(shakeT, t); }
 
 /* =================================================================== audio */
-let AC = null, master = null, sfxBus = null, musBus = null, revBus = null, noiseBuf = null, audioReady = false;
+let AC = null, master = null, sfxBus = null, musBus = null, revBus = null, noiseBuf = null, audioReady = false, audioFailed = false;
+/* Every Web Audio call here can throw on a restrictive mobile browser, and this
+   runs from the PLAY handler — an escaping error would leave the menu frozen.
+   The game must always start, silent if it has to. */
 function initAudio() {
-  if (AC) { if (AC.state === 'suspended') AC.resume(); return; }
+  if (audioFailed) return;
+  if (AC) { try { if (AC.state === 'suspended') AC.resume(); } catch (e) { } return; }
   const Ctor = window.AudioContext || window.webkitAudioContext;
-  if (!Ctor) return;
-  try { AC = new Ctor(); } catch (e) { return; }
+  if (!Ctor) { audioFailed = true; return; }
+  try { AC = new Ctor(); } catch (e) { AC = null; audioFailed = true; return; }
+  try { buildAudioGraph(); } catch (e) {
+    console.warn('audio unavailable:', e && e.message);
+    audioReady = false; audioFailed = true;
+    try { if (AC.close) AC.close(); } catch (e2) { }
+    AC = null; master = sfxBus = musBus = revBus = musGain = null;
+  }
+}
+function buildAudioGraph() {
   master = AC.createGain(); master.gain.value = 0.9; master.connect(AC.destination);
   sfxBus = AC.createGain(); sfxBus.gain.value = CFG.sfx / 100; sfxBus.connect(master);
   musBus = AC.createGain(); musBus.gain.value = 0; musBus.connect(master);
@@ -2395,15 +2415,16 @@ function initAudio() {
   const nd = noiseBuf.getChannelData(0);
   for (let i = 0; i < nl; i++) nd[i] = Math.random() * 2 - 1;
   audioReady = true;
-  buildMusic();
+  try { buildMusic(); } catch (e) { console.warn('ambient bed unavailable:', e && e.message); }
 }
 function applyVolumes() {
-  if (!AC) return;
+  if (!AC || !sfxBus) return;
   sfxBus.gain.value = CFG.sfx / 100;
   if (musGain) musGain.gain.value = (CFG.music / 100) * (GS === 'play' ? 0.5 : 0.32) * musIntensity;
 }
 function noise(dur, type, freq, q, gain, decay, rev, rate) {
   if (!audioReady) return;
+  try {
   const t = AC.currentTime;
   const s = AC.createBufferSource(); s.buffer = noiseBuf;
   s.playbackRate.value = rate || 1;
@@ -2415,9 +2436,11 @@ function noise(dur, type, freq, q, gain, decay, rev, rate) {
   s.connect(f); f.connect(g); g.connect(sfxBus);
   if (rev) { const rg = AC.createGain(); rg.gain.value = rev; g.connect(rg); rg.connect(revBus); }
   s.start(t); s.stop(t + dur);
+  } catch (e) { audioReady = false; }
 }
 function tone(f0, f1, dur, type, gain, rev, delay) {
   if (!audioReady) return;
+  try {
   const t = AC.currentTime + (delay || 0);
   const o = AC.createOscillator(); o.type = type || 'sine';
   o.frequency.setValueAtTime(f0, t);
@@ -2429,6 +2452,7 @@ function tone(f0, f1, dur, type, gain, rev, delay) {
   o.connect(g); g.connect(sfxBus);
   if (rev) { const rg = AC.createGain(); rg.gain.value = rev; g.connect(rg); rg.connect(revBus); }
   o.start(t); o.stop(t + dur + 0.02);
+  } catch (e) { audioReady = false; }
 }
 const SHOTS = {
   ar: { f: 1500, q: 0.9, g: 0.85, d: 0.15, sub: 105, subd: 0.11, rev: 0.28, tail: 0.3 },
@@ -2512,7 +2536,9 @@ function buildMusic() {
 }
 function musicSet(v, t) {
   musIntensity = v;
-  if (musGain && AC) musGain.gain.setTargetAtTime((CFG.music / 100) * 0.55 * v, AC.currentTime, t || 1.2);
+  try {
+    if (musGain && AC) musGain.gain.setTargetAtTime((CFG.music / 100) * 0.55 * v, AC.currentTime, t || 1.2);
+  } catch (e) { }
 }
 /* haptics */
 let lastVib = 0;
@@ -2851,7 +2877,7 @@ function pauseGame() {
   GS = 'pause'; releaseTrigger();
   $('pauseSub').textContent = roundLabel(round);
   $('sPause').classList.remove('hidden');
-  if (document.exitPointerLock) document.exitPointerLock();
+  dropPointerLock();
   musicSet(0.3, 0.4);
 }
 function resumeGame() {
@@ -2869,7 +2895,7 @@ function playerDie() {
     $('overSub').textContent = 'KIA · ' + roundLabel(round);
     $('overStats').innerHTML = statHtml(false);
     $('sOver').classList.remove('hidden');
-    if (document.exitPointerLock) document.exitPointerLock();
+    dropPointerLock();
   }, 1200);
 }
 function winGame() {
@@ -2883,7 +2909,7 @@ function winGame() {
     $('hud').classList.add('hidden'); $('touch').classList.add('hidden');
     $('winStats').innerHTML = statHtml(true);
     $('sWin').classList.remove('hidden');
-    if (document.exitPointerLock) document.exitPointerLock();
+    dropPointerLock();
   }, 1400);
 }
 function statHtml(win) {
@@ -2906,11 +2932,29 @@ function toMenu() {
   $('sMenu').classList.remove('hidden');
   $('hud').classList.add('hidden'); $('touch').classList.add('hidden');
   musicSet(0.5, 1.2);
-  if (document.exitPointerLock) document.exitPointerLock();
+  dropPointerLock();
 }
 
 /* ================================================================= menus */
-function wire(id, fn) { const el = $(id); el.addEventListener('click', e => { e.preventDefault(); initAudio(); sfx.ui(); fn(); }); }
+function wire(id, fn) {
+  const el = $(id);
+  let armed = null, lastFire = 0;
+  const fire = () => {
+    const now = performance.now();
+    if (now - lastFire < 600) return;
+    lastFire = now;
+    if (armed) { clearTimeout(armed); armed = null; }
+    try { initAudio(); sfx.ui(); } catch (err) { console.warn('audio:', err && err.message); }
+    fn();                                      // the action never depends on sound
+  };
+  el.addEventListener('click', e => { e.preventDefault(); fire(); });
+  // backstop for browsers where a tap produces no click: the real click, which
+  // lands a few ms after pointerup, cancels this before it can double-fire
+  el.addEventListener('pointerup', () => {
+    if (armed) clearTimeout(armed);
+    armed = setTimeout(fire, 350);
+  });
+}
 wire('mPlay', startGame);
 wire('mHow', () => { prevScreen = GS === 'pause' ? 'sPause' : 'sMenu'; hideScreens(); $('sHow').classList.remove('hidden'); });
 wire('howBack', () => { hideScreens(); $(prevScreen).classList.remove('hidden'); });
@@ -2982,9 +3026,9 @@ $('rotateAnyway').addEventListener('click', () => {
 });
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) { if (GS === 'play') pauseGame(); }
-  else if (AC && AC.state === 'suspended') AC.resume();   // mobile suspends it on the way out
+  else { try { if (AC && AC.state === 'suspended') AC.resume(); } catch (e) { } }   // mobile suspends it on the way out
 });
-addEventListener('pointerdown', () => { if (AC && AC.state === 'suspended') AC.resume(); }, { passive: true });
+addEventListener('pointerdown', () => { try { if (AC && AC.state === 'suspended') AC.resume(); } catch (e) { } }, { passive: true });
 
 /* ================================================================== loop */
 let last = 0, fpsAcc = 0, fpsN = 0, fpsVal = 60, autoQualT = 0;
@@ -3056,14 +3100,24 @@ function menuCam(dt) {
   updateCamVectors();
 }
 
-/* =================================================================== boot */
-buildProgram();
-buildLevel();
-resize();
-checkOrientation();
-syncSettings();
-hudHp(); hudAmmo();
-toMenu();
+/* =================================================================== boot
+   The render loop is the one thing that must survive a hostile browser, so
+   every optional step is isolated and the loop is armed last, unconditionally. */
+function step(name, fn) {
+  try { fn(); } catch (e) {
+    console.warn('boot step failed: ' + name, e && e.message);
+    bootWarnings.push(name + ': ' + (e && e.message));
+  }
+}
+const bootWarnings = [];
+step('program', buildProgram);
+step('level', buildLevel);
+step('resize', resize);
+step('orientation', checkOrientation);
+step('settings', syncSettings);
+step('hud', () => { hudHp(); hudAmmo(); });
+step('menu', toMenu);
+if (bootWarnings.length) fatal('STARTUP WARNING', bootWarnings.join('\n'));
 requestAnimationFrame(frame);
 /* unlock audio on the first interaction anywhere */
 ['pointerdown', 'touchstart', 'keydown'].forEach(ev =>
