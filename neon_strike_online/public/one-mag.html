@@ -1123,41 +1123,60 @@ const IN = {
 };
 const elStick = $('stick'), elStickN = $('stickN');
 let stickCX = 0, stickCY = 0, stickR = 58;
-let lookId = -1, moveId = -1, lastLX = 0, lastLY = 0;
 let pointerLocked = false;
+/* Both zones track every finger currently inside them and steer with the newest.
+   Rejecting extra fingers used to kill the input when the first one lifted:
+   a second thumb touching down during a drag left the camera dead until the
+   player let go and started over. Each finger's position is kept current so a
+   handover never jumps the view. */
+const lookPts = [], movePts = [];
+function ptFind(list, id) { for (let i = 0; i < list.length; i++) if (list[i].id === id) return list[i]; return null; }
+function ptDrop(list, id) { for (let i = 0; i < list.length; i++) if (list[i].id === id) { list.splice(i, 1); return true; } return false; }
+function ptTop(list) { return list.length ? list[list.length - 1] : null; }
 
 function onLookStart(e) {
-  if (lookId !== -1) return;
-  lookId = e.pointerId; lastLX = e.clientX; lastLY = e.clientY;
+  if (ptFind(lookPts, e.pointerId)) return;
+  lookPts.push({ id: e.pointerId, x: e.clientX, y: e.clientY });
   try { e.target.setPointerCapture(e.pointerId); } catch (err) { }
 }
 function onLookMove(e) {
-  if (e.pointerId !== lookId) return;
-  IN.mx += e.clientX - lastLX; IN.my += e.clientY - lastLY;
-  lastLX = e.clientX; lastLY = e.clientY;
+  const p = ptFind(lookPts, e.pointerId);
+  if (!p) return;
+  if (p === ptTop(lookPts)) { IN.mx += e.clientX - p.x; IN.my += e.clientY - p.y; }
+  p.x = e.clientX; p.y = e.clientY;
 }
-function onLookEnd(e) { if (e.pointerId === lookId) lookId = -1; }
+function onLookEnd(e) { ptDrop(lookPts, e.pointerId); }
 
-function onMoveStart(e) {
-  if (moveId !== -1) return;
-  moveId = e.pointerId;
-  stickCX = e.clientX; stickCY = e.clientY;
-  elStick.style.left = stickCX + 'px'; elStick.style.top = stickCY + 'px';
+function anchorStick(x, y) {
+  stickCX = x; stickCY = y;
+  elStick.style.left = x + 'px'; elStick.style.top = y + 'px';
   elStick.style.bottom = 'auto'; elStick.classList.add('on');
-  try { e.target.setPointerCapture(e.pointerId); } catch (err) { }
-  onMoveMove(e);
 }
-function onMoveMove(e) {
-  if (e.pointerId !== moveId) return;
-  let dx = e.clientX - stickCX, dy = e.clientY - stickCY;
+function applyStick(x, y) {
+  let dx = x - stickCX, dy = y - stickCY;
   const d = Math.hypot(dx, dy);
   if (d > stickR) { dx = dx / d * stickR; dy = dy / d * stickR; }
   IN.jx = dx / stickR; IN.jy = dy / stickR;
   elStickN.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
 }
+function onMoveStart(e) {
+  if (ptFind(movePts, e.pointerId)) return;
+  movePts.push({ id: e.pointerId, x: e.clientX, y: e.clientY });
+  try { e.target.setPointerCapture(e.pointerId); } catch (err) { }
+  anchorStick(e.clientX, e.clientY);
+  applyStick(e.clientX, e.clientY);
+}
+function onMoveMove(e) {
+  const p = ptFind(movePts, e.pointerId);
+  if (!p) return;
+  p.x = e.clientX; p.y = e.clientY;
+  if (p === ptTop(movePts)) applyStick(e.clientX, e.clientY);
+}
 function onMoveEnd(e) {
-  if (e.pointerId !== moveId) return;
-  moveId = -1; IN.jx = 0; IN.jy = 0;
+  if (!ptDrop(movePts, e.pointerId)) return;
+  const next = ptTop(movePts);
+  if (next) { anchorStick(next.x, next.y); applyStick(next.x, next.y); return; }
+  IN.jx = 0; IN.jy = 0;
   elStickN.style.transform = '';
   elStick.classList.remove('on');
   resetStickHome();
@@ -1608,7 +1627,7 @@ function resolveMelee() {
   hitMarker(false); sfx.meleeHit(); haptic(45);
 }
 function tryPickup() {
-  if (GS !== 'play') return;
+  if (GS !== 'play' || P.swapT > 0) return;
   const d = nearestDrop();
   if (!d) return;
   const old = P.wpn, oldMag = P.mag;
@@ -2585,7 +2604,7 @@ function hudAmmo() {
   elAmmoBox.classList.toggle('lowammo', low && P.mag > 0);
   elAmmoBox.classList.toggle('noammo', P.mag <= 0);
   elState.textContent = P.reloadT > 0 ? 'RELOADING' : (P.mag <= 0 ? (P.res[P.wpn] > 0 ? 'RELOAD' : 'NO AMMO') : (low ? 'LOW AMMO' : ''));
-  elReload.classList.toggle('need', P.mag <= 0 || (low && P.res[P.wpn] > 0));
+  elReload.classList.toggle('need', P.res[P.wpn] > 0 && (P.mag <= 0 || low));
   elReload.style.opacity = P.res[P.wpn] > 0 && P.mag < w.mag ? '' : '0.4';
   elMelee.classList.toggle('hidden', !(P.mag <= 0 && P.res[P.wpn] <= 0));
   const n = w.mag <= 12 ? w.mag : 0;
@@ -2836,6 +2855,7 @@ function resetPlayer() {
   P.recoilP = P.recoilY = P.recoilVP = P.recoilVY = 0; P.spread = 1; P.kick = 0;
   P.crouch = 0; P.regenT = 0; P.hurtT = 0;
   IN.fire = false; IN.aim = false; IN.crouch = false;
+  lookPts.length = 0; movePts.length = 0; IN.jx = 0; IN.jy = 0; IN.mx = 0; IN.my = 0;
   $('bAim').classList.remove('down'); $('bCrouch').classList.remove('down');
   $('bMelee').classList.remove('need');
   enemies.length = 0; DROPS.length = 0; DECALS.length = 0; pending = []; bossRef = null;
