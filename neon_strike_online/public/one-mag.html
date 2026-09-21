@@ -139,6 +139,29 @@ canvas#gl{position:fixed;inset:0;width:100%;height:100%;display:block;background
 #hostDir i{position:absolute;left:50%;top:50%;width:0;height:0;display:block}
 #hostDir i::after{content:"";position:absolute;left:-13px;top:-128px;width:26px;height:15px;opacity:.9;
   background:#5fd0e8;clip-path:polygon(50% 0,100% 100%,0 100%)}
+/* ---- 3v3 match ---- */
+#matchBar{display:flex;align-items:center;gap:14px;margin-top:2px;text-shadow:0 2px 6px #000}
+#matchBar .mside{display:flex;align-items:center;gap:7px;font-size:11px;letter-spacing:.2em;font-weight:800}
+#matchBar .blue{color:#6ea8e8}#matchBar .red{color:#e8806a}
+#matchBar .mscore{font-size:20px;font-weight:900;color:#f2f6f8}
+#matchBar .mdots{display:flex;gap:3px}
+#matchBar .mdots i{width:6px;height:6px;border-radius:50%;display:block;background:currentColor;opacity:.9}
+#matchBar .mdots i.out{opacity:.18}
+#matchBar .mclock{font-size:15px;font-weight:800;letter-spacing:.08em;color:#e6ecef;min-width:54px;text-align:center}
+#matchBar .mclock.low{color:#e8503a}
+#buyPanel{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:36;pointer-events:auto;
+  background:rgba(9,12,14,.92);border:1px solid #2b343c;border-radius:6px;padding:14px 18px;text-align:center;
+  box-shadow:0 18px 50px rgba(0,0,0,.6);max-width:94vw}
+.buyTitle{font-size:11px;letter-spacing:.34em;color:#8c9aa4;margin-bottom:10px}
+.buyTitle span{color:var(--amber);font-weight:900;margin-left:10px;font-size:14px}
+.buyRow{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+.buyCard{width:118px;padding:9px 10px;border:1px solid #2f3a42;border-radius:4px;background:#151a1e;cursor:pointer;
+  text-align:left;transition:.12s}
+.buyCard:hover,.buyCard.sel{border-color:var(--amber);background:#1e262b}
+.buyCard h5{font-size:11px;letter-spacing:.14em;color:#eef3f5;margin-bottom:2px}
+.buyCard p{font-size:9.5px;color:#8c9aa4;letter-spacing:.06em;line-height:1.45}
+.buyHint{font-size:9px;letter-spacing:.16em;color:#69757d;margin-top:10px}
+@media (max-height:470px){#buyPanel{padding:10px 14px}.buyCard{width:104px;padding:7px 8px}.buyRow{gap:6px}}
 #bPause{position:absolute;pointer-events:auto;left:calc(var(--sal) + 12px);top:calc(var(--sat) + 8px);width:38px;height:30px;
   border-radius:5px;background:rgba(14,18,20,.4);border:1px solid rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:13px}
 #meleeOnly{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(var(--sab) + 78px);font-size:11px;letter-spacing:.26em;color:#e8503a;text-shadow:0 2px 8px #000;pointer-events:none}
@@ -256,6 +279,11 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
     <div id="roundTag">ROUND 1</div>
     <div id="roundSub">HOSTILES 5</div>
     <div id="bossWrap" class="hidden"><div id="bossName">HEAVY GUNNER</div><div id="bossBar"><div id="bossFill"></div></div></div>
+    <div id="matchBar" class="hidden">
+      <div class="mside blue"><span class="mname">BLUE</span><span class="mscore" id="mScoreB">0</span><span class="mdots" id="mDotsB"></span></div>
+      <div class="mclock" id="mClock">1:35</div>
+      <div class="mside red"><span class="mdots" id="mDotsR"></span><span class="mscore" id="mScoreR">0</span><span class="mname">RED</span></div>
+    </div>
   </div>
   <div id="killfeed"></div>
   <div id="bigfeed"><div class="l1"></div><div class="l2"></div></div>
@@ -307,10 +335,11 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
     <div class="tag">Every bullet matters.</div>
     <div class="rule"></div>
     <button class="mbtn p" id="mPlay">Play</button>
+    <button class="mbtn" id="mMatch">3v3 Match</button>
     <button class="mbtn" id="mHow">How to play</button>
     <button class="mbtn" id="mSet">Settings</button>
-    <div class="tag" style="margin-top:22px;font-size:9px;letter-spacing:.3em">인질 3명을 구출하라 · HEADSHOT = +1 AMMO</div>
-    <div class="tag" id="buildTag" style="margin-top:8px;font-size:8px;letter-spacing:.24em;color:#5f6a72">BUILD 7 · RESCUE</div>
+    <div class="tag" style="margin-top:22px;font-size:9px;letter-spacing:.3em">인질 3명을 구출하라 · 또는 3v3으로 붙어라</div>
+    <div class="tag" id="buildTag" style="margin-top:8px;font-size:8px;letter-spacing:.24em;color:#5f6a72">BUILD 8 · RESCUE + 3V3</div>
   </div>
 </div>
 
@@ -319,7 +348,8 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
   <div class="panel">
     <div class="h2">HOW TO PLAY</div><div class="sub">Mobile FPS · Landscape</div>
     <div class="how">
-      <b>임무</b> — 시설에 인질 3명이 잡혀 있다. 구역을 하나씩 밀고 들어가 전부 구출하라.<div class="hr"></div>
+      <b>3V3 MATCH</b> — 당신 + AI 팀원 2명(파랑)이 AI 3명(빨강)과 붙는다. 라운드 중 리스폰 없음, 먼저 5라운드 선취. 라운드 시작 전 6초 동안 무기를 고른다. 팀원 머리 위에는 파란 표식이 뜨고, 팀원에게는 총알이 통과한다.<div class="hr"></div>
+      <b>임무 (캠페인)</b> — 시설에 인질 3명이 잡혀 있다. 구역을 하나씩 밀고 들어가 전부 구출하라.<div class="hr"></div>
       <b>인질</b> — 인질 옆에서 <b>FREE</b>를 2초간 누르고 있으면 풀려나 스스로 탈출한다. 화면 위쪽 하늘색 화살표가 방향을 가리킨다.<div class="hr"></div>
       <b>오사 주의</b> — 인질을 쏘면 경고 한 번, 두 번째는 임무 실패다. 쏘기 전에 표적을 확인하라.<div class="hr"></div>
       <b>이동</b> — 화면 왼쪽을 엄지로 눌러 조이스틱 이동.<div class="hr"></div>
@@ -402,6 +432,23 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
     <div class="stats" id="winStats"></div>
     <button class="mbtn p sm" id="wRetry">Play again</button>
     <button class="mbtn sm" id="wMenu">Main menu</button>
+  </div>
+</div>
+
+<div id="buyPanel" class="hidden">
+  <div class="buyTitle">LOADOUT<span id="buyClock">6</span></div>
+  <div class="buyRow" id="buyRow"></div>
+  <div class="buyHint">무기를 고르면 바로 확정된다 · 라운드 중 교체 불가</div>
+</div>
+
+<div class="screen hidden" id="sMatch">
+  <div class="panel">
+    <div class="title" id="matchTitle" style="font-size:clamp(28px,6.4vw,56px)">VICTORY</div>
+    <div class="tag" id="matchSub">BLUE 5 — 3 RED</div>
+    <div class="rule"></div>
+    <div class="stats" id="matchStats"></div>
+    <button class="mbtn p sm" id="mAgain">Rematch</button>
+    <button class="mbtn sm" id="mMenu">Main menu</button>
   </div>
 </div>
 
@@ -1112,6 +1159,21 @@ const P = {
 };
 const STAT = { kills: 0, hs: 0, shots: 0, hits: 0, ammoUsed: 0, t0: 0, time: 0, melee: 0 };
 let GS = 'menu';                     // menu | play | supply | over | win | pause
+let MODE = 'campaign';               // campaign | match
+function pickFoe(e) {
+  let best = null, bd = 1e9;
+  const cur = e.foe;
+  for (let i = 0; i < UNITS.length; i++) {
+    const u = UNITS[i];
+    if (u === e || u.team === e.team || !u.alive) continue;
+    const d = Math.hypot(u.x - e.x, u.z - e.z);
+    // stay on a target you can still see rather than flip-flopping every tick
+    const score = d - (u === cur ? 6 : 0) - (canSee(e, u) ? 14 : 0);
+    if (score < bd) { bd = score; best = u; }
+  }
+  return best;
+}
+const UNITS = [];
 let round = 1, roundKills = 0, toSpawn = 0, roundActive = false, roundTimer = 0;
 let shakeT = 0, shakeA = 0, muzzleT = 0, hitFlashT = 0;
 const MAXROUND = 8;
@@ -1327,6 +1389,7 @@ function updatePlayer(dt) {
   P.pitch = clamp(P.pitch, -1.35, 1.35);
   if (P.yaw > PI) P.yaw -= TAU; else if (P.yaw < -PI) P.yaw += TAU;
   assistPull(dt, Math.abs(dx) + Math.abs(dy) > 0.0006);
+  if (P.dead) { updateCamVectors(); return; }            // downed: look around, nothing else
 
   /* ---- recoil spring ---- */
   P.recoilVP += -P.recoilP * 62 * dt; P.recoilVP *= Math.exp(-dt * 11);
@@ -1570,6 +1633,7 @@ function castBullet(ox, oy, oz, dx, dy, dz, w, fromPlayer) {
   for (let i = 0; i < enemies.length; i++) {
     const e = enemies[i];
     if (!e.alive) continue;
+    if (MODE === 'match' && e.team === 0) continue;      // no friendly fire between operators
     const dxp = e.x - ox, dzp = e.z - oz;
     if (dxp * dxp + dzp * dzp > (w.range * 2.4) * (w.range * 2.4)) continue;
     const hr = e.headR;
@@ -1601,7 +1665,7 @@ function castBullet(ox, oy, oz, dx, dy, dz, w, fromPlayer) {
     if (dist > w.range) dmg *= Math.max(0.42, 1 - (dist - w.range) / w.falloff * 0.6);
     if (head) dmg *= w.head;
     bloodBurst(px, py, pz, dx, dy, dz, head ? 9 : 5);
-    damageEnemy(hitE, dmg, head, px, py, pz);
+    damageEnemy(hitE, dmg, head, px, py, pz, false, true);
     return head ? 2 : 1;
   }
   if (hitT < maxT - 0.01) {
@@ -1651,7 +1715,7 @@ function resolveMelee() {
   }
   if (!best) return;
   bloodBurst(best.x, best.y + best.h * 0.6, best.z, camFX, 0.4, camFZ, 12);
-  damageEnemy(best, meleeDmg(), false, best.x, best.y + best.h * 0.6, best.z, true);
+  damageEnemy(best, meleeDmg(), false, best.x, best.y + best.h * 0.6, best.z, true, true);
   hitMarker(false); sfx.meleeHit(); haptic(45);
 }
 function tryPickup() {
@@ -1696,7 +1760,7 @@ function hurtPlayer(dmg, sx, sz) {
   shake(0.055 + dmg * 0.0014, 0.2);
   sfx.hurt(); haptic(dmg > 14 ? 40 : 18);
   hudHp();
-  if (P.hp <= 0) { P.hp = 0; failReason = 'KIA'; playerDie(); }
+  if (P.hp <= 0) { P.hp = 0; failReason = 'KIA'; if (MODE === 'match') playerDownMatch(); else playerDie(); }
 }
 
 /* ================================================================ hostages
@@ -1815,6 +1879,24 @@ function hostageHit(h, px, py, pz) {
   missionFailed('HOSTAGE DOWN');
 }
 
+/* =================================================================== units
+   The AI used to aim at the player and nothing else. Wrapping the player in a
+   unit lets exactly the same code fight another bot, which is what team play
+   needs. The getters read straight through, so the proxy is never stale. */
+const PUNIT = {
+  isPlayer: true, team: 0, type: 'PLAYER',
+  get x() { return P.x; }, get y() { return P.y; }, get z() { return P.z; },
+  get alive() { return !P.dead && P.hp > 0; },
+  get h() { return 1.75 - P.crouch * 0.5; },
+  get rad() { return 0.36; },
+  get hp() { return P.hp; }
+};
+function unitEye(u) { return u.isPlayer ? P.y + eyeH() : enemyEye(u); }
+function unitHurt(u, dmg, sx, sz) {
+  if (u.isPlayer) hurtPlayer(dmg, sx, sz);
+  else damageEnemy(u, dmg, false, u.x, u.y + u.h * 0.55, u.z);
+}
+
 /* ================================================================= enemies */
 const enemies = [];
 const ETYPE = {
@@ -1837,6 +1919,11 @@ const ETYPE = {
     name: 'ELITE', hp: 135, spd: 3.0, h: 1.8, rad: 0.33, headR: 0.15, wpn: 'AR',
     dmg: 10, burst: 4, cd: 1.25, rof: 0.11, acc: 0.05, range: 38, pts: 32, drop: 0.8,
     col: [0.13, 0.145, 0.16], col2: [0.30, 0.24, 0.10], react: 0.3, cover: 0.7
+  },
+  OPERATOR: {
+    name: 'OPERATOR', hp: 100, spd: 3.0, h: 1.78, rad: 0.32, headR: 0.155, wpn: 'AR',
+    dmg: 13, burst: 4, cd: 1.05, rof: 0.12, acc: 0.055, range: 34, pts: 0, drop: 0,
+    col: [0.20, 0.22, 0.26], col2: [0.28, 0.30, 0.34], react: 0.34, cover: 0.5
   },
   BOSS: {
     name: 'HEAVY GUNNER', hp: 2400, spd: 1.65, h: 2.35, rad: 0.58, headR: 0.20, wpn: 'SMG',
@@ -1861,23 +1948,26 @@ function spawnEnemy(type, x, z, boost) {
   e.fireCd = 0.6; e.burst = 0; e.burstT = 0; e.stuck = 0; e.strafe = 0; e.strafeT = 0;
   e.wpn = t.wpn; e.mag = t.wpn ? randi(6, WEAPONS[t.wpn].mag) : 0;
   e.step = 0; e.flinch = 0; e.muzzle = 0; e.anim = Math.random() * 10; e.legPhase = 0;
+  e.team = 1; e.foe = PUNIT;
   e.target = pickPatrol(x, z); e.cover = null; e.searchT = 0; e.aggro = 0; e.hunt = 0;
   e.boost = boost || 0;
   return e;
 }
-function pickPatrol(x, z) {
+function pickPatrol(x, z, foe) {
+  const F = foe || PUNIT;
   // patrol points are weighted toward the player, so a wave closes in over time
   let best = PATROL_PTS[0], bs = -1e9;
   for (let i = 0; i < 5; i++) {
     const p = PATROL_PTS[randi(0, PATROL_PTS.length - 1)];
     const own = Math.hypot(p.x - x, p.z - z);
-    const toP = Math.hypot(p.x - P.x, p.z - P.z);
+    const toP = Math.hypot(p.x - F.x, p.z - F.z);
     const s = -own * 0.35 - toP * 0.9 + rand(0, 10);
     if (s > bs) { bs = s; best = p; }
   }
   return { x: best.x, z: best.z };
 }
 function alertEnemies(x, z, radius) {
+  if (MODE === 'match') return;
   for (const e of enemies) {
     if (!e.alive || e.state === 'ATTACK') continue;
     const d = Math.hypot(e.x - x, e.z - z);
@@ -1889,9 +1979,10 @@ function alertEnemies(x, z, radius) {
 }
 function enemyEye(e) { return e.y + e.h - 0.28; }
 
-function damageEnemy(e, dmg, head, px, py, pz, melee) {
+function damageEnemy(e, dmg, head, px, py, pz, melee, byPlayer) {
   if (!e.alive) return;
   e.hp -= dmg;
+  if (byPlayer) { e.lastHitByPlayer = true; MATCH.dmg += Math.min(dmg, e.hp + dmg); }
   e.flinch = 0.14;
   e.aggro = 1;
   if (e.state === 'IDLE' || e.state === 'PATROL') { e.state = 'ALERT'; e.stateT = 0; e.lastX = P.x; e.lastZ = P.z; }
@@ -1902,6 +1993,20 @@ function damageEnemy(e, dmg, head, px, py, pz, melee) {
 function killEnemy(e, head, melee) {
   e.alive = false; e.fade = 6.5; e.state = 'DEAD';
   e.deadYaw = e.yaw; e.deadT = 0;
+  if (MODE === 'match') {
+    bloodBurst(e.x, e.y + e.h * 0.6, e.z, 0, 1, 0, 10);
+    groundBlood(e.x, e.z);
+    sfx.death(false);
+    if (e.lastHitByPlayer) {
+      STAT.kills++;
+      if (head) { STAT.hs++; P.mag = Math.min(wpn().mag, P.mag + hsAmmo()); sfx.headshot(); bigFeed('HEADSHOT', '+' + hsAmmo() + ' AMMO'); hudAmmo(); }
+      else bigFeedSmall(melee ? 'MELEE KILL' : 'KILL');
+      killFeed(e.teamCol ? e.teamCol.name + ' OPERATOR' : e.t.name, !!head);
+      haptic(head ? [0, 30, 40, 55] : 20);
+    }
+    hudMatch();
+    return;
+  }
   STAT.kills++; roundKills++;
   P.pts += Math.round(e.t.pts * (1 + e.boost * 0.5)) + (head ? 8 : 0);
   bloodBurst(e.x, e.y + e.h * 0.6, e.z, 0, 1, 0, 10);
@@ -1945,6 +2050,7 @@ function groundBlood(x, z) {
   while (DECALS.length > Q().decals) DECALS.shift();
 }
 function findCover(e) {
+  const F = e.foe || PUNIT;
   let best = null, bs = -1e9;
   for (let i = 0; i < COVER.length; i++) {
     const c = COVER[i];
@@ -1952,10 +2058,10 @@ function findCover(e) {
     if (d > 16) continue;
     // cover must break line of sight from the player, roughly
     const mx = (c.x + c.bx) / 2, mz = (c.z + c.bz) / 2;
-    const blocked = !losClear(P.x, P.y + eyeH(), P.z, c.x, 0.9, c.z);
-    const facing = ((c.x - c.bx) * (P.x - c.bx) + (c.z - c.bz) * (P.z - c.bz)) < 0;
+    const blocked = !losClear(F.x, unitEye(F), F.z, c.x, 0.9, c.z);
+    const facing = ((c.x - c.bx) * (F.x - c.bx) + (c.z - c.bz) * (F.z - c.bz)) < 0;
     let s = (blocked ? 22 : 0) + (facing ? 16 : 0) - d * 1.6 + rand(0, 4);
-    const dp = Math.hypot(c.x - P.x, c.z - P.z);
+    const dp = Math.hypot(c.x - F.x, c.z - F.z);
     if (dp < 5) s -= 28;
     if (s > bs) { bs = s; best = c; }
   }
@@ -2023,9 +2129,10 @@ function faceTarget(e, tx, tz, dt, rate) {
   const want = Math.atan2(-(tx - e.x), -(tz - e.z));
   e.yaw += clamp(angDelta(e.yaw, want), -(rate || 5) * dt, (rate || 5) * dt);
 }
-function canSeePlayer(e) {
+function canSee(e, u) {
+  if (!u || !u.alive) return false;
   const ex = e.x, ey = enemyEye(e), ez = e.z;
-  const px = P.x, py = P.y + eyeH() - 0.15, pz = P.z;
+  const px = u.x, py = unitEye(u) - 0.15, pz = u.z;
   const d = Math.hypot(px - ex, pz - ez);
   if (d > 44) return false;
   const want = Math.atan2(-(px - ex), -(pz - ez));
@@ -2034,12 +2141,14 @@ function canSeePlayer(e) {
   return losClear(ex, ey, ez, px, py, pz);
 }
 function enemyShoot(e) {
+  const F = e.foe || PUNIT;
+  if (!F.alive) return;
   const ex = e.x, ey = enemyEye(e), ez = e.z;
-  const px = P.x, py = P.y + eyeH() - rand(0.05, 0.45), pz = P.z;
+  const px = F.x, py = unitEye(F) - rand(0.05, 0.45), pz = F.z;
   let dx = px - ex, dy = py - ey, dz = pz - ez;
   const d = Math.hypot(dx, dy, dz);
   dx /= d; dy /= d; dz /= d;
-  const acc = e.t.acc * (1 + d * 0.022) * (1 + (P.crouch > 0.5 ? 0.3 : 0)) * (1 - e.boost * 0.22);
+  const acc = e.t.acc * (1 + d * 0.022) * (1 + (F.isPlayer && P.crouch > 0.5 ? 0.3 : 0)) * (1 - e.boost * 0.22);
   dx += rand(-acc, acc); dy += rand(-acc, acc) * 0.6; dz += rand(-acc, acc);
   const l = Math.hypot(dx, dy, dz); dx /= l; dy /= l; dz /= l;
   if (e.mag > 0) e.mag--;
@@ -2047,13 +2156,13 @@ function enemyShoot(e) {
   muzzleFlashEnemy(e);
   // hitscan against the player capsule, geometry blocks it
   const wt = rayWorld(ex, ey, ez, dx, dy, dz, 60);
-  const ph = rayAABB(ex, ey, ez, dx, dy, dz, P.x - 0.36, P.y, P.z - 0.36, P.x + 0.36, P.y + 1.75 - P.crouch * 0.5, P.z + 0.36, 60);
+  const ph = rayAABB(ex, ey, ez, dx, dy, dz, F.x - F.rad, F.y, F.z - F.rad, F.x + F.rad, F.y + F.h, F.z + F.rad, 60);
   const endT = (wt > 0 && (ph < 0 || wt < ph)) ? wt : (ph > 0 ? ph : 42);
   spawnTracer(ex + dx * 0.4, ey + dy * 0.4 - 0.12, ez + dz * 0.4, ex + dx * endT, ey + dy * endT, ez + dz * endT, 1.0, 0.68, 0.34, 0.016);
   if (ph > 0 && (wt < 0 || ph < wt)) {
     let dmg = e.t.dmg * (1 + e.boost * 0.35);
     if (d > e.t.range) dmg *= 0.55;
-    hurtPlayer(dmg, ex, ez);
+    unitHurt(F, dmg, ex, ez);
   } else if (wt > 0) {
     const hx = ex + dx * wt, hy = ey + dy * wt, hz = ez + dz * wt;
     sparkBurst(hx, hy, hz, RAYN[0], RAYN[1], RAYN[2], 3);
@@ -2081,25 +2190,41 @@ function updateEnemy(e, dt) {
   e.losT -= dt;
   if (e.losT <= 0) {
     e.losT = 0.13 + Math.random() * 0.1;
-    e.seen = canSeePlayer(e);
-    if (e.seen) { e.lastX = P.x; e.lastZ = P.z; e.seeT = 0; e.aggro = 1; }
+    if (MODE === 'match') e.foe = pickFoe(e);
+    else e.foe = PUNIT;
+    e.seen = canSee(e, e.foe);
+    if (e.seen) { e.lastX = e.foe.x; e.lastZ = e.foe.z; e.seeT = 0; e.aggro = 1; }
   }
+  const F = e.foe || PUNIT;
   if (!e.seen) e.seeT += dt;
-  const distP = Math.hypot(P.x - e.x, P.z - e.z);
+  const distP = Math.hypot(F.x - e.x, F.z - e.z);
   // nobody camps forever: after a long silence the hostile hunts the player down
   e.hunt = (e.hunt || 0) + dt;
   if (e.seen || e.state === 'ATTACK' || e.state === 'COVER') e.hunt = 0;
   else if (e.hunt > 11 && GS === 'play') {
     e.hunt = 0; e.state = 'SEARCH'; e.stateT = 0; e.searchT = 9;
-    e.lastX = P.x; e.lastZ = P.z;
+    e.lastX = F.x; e.lastZ = F.z;
   }
   const t = e.t;
   const spd = t.spd * (1 + e.boost * 0.12);
 
+  // In a match there is nothing to patrol: operators push the fight. Patrolling
+  // at half speed with idle pauses put first contact twenty seconds into a round.
+  if (MODE === 'match' && F && F.alive &&
+      (e.state === 'IDLE' || e.state === 'PATROL' || e.state === 'SEARCH')) {
+    if (e.seen) { e.state = 'ALERT'; e.stateT = 0; sfx.spot(); }
+    else {
+      steer(e, F.x, F.z, dt, spd * 0.9);
+      if (e.fireCd > 0) e.fireCd -= dt;
+      separate(e, dt);
+      return;
+    }
+  }
+
   switch (e.state) {
     case 'IDLE':
       faceTarget(e, e.x + Math.sin(e.anim * 0.7), e.z + Math.cos(e.anim * 0.7), dt, 1.1);
-      if (e.stateT > rand(1.5, 3)) { e.state = 'PATROL'; e.stateT = 0; e.target = pickPatrol(e.x, e.z); }
+      if (e.stateT > rand(1.5, 3)) { e.state = 'PATROL'; e.stateT = 0; e.target = pickPatrol(e.x, e.z, F); }
       if (e.seen) { e.state = 'ALERT'; e.stateT = 0; }
       break;
     case 'PATROL': {
@@ -2109,7 +2234,7 @@ function updateEnemy(e, dt) {
       break;
     }
     case 'ALERT':
-      faceTarget(e, P.x, P.z, dt, 6);
+      faceTarget(e, F.x, F.z, dt, 6);
       if (e.stateT > t.react) {
         e.state = (t.wpn ? 'ATTACK' : 'ATTACK');
         e.stateT = 0; e.burst = 0; e.fireCd = 0.12;
@@ -2117,13 +2242,13 @@ function updateEnemy(e, dt) {
       break;
     case 'ATTACK': {
       if (!t.wpn) {                                     // rusher: charge and swing
-        const d = steer(e, P.x, P.z, dt, spd);
-        faceTarget(e, P.x, P.z, dt, 7);
+        const d = steer(e, F.x, F.z, dt, spd);
+        faceTarget(e, F.x, F.z, dt, 7);
         if (d < 2.0) {
           if (e.fireCd <= 0) {
             e.fireCd = t.cd;
-            if (losClear(e.x, enemyEye(e), e.z, P.x, P.y + eyeH(), P.z)) {
-              hurtPlayer(t.dmg * (1 + e.boost * 0.3), e.x, e.z);
+            if (F.alive && losClear(e.x, enemyEye(e), e.z, F.x, unitEye(F), F.z)) {
+              unitHurt(F, t.dmg * (1 + e.boost * 0.3), e.x, e.z);
               sfx.meleeHit();
             }
           }
@@ -2131,14 +2256,14 @@ function updateEnemy(e, dt) {
         if (!e.seen && e.seeT > 3.5) { e.state = 'SEARCH'; e.stateT = 0; e.searchT = 5; }
         break;
       }
-      faceTarget(e, P.x, P.z, dt, 5.5);
+      faceTarget(e, F.x, F.z, dt, 5.5);
       // keep a fighting distance, strafe a little
       const ideal = clamp(t.range * 0.38, 6, 15);
-      if (distP > ideal + 4) steer(e, P.x, P.z, dt, spd);
-      else if (distP < ideal - 5) steer(e, e.x * 2 - P.x, e.z * 2 - P.z, dt, spd * 0.7);
+      if (distP > ideal + 4) steer(e, F.x, F.z, dt, spd);
+      else if (distP < ideal - 5) steer(e, e.x * 2 - F.x, e.z * 2 - F.z, dt, spd * 0.7);
       else if (e.stateT % 3 < 1.4) {
         const sgn = (e.anim | 0) % 2 ? 1 : -1;
-        steer(e, e.x + (P.z - e.z) * 0.3 * sgn, e.z - (P.x - e.x) * 0.3 * sgn, dt, spd * 0.6);
+        steer(e, e.x + (F.z - e.z) * 0.3 * sgn, e.z - (F.x - e.x) * 0.3 * sgn, dt, spd * 0.6);
       }
       if (e.seen && distP < t.range * 1.5) {
         e.fireCd -= dt;
@@ -2174,7 +2299,7 @@ function updateEnemy(e, dt) {
       const d = steer(e, e.lastX, e.lastZ, dt, spd * 0.8);
       if (e.seen) { e.state = 'ATTACK'; e.stateT = 0; e.burst = 0; break; }
       if (d < 1.4) { faceTarget(e, e.x + Math.sin(e.anim * 1.6) * 2, e.z + Math.cos(e.anim * 1.6) * 2, dt, 2.2); }
-      if (e.searchT <= 0) { e.state = 'PATROL'; e.stateT = 0; e.target = pickPatrol(e.x, e.z); e.aggro = 0; }
+      if (e.searchT <= 0) { e.state = 'PATROL'; e.stateT = 0; e.target = pickPatrol(e.x, e.z, F); e.aggro = 0; }
       break;
     }
   }
@@ -2257,7 +2382,7 @@ function drawEnemy(e) {
   const flin = e.flinch > 0 ? 0.04 : 0;
   const swing = Math.sin(e.legPhase) * 0.22;
   const hb = e.h / 1.78;
-  const col = t.col, col2 = t.col2;
+  const col = e.teamCol ? e.teamCol.col : t.col, col2 = e.teamCol ? e.teamCol.col2 : t.col2;
   const yaw = e.yaw;
   const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
   const rx = Math.cos(yaw), rz = -Math.sin(yaw);
@@ -2299,7 +2424,11 @@ function drawEnemy(e) {
   }
   // hostile marker: a faint rim under the feet keeps enemies readable in the dark
   if (Q().shadows) groundQuad(B_ALPHA, e.x, e.z, t.rad * 2.1, 0, 0, 0, 0.42);
-  if (e.state === 'ATTACK' && e.seen) sprite(B_ADD, e.x, y0 + e.h + 0.22, e.z, 0.08, 1.0, 0.35, 0.2, 0.5);
+  if (MODE === 'match' && e.team === 0) {
+    // a teammate is always tagged: you must never have to guess before shooting
+    const pulse = 0.55 + 0.45 * Math.sin(e.anim * 3);
+    sprite(B_ADD, e.x, y0 + e.h + 0.3, e.z, 0.12, 0.35, 0.62, 0.95, 0.5 + pulse * 0.4);
+  } else if (e.state === 'ATTACK' && e.seen) sprite(B_ADD, e.x, y0 + e.h + 0.22, e.z, 0.08, 1.0, 0.35, 0.2, 0.5);
 }
 function drawCorpse(e) {
   const b = B_DYN, t = e.t;
@@ -2897,6 +3026,204 @@ function updateCrosshair() {
   elCross.classList.toggle('hit', !!assistTarget);
 }
 
+/* =================================================================== match
+   Counter-Strike shaped 3v3 against bots: rounds with no respawn, a short
+   loadout window, first side to five. Real online play would need a server,
+   which a single file cannot have — the other game in this repo is that. */
+const MATCH = {
+  target: 5, round: 1, blue: 0, red: 0,
+  phase: 'buy', phaseT: 0, roundT: 0, roundLen: 95,
+  result: null, over: false, mvp: 0, dmg: 0
+};
+const TEAM_COL = [
+  { name: 'BLUE', col: [0.17, 0.23, 0.34], col2: [0.26, 0.40, 0.62], hud: '#6ea8e8' },
+  { name: 'RED', col: [0.32, 0.18, 0.16], col2: [0.58, 0.26, 0.20], hud: '#e8806a' }
+];
+// far enough apart to need an approach, close enough that first contact lands
+// around ten seconds rather than twenty
+const MATCH_SPAWNS = [
+  [[-21, 6], [-23.5, 2], [-19, 11]],                    // blue: west corridor
+  [[18, -4], [20.5, 4], [16, 9]]                        // red: yard side of the gate
+];
+const MATCH_GUNS = ['AR', 'SMG', 'SG', 'SR'];
+
+function teamAlive(team) {
+  let n = 0;
+  for (let i = 0; i < UNITS.length; i++) { const u = UNITS[i]; if (u.team === team && u.alive) n++; }
+  return n;
+}
+function teamHp(team) {
+  let n = 0;
+  for (let i = 0; i < UNITS.length; i++) { const u = UNITS[i]; if (u.team === team && u.alive) n += u.hp; }
+  return n;
+}
+function startMatch() {
+  MODE = 'match';
+  MATCH.round = 1; MATCH.blue = 0; MATCH.red = 0;
+  MATCH.result = null; MATCH.over = false; MATCH.dmg = 0; MATCH.mvp = 0;
+  STAT.kills = 0; STAT.hs = 0; STAT.shots = 0; STAT.hits = 0; STAT.ammoUsed = 0;
+  STAT.t0 = performance.now(); STAT.time = 0;
+  startMatchRound();
+}
+function startMatchRound() {
+  enemies.length = 0; UNITS.length = 0; DROPS.length = 0; DECALS.length = 0; HOSTAGES.length = 0;
+  for (const p of PARTS) p.life = 0;
+  for (const t of TRACERS) t.life = 0;
+  bossRef = null; pending = []; roundActive = false; roundEndT = 0;
+  UNITS.push(PUNIT);
+  // player takes blue slot 0
+  const bs = MATCH_SPAWNS[0][0];
+  P.x = bs[0]; P.z = bs[1]; P.y = 0; P.vy = 0; P.hp = P.maxHp; P.dead = false;
+  P.yaw = Math.atan2(-(0 - P.x), -(0 - P.z)); P.pitch = 0;
+  P.reloadT = 0; P.swapT = 0; P.meleeT = 0; P.meleeHitT = 0; P.fireCd = 0; P.spread = 1;
+  P.recoilP = P.recoilY = P.recoilVP = P.recoilVY = 0;
+  releaseTrigger(); IN.crouch = false; IN.aim = false;
+  $('bAim').classList.remove('down'); $('bCrouch').classList.remove('down');
+  for (let team = 0; team < 2; team++) {
+    const slots = team === 0 ? [1, 2] : [0, 1, 2];
+    for (const si of slots) {
+      const sp = MATCH_SPAWNS[team][si];
+      const q = nudgeClear(sp[0], sp[1], 0.5) || { x: sp[0], z: sp[1] };
+      const b = spawnEnemy('OPERATOR', q.x, q.z, 0);
+      b.team = team;
+      b.teamCol = TEAM_COL[team];
+      b.wpn = MATCH_GUNS[randi(0, 2)];
+      b.mag = WEAPONS[b.wpn].mag;
+      b.state = 'PATROL'; b.stateT = 0; b.aggro = 0; b.foe = null;
+      b.target = { x: rand(-4, 4), z: rand(-6, 6) };    // everyone pushes the middle
+      UNITS.push(b);
+    }
+  }
+  MATCH.phase = 'buy'; MATCH.phaseT = 6; MATCH.roundT = MATCH.roundLen; MATCH.result = null;
+  showBuy();
+  hudMatch();
+  sfx.roundStart(); musicSet(0.5, 1.2);
+}
+function matchGoLive() {
+  MATCH.phase = 'live';
+  hideBuy();
+  bigFeed('ROUND ' + MATCH.round, 'ENGAGE');
+  sfx.roundStart(); musicSet(0.95, 1.0);
+}
+function endMatchRound(winner) {
+  if (MATCH.phase === 'done') return;
+  MATCH.phase = 'done'; MATCH.phaseT = 4;
+  MATCH.result = winner;
+  releaseTrigger();
+  if (winner === 'BLUE') MATCH.blue++; else if (winner === 'RED') MATCH.red++;
+  bigFeed(winner === 'BLUE' ? 'ROUND WON' : (winner === 'RED' ? 'ROUND LOST' : 'ROUND DRAWN'),
+    'BLUE ' + MATCH.blue + ' — ' + MATCH.red + ' RED');
+  if (winner === 'BLUE') sfx.roundClear(); else sfx.gameOver();
+  musicSet(0.3, 1.5);
+  hudMatch();
+}
+function updateMatch(dt) {
+  if (MATCH.phase === 'buy') {
+    MATCH.phaseT -= dt;
+    IN.jx = 0; IN.jy = 0;                                  // frozen while choosing
+    $('buyClock').textContent = Math.max(0, Math.ceil(MATCH.phaseT));
+    if (MATCH.phaseT <= 0) matchGoLive();
+    return;
+  }
+  if (MATCH.phase === 'done') {
+    MATCH.phaseT -= dt;
+    if (MATCH.phaseT <= 0) {
+      if (MATCH.blue >= MATCH.target || MATCH.red >= MATCH.target) matchOver();
+      else { MATCH.round++; startMatchRound(); }
+    }
+    return;
+  }
+  MATCH.roundT -= dt;
+  const blue = teamAlive(0), red = teamAlive(1);
+  if (red === 0) { endMatchRound('BLUE'); return; }
+  if (blue === 0) { endMatchRound('RED'); return; }
+  if (MATCH.roundT <= 0) {
+    if (blue !== red) endMatchRound(blue > red ? 'BLUE' : 'RED');
+    else {
+      const hb = teamHp(0), hr = teamHp(1);
+      endMatchRound(Math.abs(hb - hr) < 1 ? 'DRAW' : (hb > hr ? 'BLUE' : 'RED'));
+    }
+    return;
+  }
+  hudMatch();
+}
+function matchOver() {
+  MATCH.over = true;
+  GS = 'over';
+  STAT.time = (performance.now() - STAT.t0) / 1000;
+  const won = MATCH.blue > MATCH.red;
+  releaseTrigger();
+  if (won) sfx.win(); else sfx.gameOver();
+  setTimeout(() => {
+    $('hud').classList.add('hidden'); $('touch').classList.add('hidden');
+    $('matchTitle').textContent = won ? 'VICTORY' : 'DEFEAT';
+    $('matchTitle').style.color = won ? '' : '#d2482f';
+    $('matchSub').textContent = 'BLUE ' + MATCH.blue + ' — ' + MATCH.red + ' RED';
+    const acc = STAT.shots ? Math.round(STAT.hits / STAT.shots * 100) : 0;
+    $('matchStats').innerHTML = [
+      ['ROUNDS', MATCH.blue + ' / ' + MATCH.red],
+      ['KILLS', STAT.kills], ['HEADSHOTS', STAT.hs],
+      ['ACCURACY', acc + '%'], ['DAMAGE', Math.round(MATCH.dmg)],
+      ['TIME', fmtTime(STAT.time)]
+    ].map((r, i) => '<div class="stat"><div class="k">' + r[0] + '</div><div class="v' +
+      (i === 2 ? ' am' : '') + '">' + r[1] + '</div></div>').join('');
+    $('sMatch').classList.remove('hidden');
+    dropPointerLock();
+  }, 1100);
+}
+/* the player is downed, not dead: the round plays on without them */
+function playerDownMatch() {
+  P.dead = true; P.hp = 0;
+  releaseTrigger();
+  bigFeed('YOU ARE DOWN', '라운드가 끝날 때까지 관전');
+  sfx.death(false); haptic([0, 60, 60, 120]);
+  hudMatch();
+}
+/* ---- loadout ---- */
+let buyPick = 'AR';
+function showBuy() {
+  const row = $('buyRow'); row.innerHTML = '';
+  for (const k of MATCH_GUNS) {
+    const w = WEAPONS[k];
+    const c = document.createElement('div');
+    c.className = 'buyCard' + (k === buyPick ? ' sel' : '');
+    c.innerHTML = '<h5>' + w.name + '</h5><p>탄창 ' + w.mag + ' · ' +
+      (w.pellets > 1 ? '산탄 ' + w.pellets : '피해 ' + w.dmg) + '<br>' +
+      (w.auto ? '자동' : '단발') + ' · 사거리 ' + w.range + 'm</p>';
+    c.onclick = () => { buyPick = k; equipMatchGun(k); showBuy(); sfx.ui(); };
+    row.appendChild(c);
+  }
+  equipMatchGun(buyPick);
+  $('buyPanel').classList.remove('hidden');
+}
+function hideBuy() { $('buyPanel').classList.add('hidden'); }
+function equipMatchGun(k) {
+  const w = WEAPONS[k];
+  P.wpn = k; P.mag = w.mag; P.res[k] = w.mag * 2;
+  P.reloadT = 0; P.swapT = 0; P.fireCd = 0;
+  hudAmmo();
+}
+/* ---- match HUD ---- */
+function hudMatch() {
+  if (MODE !== 'match') { $('matchBar').classList.add('hidden'); return; }
+  $('matchBar').classList.remove('hidden');
+  $('mScoreB').textContent = MATCH.blue;
+  $('mScoreR').textContent = MATCH.red;
+  const t = Math.max(0, MATCH.roundT);
+  const clk = $('mClock');
+  clk.textContent = MATCH.phase === 'buy' ? 'BUY' : (Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0'));
+  clk.classList.toggle('low', MATCH.phase === 'live' && t < 20);
+  for (const team of [0, 1]) {
+    const el = $(team === 0 ? 'mDotsB' : 'mDotsR');
+    let html = '';
+    for (let i = 0; i < 3; i++) html += '<i></i>';
+    if (el.innerHTML !== html) el.innerHTML = html;
+    const alive = teamAlive(team);
+    const ch = el.children;
+    for (let i = 0; i < ch.length; i++) ch[i].className = i < alive ? '' : 'out';
+  }
+}
+
 /* ================================================================== rounds */
 const ROUNDS = {
   1: { list: { SOLDIER: 5 } },
@@ -3074,6 +3401,8 @@ function resetPlayer() {
   $('bMelee').classList.remove('need');
   enemies.length = 0; DROPS.length = 0; DECALS.length = 0; pending = []; bossRef = null;
   HOSTAGES.length = 0; hostagesFreed = 0; ffWarned = false; failReason = 'KIA'; IN.free = false;
+  UNITS.length = 0; MATCH.over = false; MATCH.dmg = 0;
+  $('matchBar').classList.add('hidden'); $('buyPanel').classList.add('hidden');
   $('bFree').classList.add('hidden'); freeShown = false;
   $('hostDir').classList.add('hidden'); hostDirShown = false;
   roundEndT = 0; roundActive = false; releaseTrigger();
@@ -3086,7 +3415,7 @@ function resetPlayer() {
   STAT.t0 = performance.now(); STAT.time = 0;
 }
 function hideScreens() {
-  for (const id of ['sMenu', 'sHow', 'sSet', 'sPause', 'sSupply', 'sOver', 'sWin']) $(id).classList.add('hidden');
+  for (const id of ['sMenu', 'sHow', 'sSet', 'sPause', 'sSupply', 'sOver', 'sWin', 'sMatch']) $(id).classList.add('hidden');
 }
 function goImmersive() {
   try {
@@ -3096,11 +3425,26 @@ function goImmersive() {
   } catch (e) { }
   try { if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => { }); } catch (e) { }
 }
+function startMatchGame() {
+  initAudio();
+  if (isTouch) goImmersive();
+  hideScreens();
+  resetPlayer();
+  MODE = 'match';
+  GS = 'play';
+  $('hud').classList.remove('hidden'); $('touch').classList.remove('hidden');
+  elRound.textContent = ''; elRoundSub.textContent = '';
+  $('bossWrap').classList.add('hidden');
+  startMatch();
+  hudHp(); hudAmmo(); hudPickup();
+  if (!isTouch) toast('클릭해서 마우스 잠금 · WASD 이동');
+}
 function startGame() {
   initAudio();
   if (isTouch) goImmersive();
   hideScreens();
   resetPlayer();
+  MODE = 'campaign';
   round = 1;
   GS = 'play';
   $('hud').classList.remove('hidden'); $('touch').classList.remove('hidden');
@@ -3112,6 +3456,7 @@ function startGame() {
 function pauseGame() {
   if (GS !== 'play') return;
   GS = 'pause'; releaseTrigger();
+  $('buyPanel').classList.add('hidden');
   $('pauseSub').textContent = roundLabel(round);
   $('sPause').classList.remove('hidden');
   dropPointerLock();
@@ -3119,6 +3464,7 @@ function pauseGame() {
 }
 function resumeGame() {
   hideScreens(); GS = 'play'; musicSet(0.8, 0.6);
+  if (MODE === 'match' && MATCH.phase === 'buy') $('buyPanel').classList.remove('hidden');
 }
 function missionFailed(reason) {
   if (GS !== 'play' || P.dead) return;
@@ -3170,6 +3516,8 @@ function statHtml(win) {
 }
 function toMenu() {
   GS = 'menu';
+  MODE = 'campaign';
+  $('matchBar').classList.add('hidden'); $('buyPanel').classList.add('hidden');
   hideScreens();
   $('sMenu').classList.remove('hidden');
   $('hud').classList.add('hidden'); $('touch').classList.add('hidden');
@@ -3198,6 +3546,9 @@ function wire(id, fn) {
   });
 }
 wire('mPlay', startGame);
+wire('mMatch', startMatchGame);
+wire('mAgain', startMatchGame);
+wire('mMenu', toMenu);
 wire('mHow', () => { prevScreen = GS === 'pause' ? 'sPause' : 'sMenu'; hideScreens(); $('sHow').classList.remove('hidden'); });
 wire('howBack', () => { hideScreens(); $(prevScreen).classList.remove('hidden'); });
 wire('mSet', () => { prevScreen = 'sMenu'; hideScreens(); $('sSet').classList.remove('hidden'); });
@@ -3299,10 +3650,19 @@ function frame(ts) {
   if (GS === 'play' && !portrait) {
     if (meleeHintT > 0) { meleeHintT -= dt; if (meleeHintT <= 0) $('bMelee').classList.remove('need'); }
     updatePlayer(dt);
-    for (let i = 0; i < enemies.length; i++) updateEnemy(enemies[i], dt);
-    updateHostages(dt);
-    spawnTick(dt);
-    if (roundEndT > 0) { roundEndT -= dt; if (roundEndT <= 0) endRound(); }
+    // operators hold position through the loadout window and the round summary
+    const frozen = MODE === 'match' && MATCH.phase !== 'live';
+    for (let i = 0; i < enemies.length; i++) {
+      const e = enemies[i];
+      if (frozen && e.alive) { e.anim += dt; continue; }
+      updateEnemy(e, dt);
+    }
+    if (MODE === 'match') updateMatch(dt);
+    else {
+      updateHostages(dt);
+      spawnTick(dt);
+      if (roundEndT > 0) { roundEndT -= dt; if (roundEndT <= 0) endRound(); }
+    }
     updateEffects(dt);
     updateCrosshair();
     hudPickup();
