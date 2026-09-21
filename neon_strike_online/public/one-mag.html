@@ -966,6 +966,7 @@ function buildLevel() {
   [2, -16], [6, -12], [5, 14], [-4, 16], [6, 2],
   [11, -15], [19, -14], [24, -6], [22, 6], [12, 12], [24, 15], [16, 16]];
   for (const p of sp) { const q = nudgeClear(p[0], p[1], 0.55); if (q) SPAWNS.push(q); }
+  buildNav();
 }
 /* a helper point authored inside a crate or a wall makes hostiles stand in
    geometry, where they can see and shoot straight through it — walk the point
@@ -998,6 +999,110 @@ function container(x, z, y, col, stacked, rot) {
   addBox(x, y + hy, z, 3.1, hy, 1.25, col, 1, 0.42, true, rot || 0);
   box(B_STATIC, x, y + hy * 2 + 0.03, z, 3.0, 0.04, 1.18, rot || 0, C.metalD, 1, 0.5);
   if (!stacked) { }
+}
+
+/* ------------------------------------------------------------------ nav
+   Local whisker avoidance cannot find a doorway five metres away: a bot whose
+   target sits behind a wall just slides along it, which reads as pacing
+   between two spots. A coarse waypoint graph gives them a route. */
+const DOORWAYS = [[-6, -7.5], [-6, 6.5], [8, 0], [-18.5, -6], [-11.5, 8]];
+const NAV_R = 0.38;                   // operators are 0.32 wide; a hair of margin
+const NAV_STEP = 2;
+const NAV = [];
+function walkClear(ax, az, bx, bz, r) {
+  const d = Math.hypot(bx - ax, bz - az);
+  const steps = Math.max(2, Math.ceil(d / 0.7));
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    if (pointBlocked(ax + (bx - ax) * t, az + (bz - az) * t, r)) return false;
+  }
+  return true;
+}
+function buildNav() {
+  NAV.length = 0;
+  /* A handful of hand-placed waypoints leaves most straight links crossing a
+     wall, so the graph falls apart into islands. Sampling the floor on a grid
+     gives a dense mesh that finds doorways on its own. */
+  const idx = new Map();
+  const key = (i, j) => i * 1000 + j;
+  for (let i = 0; i * NAV_STEP <= 50; i++) {
+    for (let j = 0; j * NAV_STEP <= 34; j++) {
+      const x = -25 + i * NAV_STEP, z = -17 + j * NAV_STEP;
+      if (pointBlocked(x, z, NAV_R)) continue;
+      idx.set(key(i, j), NAV.length);
+      NAV.push({ x, z, links: [] });
+    }
+  }
+  // doorways are narrow enough to fall between grid samples
+  for (const d of DOORWAYS) {
+    if (NAV.some(n => Math.hypot(n.x - d[0], n.z - d[1]) < NAV_STEP * 0.55)) continue;
+    const q = nudgeClear(d[0], d[1], 0.34);
+    if (q) NAV.push({ x: q.x, z: q.z, links: [] });
+  }
+  const reach = NAV_STEP * 1.55;
+  for (let a = 0; a < NAV.length; a++) {
+    for (let b = a + 1; b < NAV.length; b++) {
+      const A = NAV[a], B = NAV[b];
+      const dx = A.x - B.x, dz = A.z - B.z;
+      if (dx * dx + dz * dz > reach * reach) continue;
+      if (!walkClear(A.x, A.z, B.x, B.z, NAV_R)) continue;
+      A.links.push(b); B.links.push(a);
+    }
+  }
+}
+function navNearest(x, z) {
+  let bi = -1, bd = 1e9;
+  for (let i = 0; i < NAV.length; i++) {
+    const n = NAV[i];
+    const dx = n.x - x, dz = n.z - z;
+    const d = dx * dx + dz * dz;
+    if (d >= bd || d > 64) continue;
+    if (!walkClear(x, z, n.x, n.z, 0.34)) continue;
+    bd = d; bi = i;
+  }
+  return bi;
+}
+function navPath(sx, sz, tx, tz) {
+  const a = navNearest(sx, sz), b = navNearest(tx, tz);
+  if (a < 0 || b < 0) return null;
+  if (a === b) return [a];
+  const prev = new Int16Array(NAV.length).fill(-1);
+  const seen = new Uint8Array(NAV.length);
+  const q = [a]; seen[a] = 1;
+  for (let h = 0; h < q.length; h++) {
+    const cur = q[h];
+    if (cur === b) {
+      const out = [];
+      for (let k = b; k !== -1; k = prev[k]) out.push(k);
+      out.reverse(); out.shift();          // drop the node we are standing on
+      return out;
+    }
+    const links = NAV[cur].links;
+    for (let i = 0; i < links.length; i++) {
+      const n = links[i];
+      if (seen[n]) continue;
+      seen[n] = 1; prev[n] = cur; q.push(n);
+    }
+  }
+  return null;
+}
+/* steer straight when the way is open, follow the graph when it is not */
+function navSteer(e, tx, tz, dt, spd) {
+  e.navT -= dt;
+  if (e.navT <= 0) {
+    e.navT = 0.5 + Math.random() * 0.4;
+    e.navDirect = walkClear(e.x, e.z, tx, tz, NAV_R);
+    e.path = e.navDirect ? null : navPath(e.x, e.z, tx, tz);
+  }
+  if (e.navDirect || !e.path || !e.path.length) return steer(e, tx, tz, dt, spd);
+  let n = NAV[e.path[0]];
+  if (Math.hypot(n.x - e.x, n.z - e.z) < 1.8) {
+    e.path.shift();
+    if (!e.path.length) return steer(e, tx, tz, dt, spd);
+    n = NAV[e.path[0]];
+  }
+  steer(e, n.x, n.z, dt, spd);
+  return Math.hypot(tx - e.x, tz - e.z);
 }
 
 /* cover points around waist/chest-high geometry */
@@ -1948,6 +2053,8 @@ function spawnEnemy(type, x, z, boost) {
   e.fireCd = 0.6; e.burst = 0; e.burstT = 0; e.stuck = 0; e.strafe = 0; e.strafeT = 0;
   e.wpn = t.wpn; e.mag = t.wpn ? randi(6, WEAPONS[t.wpn].mag) : 0;
   e.step = 0; e.flinch = 0; e.muzzle = 0; e.anim = Math.random() * 10; e.legPhase = 0;
+  e.plantT = 0; e.holdX = x; e.holdZ = z;
+  e.navT = 0; e.navDirect = true; e.path = null;
   e.team = 1; e.foe = PUNIT;
   e.target = pickPatrol(x, z); e.cover = null; e.searchT = 0; e.aggro = 0; e.hunt = 0;
   e.boost = boost || 0;
@@ -2214,7 +2321,7 @@ function updateEnemy(e, dt) {
       (e.state === 'IDLE' || e.state === 'PATROL' || e.state === 'SEARCH')) {
     if (e.seen) { e.state = 'ALERT'; e.stateT = 0; sfx.spot(); }
     else {
-      steer(e, F.x, F.z, dt, spd * 0.9);
+      navSteer(e, F.x, F.z, dt, spd * 0.9);
       if (e.fireCd > 0) e.fireCd -= dt;
       separate(e, dt);
       return;
@@ -2257,13 +2364,33 @@ function updateEnemy(e, dt) {
         break;
       }
       faceTarget(e, F.x, F.z, dt, 5.5);
-      // keep a fighting distance, strafe a little
-      const ideal = clamp(t.range * 0.38, 6, 15);
-      if (distP > ideal + 4) steer(e, F.x, F.z, dt, spd);
-      else if (distP < ideal - 5) steer(e, e.x * 2 - F.x, e.z * 2 - F.z, dt, spd * 0.7);
-      else if (e.stateT % 3 < 1.4) {
-        const sgn = (e.anim | 0) % 2 ? 1 : -1;
-        steer(e, e.x + (F.z - e.z) * 0.3 * sgn, e.z - (F.x - e.x) * 0.3 * sgn, dt, spd * 0.6);
+      if (MODE === 'match') {
+        /* The campaign kites: advance past an ideal range, retreat inside it.
+           Against another bot that turns into a pendulum — close, back off,
+           lose sight, close again — and a whole round is spent pacing between
+           two spots. In a match an operator closes once, then holds the
+           position it fought from and only shuffles inside it. */
+        if (distP > 17) navSteer(e, F.x, F.z, dt, spd * 0.9);
+        else if (distP < 4.5) steer(e, e.x * 2 - F.x, e.z * 2 - F.z, dt, spd * 0.55);
+        else {
+          e.plantT -= dt;
+          if (e.plantT <= 0) {
+            e.plantT = rand(1.8, 3.6);
+            const a = rand(-PI, PI), rr = rand(0.5, 1.9);
+            e.holdX = e.x + Math.cos(a) * rr;
+            e.holdZ = e.z + Math.sin(a) * rr;
+          }
+          steer(e, e.holdX, e.holdZ, dt, spd * 0.5);
+        }
+      } else {
+        // keep a fighting distance, strafe a little
+        const ideal = clamp(t.range * 0.38, 6, 15);
+        if (distP > ideal + 4) steer(e, F.x, F.z, dt, spd);
+        else if (distP < ideal - 5) steer(e, e.x * 2 - F.x, e.z * 2 - F.z, dt, spd * 0.7);
+        else if (e.stateT % 3 < 1.4) {
+          const sgn = (e.anim | 0) % 2 ? 1 : -1;
+          steer(e, e.x + (F.z - e.z) * 0.3 * sgn, e.z - (F.x - e.x) * 0.3 * sgn, dt, spd * 0.6);
+        }
       }
       if (e.seen && distP < t.range * 1.5) {
         e.fireCd -= dt;
@@ -2276,7 +2403,7 @@ function updateEnemy(e, dt) {
             if (Math.random() < t.cover) { const c = findCover(e); if (c) { e.cover = c; e.state = 'COVER'; e.stateT = 0; } }
           }
         }
-      } else if (!e.seen && e.seeT > 1.6) {
+      } else if (!e.seen && e.seeT > (MODE === 'match' ? 2.4 : 1.6)) {
         e.state = 'SEARCH'; e.stateT = 0; e.searchT = 6;
       }
       if (e.hp < e.maxHp * 0.35 && Math.random() < dt * 0.55 && t.cover > 0) {
@@ -2296,7 +2423,7 @@ function updateEnemy(e, dt) {
     }
     case 'SEARCH': {
       e.searchT -= dt;
-      const d = steer(e, e.lastX, e.lastZ, dt, spd * 0.8);
+      const d = navSteer(e, e.lastX, e.lastZ, dt, spd * 0.8);
       if (e.seen) { e.state = 'ATTACK'; e.stateT = 0; e.burst = 0; break; }
       if (d < 1.4) { faceTarget(e, e.x + Math.sin(e.anim * 1.6) * 2, e.z + Math.cos(e.anim * 1.6) * 2, dt, 2.2); }
       if (e.searchT <= 0) { e.state = 'PATROL'; e.stateT = 0; e.target = pickPatrol(e.x, e.z, F); e.aggro = 0; }
