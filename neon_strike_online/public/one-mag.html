@@ -1480,6 +1480,11 @@ function updateCamVectors() {
   const cy = Math.cos(P.yaw + P.recoilY), sy = Math.sin(P.yaw + P.recoilY);
   camFX = -sy * cp; camFY = sp; camFZ = -cy * cp;
 }
+/* The loadout window and the round summary hold every operator still. The
+   player has to be held with them: without this you can walk out of spawn
+   during the six second buy and shoot three bots that are frozen by design.
+   Looking around stays free — surveying the map before the round is fair. */
+function playerHeld() { return MODE === 'match' && MATCH.phase !== 'live'; }
 function updatePlayer(dt) {
   /* ---- look ---- */
   const sens = 0.00125 * (CFG.sens / 100) * (IN.aim ? 0.55 : 1);
@@ -1504,9 +1509,11 @@ function updatePlayer(dt) {
   updateCamVectors();
 
   /* ---- keyboard move ---- */
+  const held = playerHeld();
   let mx = IN.jx, mz = IN.jy;
   if (IN.keys['KeyW']) mz -= 1; if (IN.keys['KeyS']) mz += 1;
   if (IN.keys['KeyA']) mx -= 1; if (IN.keys['KeyD']) mx += 1;
+  if (held) { mx = 0; mz = 0; IN.jump = false; }
   const keyCrouch = !!(IN.keys['ShiftLeft'] || IN.keys['ControlLeft']);
   const ml = Math.hypot(mx, mz);
   if (ml > 1) { mx /= ml; mz /= ml; }
@@ -1573,7 +1580,7 @@ function updatePlayer(dt) {
   P.kick = Math.max(0, P.kick - dt * 5.5);
 
   /* ---- fire ---- */
-  if (IN.fire && GS === 'play' && P.reloadT <= 0 && P.swapT <= 0) {
+  if (IN.fire && GS === 'play' && !held && P.reloadT <= 0 && P.swapT <= 0) {
     // a slow frame must not slow the weapon down: fire off whatever the
     // accumulated cooldown owes, with a hard cap so a stall can't dump a mag
     let shotsThisFrame = 0;
@@ -1782,7 +1789,7 @@ function castBullet(ox, oy, oz, dx, dy, dz, w, fromPlayer) {
 }
 
 function tryReload() {
-  if (GS !== 'play' || P.reloadT > 0 || P.swapT > 0) return;
+  if (GS !== 'play' || P.dead || playerHeld() || P.reloadT > 0 || P.swapT > 0) return;
   const w = wpn();
   if (P.mag >= w.mag || P.res[P.wpn] <= 0) { if (P.res[P.wpn] <= 0 && P.mag <= 0) showMeleeHint(); return; }
   P.reloadT = reloadTime();
@@ -1800,7 +1807,7 @@ function finishReload() {
   hudAmmo();
 }
 function tryMelee() {
-  if (GS !== 'play' || P.meleeT > 0 || P.reloadT > 0) return;
+  if (GS !== 'play' || P.dead || playerHeld() || P.meleeT > 0 || P.reloadT > 0) return;
   P.meleeT = 0.62;
   P.meleeHitT = 0.12;              // resolved on the game clock, not wall time
   STAT.melee++;
@@ -1824,7 +1831,7 @@ function resolveMelee() {
   hitMarker(false); sfx.meleeHit(); haptic(45);
 }
 function tryPickup() {
-  if (GS !== 'play' || P.swapT > 0) return;
+  if (GS !== 'play' || P.dead || playerHeld() || P.swapT > 0) return;
   const d = nearestDrop();
   if (!d) return;
   const old = P.wpn, oldMag = P.mag;
@@ -3214,6 +3221,8 @@ function startMatchRound() {
       const b = spawnEnemy('OPERATOR', q.x, q.z, 0);
       b.team = team;
       b.teamCol = TEAM_COL[team];
+      // AR / SMG / SG only — a bot with the sniper one-shots across the yard
+      // before you have cover, so the last entry is the player's alone
       b.wpn = MATCH_GUNS[randi(0, 2)];
       b.mag = WEAPONS[b.wpn].mag;
       b.state = 'PATROL'; b.stateT = 0; b.aggro = 0; b.foe = null;
@@ -3247,7 +3256,6 @@ function endMatchRound(winner) {
 function updateMatch(dt) {
   if (MATCH.phase === 'buy') {
     MATCH.phaseT -= dt;
-    IN.jx = 0; IN.jy = 0;                                  // frozen while choosing
     $('buyClock').textContent = Math.max(0, Math.ceil(MATCH.phaseT));
     if (MATCH.phaseT <= 0) matchGoLive();
     return;
