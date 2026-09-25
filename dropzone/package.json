@@ -1,0 +1,16 @@
+{
+  "name": "dropzone",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NEON STRIKE: DROPZONE - 3D battle royale (PC + mobile browser)",
+  "type": "module",
+  "scripts": {
+    "start": "node server/server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "three": "0.186.1",
+    "ws": "^8.18.0"
+  }
+}
