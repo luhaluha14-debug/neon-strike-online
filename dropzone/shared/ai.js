@@ -16,7 +16,7 @@ export const BOT_DIFF = {
   hard: { react: 0.24, err: 1.5, errDecay: 2.6, turn: 8.5, sight: 120, fov: 160, burst: 0.6, pause: 0.22, comp: 0.85, lead: 1, head: 0.33, ads: 0.9, strafe: 1, fireCone: 2.5 }
 };
 
-const RANK = { fists: 0, hornet: 1, breaker: 2, wasp: 2, kestrel: 3 };
+const RANK = { fists: 0, hornet: 1, breaker: 2, wasp: 2, kestrel: 3, longbow: 4 };
 
 export class BotBrain {
   constructor(match, p, diff, r) {
@@ -119,6 +119,7 @@ export class BotBrain {
         if (w.cat === 'shotgun') sc += dist < 14 ? 3 : dist > 35 ? -2 : 0;
         if (w.cat === 'smg') sc += dist < 30 ? 1.2 : dist > 60 ? -1 : 0;
         if (w.cat === 'ar') sc += dist > 25 ? 1.5 : 0;
+        if (w.cat === 'sniper') sc += dist > 60 ? 2.5 : dist < 20 ? -3 : 0;
       }
       if (sc > bestScore) { bestScore = sc; best = s; }
     }
@@ -129,14 +130,16 @@ export class BotBrain {
   engageRange() {
     const s = this.bestWeaponSlot();
     const cat = s === 3 ? 'melee' : WEAPONS[this.p.slots[s].id].cat;
-    const base = { melee: 5, shotgun: 24, smg: 45, pistol: 35, ar: 80 }[cat] || 40;
+    const base = { melee: 5, shotgun: 24, smg: 45, pistol: 35, ar: 80, sniper: 150 }[cat] || 40;
     return base * (this.d.sight / 85) * (0.8 + this.personality * 0.4);
   }
   wantsWeapon(key) {
     const p = this.p, w = WEAPONS[key];
     if (w.slot === 'side') return !p.slots[2];
     if (!p.slots[0] || !p.slots[1]) return !(p.slots[0] && p.slots[0].id === key) && !(p.slots[1] && p.slots[1].id === key);
-    return false;
+    // both primaries full: only trade up (e.g. a supply sniper)
+    if (p.slots[0].id === key || p.slots[1].id === key) return false;
+    return (RANK[key] || 0) > Math.min(RANK[p.slots[0].id] || 0, RANK[p.slots[1].id] || 0);
   }
   itemValue(it) {
     const p = this.p, def = ITEMS[it.key];
@@ -163,11 +166,13 @@ export class BotBrain {
     for (const it of this.m.items) {
       if (this.ignoreItems.has(it.id)) continue;
       const d = Math.hypot(it.x - p.body.pos.x, it.z - p.body.pos.z);
-      if (d > maxD || Math.abs(it.y - p.body.pos.y) > 2.5) continue;    // bots stay on their level
+      // supply crates are worth a long run
+      if (d > (it.supply ? Math.max(maxD, 150) : maxD) || Math.abs(it.y - p.body.pos.y) > 2.5) continue;
       // the nav grid is ground floor only: skip items on steps, crates, upper floors
       const k = this.m.nav.index(it.x, it.z);
-      if (k < 0 || Math.abs(it.y - this.m.nav.floorY[k]) > 0.3) continue;
-      const v = this.itemValue(it);
+      if (k < 0 || (!it.supply && Math.abs(it.y - this.m.nav.floorY[k]) > 0.3)) continue;
+      let v = this.itemValue(it);
+      if (it.supply && v > 0) v += 6;
       if (v <= 0) continue;
       if (!this.m.zone.isInside(it.x, it.z, -5) && this.m.zone.stage === 'shrink') continue;
       const s = v * 12 - d;
@@ -350,7 +355,7 @@ export class BotBrain {
         if (this.strafeT <= 0) { this.strafeT = 0.5 + Math.random() * 1.1; if (Math.random() < 0.7) this.strafeDir *= -1; this.wantCrouch = dist > 25 && Math.random() < 0.35 * this.d.strafe; }
         const toX = (tgt.body.pos.x - p.body.pos.x) / Math.max(dist, 0.01), toZ = (tgt.body.pos.z - p.body.pos.z) / Math.max(dist, 0.01);
         let mx = -toZ * this.strafeDir * this.d.strafe, mz = toX * this.strafeDir * this.d.strafe;
-        const pref = w.cat === 'shotgun' || w.cat === 'melee' ? 4 : w.cat === 'smg' ? 12 : w.cat === 'pistol' ? 15 : 30;
+        const pref = w.cat === 'shotgun' || w.cat === 'melee' ? 4 : w.cat === 'smg' ? 12 : w.cat === 'pistol' ? 15 : w.cat === 'sniper' ? 60 : 30;
         if (!seeing) { this.state = 'CHASE'; break; }
         if (dist > pref * 1.4) { mx += toX; mz += toZ; }
         else if (dist < pref * 0.5 && w.cat !== 'melee') { mx -= toX * 0.7; mz -= toZ * 0.7; }
@@ -608,7 +613,8 @@ export class BotBrain {
     const healable = (p.hp < 60 && (invCount(p.inv, 'bandage') > 0 || invCount(p.inv, 'medkit') > 0)) || (p.hp < 75 && invCount(p.inv, 'bandage') > 0 && p.hp < 70);
     if (healable && m.time - this.seenT > 2.5) { this.state = 'HEAL'; return; }
     if (this.state === 'HEAL' && p.using) return;
-    if (this.needsLoot() || this.personality > 0.5) {
+    const supplyNear = m.supply.crates.some((cr) => cr.landed && Math.hypot(cr.x - p.body.pos.x, cr.z - p.body.pos.z) < 150);
+    if (this.needsLoot() || this.personality > 0.5 || (supplyNear && this.personality > 0.3)) {
       const it = this.lootTarget && m.itemById.has(this.lootTarget.id) ? this.lootTarget : this.findLoot(this.needsLoot() ? 60 : 25);
       if (it) { this.state = 'LOOT'; this.lootTarget = it; return; }
     }

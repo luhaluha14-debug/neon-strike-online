@@ -103,6 +103,7 @@ export class Audio {
       smg: { crack: 5200, body: 7000, sub: 260, tail: 0.24, vol: 0.95 },
       pistol: { crack: 4800, body: 5200, sub: 240, tail: 0.22, vol: 0.9 },
       shotgun: { crack: 3200, body: 4200, sub: 120, tail: 0.55, vol: 1.4 },
+      sniper: { crack: 5600, body: 9000, sub: 140, tail: 0.9, vol: 1.6 },
       punch: null
     }[kind];
     if (!P) { this.punch(pos, local); return; }
@@ -281,6 +282,13 @@ export class Audio {
       e.g.gain.setTargetAtTime(vol, t, 0.1);
       if (e.pan) e.pan.pan.setTargetAtTime(d > 1 && !s.local ? Math.max(-1, Math.min(1, (L.rx * dx + L.rz * dz) / d)) * 0.8 : 0, t, 0.1);
     }
+  }
+  crateLand(pos) {
+    if (!this.ready) return;
+    const sp = this.spatial(pos, 200, { ref: 10 }); if (!sp) return;
+    const t = this.t() + sp.delay;
+    this.noise({ t, dur: 0.3, type: 'lowpass', f0: 700, f1: 90, vol: 0.9 * sp.v, dec: 0.28, dest: sp.dest });
+    this.tone({ t, dur: 0.25, type: 'sine', f0: 80, f1: 35, vol: 0.7 * sp.v, dec: 0.22, dest: sp.dest });
   }
   crash(pos, v) {
     if (!this.ready) return;

@@ -8,7 +8,7 @@ import { weaponGeometry, MUZZLE } from './models.js';
 
 const ADS_POS = {
   // camera sits on the sight line: rifle frame centre y=0.125, smg ears 0.108, shotgun bead 0.1, pistol notch 0.062
-  rifle: [0, -0.125, -0.26], smg: [0, -0.108, -0.2], shotgun: [0, -0.1, -0.24], pistol: [0, -0.062, -0.3], none: [0, -0.2, -0.3]
+  sniper: [0, -0.125, -0.2], rifle: [0, -0.125, -0.26], smg: [0, -0.108, -0.2], shotgun: [0, -0.1, -0.24], pistol: [0, -0.062, -0.3], none: [0, -0.2, -0.3]
 };
 const HIP_POS = [0.16, -0.19, -0.36];
 

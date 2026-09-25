@@ -542,3 +542,53 @@ test('fuel can refuels a nearby vehicle', () => {
   tick(m, { use: 'fuel' }); run(m, 4.5);
   assert.equal(v.fuel, 60);
 });
+
+/* ---------- supply drops ---------- */
+test('supply drops: plane flies in, crate parachutes into the safe zone, loot on top', () => {
+  const { world, nav } = map();
+  const m = new Match({ world, nav, seed: 41, bots: 6 });
+  const got = [];
+  while (m.time < 400 && m.state === 'playing') {
+    m.step(TICK);
+    for (const e of m.drainEvents()) if (e.t === 'supplyLanded') got.push({ e, t: m.time });
+    if (got.length >= 2) break;
+  }
+  assert.ok(got.length >= 1, 'at least one crate landed');
+  const cr = m.supply.crates[0];
+  assert.ok(cr.landed);
+  assert.ok(Math.abs(cr.y - world.groundAt(cr.x, cr.z)) < 1.5, 'on the ground');
+  assert.ok(Math.hypot(cr.x, cr.z) < world.playLimit, 'inside the island');
+  const loot = m.items.filter((it) => it.supply);
+  assert.ok(loot.length >= 3, 'crate has loot');
+  assert.ok(loot.some((it) => it.key === 'longbow' || it.key === 'kestrel'));
+});
+
+test('crate blocks walking and its loot can be picked up from the side', () => {
+  const { m, me } = duel(1);
+  m.launchSupply(0, -6);
+  run(m, 45);
+  const cr = m.supply.crates[0];
+  assert.ok(cr && cr.landed);
+  me.body.pos.x = 0; me.body.pos.z = -3;
+  run(m, 2, { fwd: 1, yaw: 0 });                 // walk into it
+  assert.ok(me.body.pos.z > -6 + 0.72 + 0.2, 'stopped by the crate');
+  const before = m.items.filter((it) => it.supply).length;
+  for (let i = 0; i < 6; i++) tick(m, { interact: true, aimYaw: 0, aimPitch: -0.3 }), run(m, 0.2, { aimYaw: 0, aimPitch: -0.3 });
+  assert.ok(m.items.filter((it) => it.supply).length < before, 'picked something up');
+});
+
+test('supply sniper: one body shot leaves 8 hp, a headshot kills', () => {
+  const { m, me, others } = duel(1);
+  const bot = others[0];
+  bot.body.pos.x = 0; bot.body.pos.z = -60;
+  m.cheat(1, 'give', 'longbow'); m.cheat(1, 'give', 'ammo_heavy');
+  run(m, 5);                                     // equip + auto reload
+  assert.equal(m.slotOf(me).mag, 5);
+  const aim = (y) => { const e = m.eye(me); return { aimYaw: 0, aimPitch: Math.atan2(y - e.y + 0.0 * 60, 60) + (0.5 * 9.81 * (60 / 930) ** 2) / 60 }; };
+  run(m, 0.5, { ads: true, ...aim(1.2) });
+  tick(m, { fire: true, ads: true, ...aim(1.2) }); run(m, 0.3, { ads: true, ...aim(1.2) });
+  assert.ok(Math.abs(bot.hp - 8) < 1.5, 'body shot hp ' + bot.hp.toFixed(1));
+  run(m, 1.6, { ads: true, ...aim(1.62) });
+  tick(m, { fire: true, ads: true, ...aim(1.62) }); run(m, 0.3, { ads: true, ...aim(1.62) });
+  assert.equal(bot.alive, false);
+});

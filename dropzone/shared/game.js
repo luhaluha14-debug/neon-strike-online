@@ -7,7 +7,7 @@
 import { clamp, makeRng, hashInts, dirFromAngles, DEG, wrapAngle } from './util.js';
 import { newBody, stepBody, setStance, eyeHeight, proneFits, MOVE } from './movement.js';
 import { WEAPONS, falloffMul } from './weapons.js';
-import { ITEMS, newInventory, invAdd, invTake, invCount, invRoomFor, rollLoot } from './items.js';
+import { ITEMS, newInventory, invAdd, invTake, invCount, invRoomFor, rollLoot, rollSupply } from './items.js';
 import { Zone } from './zone.js';
 import { BotBrain } from './ai.js';
 import { Plane, PLANE, stepAir } from './plane.js';
@@ -16,6 +16,7 @@ import { VEHICLES, VEHICLE_TYPES, newVehicle, stepVehicle, vehToWorld, worldToVe
 import { roadDist } from './mapgen.js';
 
 export const TICK = 1 / 60;
+export const CRATE_H = 1.05;          // supply crate height (items rest on top)
 /** loot density: chance a spot has loot at all, and chances of extra item groups (by tier 0..3) */
 export const LOOT_CHANCE = [0.8, 0.95, 1, 1];
 export const LOOT_EXTRA = [[0.3], [0.5, 0.2], [0.6, 0.3], [0.7, 0.4]];
@@ -121,6 +122,7 @@ export class Match {
     this.fires = [];           // {x,y,z,r,t,owner}
     this.vehicles = [];
     this.vehById = new Map();
+    this.supply = { planes: [], crates: [], at: null };   // supply drops
     this.world.dyn = [];
     this.nextId = 1;
     this.difficulty = o.difficulty || 'normal';
@@ -325,6 +327,10 @@ export class Match {
     this.stepProjectiles(dt);
     // the storm clock starts once the plane has left the island
     const zev = this.plane && !this.plane.left && !this.plane.done ? null : this.zone.update(dt);
+    // supply drops: one soon after the flight, then one each time the storm starts closing in
+    if (zev === 'shrink' && this.zone.phase <= 2) this.launchSupply();
+    if (this.supply.at !== null && this.time >= this.supply.at) { this.supply.at = null; this.launchSupply(); }
+    this.stepSupply(dt);
     if (zev) this.emit({ t: 'zone', ev: zev, phase: this.zone.phase });
     this.zoneDamage(dt);
     this.checkWin();
@@ -343,6 +349,7 @@ export class Match {
     // leaving the island (or the end of the route): everyone still on board is pushed out
     if (ev === 'leave' || pl.d >= pl.len) {
       for (const p of this.players) if (p.alive && p.air === 'plane') this.jumpOut(p);
+      if (ev === 'leave' && this.supply.at === null && !this.supply.planes.length) this.supply.at = this.time + 35;
       this.emit({ t: 'plane', ev: 'leave' });
     }
   }
@@ -570,6 +577,53 @@ export class Match {
     }
   }
 
+  /* ---------------- supply drops ---------------- */
+  /** send a cargo plane that drops a crate at (x, z), or somewhere inside the next safe zone */
+  launchSupply(x, z) {
+    if (x === undefined) {
+      const c = this.zone.stage === 'done' ? this.zone.cur : this.zone.next;
+      const cand = this.world.spawnSpots.filter((s) => Math.hypot(s.x - c.x, s.z - c.z) < Math.max(8, c.r * 0.75));
+      const sp = cand.length ? cand[this.rng.int(0, cand.length - 1)] : { x: c.x, z: c.z };
+      x = sp.x; z = sp.z;
+    }
+    const a = this.rng.next() * Math.PI * 2, dx = Math.cos(a), dz = Math.sin(a), L = 420;
+    const pl = { id: this.nextId++, ax: x - dx * L, az: z - dz * L, dx, dz, d: 0, len: L * 2, drop: L, alt: 205, x: x - dx * L, z: z - dz * L, tx: x, tz: z, dropped: false, yaw: Math.atan2(-dx, -dz) };
+    this.supply.planes.push(pl);
+    this.emit({ t: 'supplyPlane', id: pl.id, x, z });
+    return pl;
+  }
+
+  stepSupply(dt) {
+    const S = this.supply;
+    for (const pl of S.planes) {
+      pl.d += 45 * dt;
+      pl.x = pl.ax + pl.dx * pl.d; pl.z = pl.az + pl.dz * pl.d;
+      if (!pl.dropped && pl.d >= pl.drop) {
+        pl.dropped = true;
+        const cr = { id: this.nextId++, x: pl.tx, z: pl.tz, y: pl.alt - 6, landed: false, flareT: 0 };
+        S.crates.push(cr);
+        this.emit({ t: 'supplyDrop', id: cr.id, x: cr.x, z: cr.z });
+      }
+    }
+    if (S.planes.some((pl) => pl.d > pl.len)) S.planes = S.planes.filter((pl) => pl.d <= pl.len);
+    for (const cr of S.crates) {
+      if (cr.landed) { if (cr.flareT > 0) cr.flareT -= dt; continue; }
+      const ground = this.world.supportHeight(cr.x, cr.z, 0.6, cr.y, 0);
+      cr.y -= 9 * dt;                          // under a big parachute
+      if (cr.y > ground) continue;
+      cr.y = ground; cr.landed = true; cr.flareT = 50;
+      // contents sit on top of the crate
+      const drops = rollSupply(this.rng);
+      drops.forEach(([key, count], i) => {
+        const a = (i / drops.length) * Math.PI * 2, r = i === 0 ? 0 : 0.32;
+        const it = { id: this.nextId++, key, count, mag: key === 'longbow' ? 5 : 0, x: cr.x + Math.cos(a) * r, y: cr.y + CRATE_H, z: cr.z + Math.sin(a) * r, supply: true };
+        this.items.push(it); this.itemById.set(it.id, it);
+        this.emit({ t: 'itemAdd', id: it.id });
+      });
+      this.emit({ t: 'supplyLanded', id: cr.id, x: cr.x, y: cr.y, z: cr.z });
+    }
+  }
+
   /* ---------------- vehicles ---------------- */
   spawnVehicles() {
     const spots = this.world.vehicleSpots || [];
@@ -590,6 +644,7 @@ export class Match {
   rebuildObstacles() {
     const dyn = this.world.dyn;
     dyn.length = 0;
+    for (const cr of this.supply.crates) if (cr.landed) dyn.push({ x: cr.x, z: cr.z, r: 0.72, y0: cr.y, y1: cr.y + CRATE_H, crate: cr.id });
     for (const v of this.vehicles) {
       const D = VEHICLES[v.type];
       for (const c of vehCircles(v)) dyn.push({ x: c.x, z: c.z, r: c.r * 0.95, y0: v.y + 0.2, y1: v.y + D.hgt, veh: v.id });
@@ -1191,6 +1246,7 @@ export class Match {
       this.pickup(p, it);
     }
     if (what === 'heal') p.hp = MAX_HP;
+    if (what === 'supply') this.launchSupply(p.body.pos.x - Math.sin(p.yaw) * 14, p.body.pos.z - Math.cos(p.yaw) * 14);
     if (what === 'vehicle') {
       const x = p.body.pos.x - Math.sin(p.yaw) * 5, z = p.body.pos.z - Math.cos(p.yaw) * 5;
       this.addVehicle(arg || 'sedan', x, this.world.supportHeight(x, z, 0.5, p.body.pos.y + 2, 0), z, p.yaw, 100);

@@ -15,7 +15,7 @@ const $ = (id) => document.getElementById(id);
 export class HUD {
   constructor() {
     this.el = {};
-    for (const id of ['hud', 'crosshair', 'hitmark', 'dmgDirs', 'stormTint', 'hurtTint', 'flashTint', 'compassStrip', 'aliveN', 'killN', 'minimap', 'zoneTxt', 'feed', 'banner', 'prompt',
+    for (const id of ['hud', 'crosshair', 'hitmark', 'dmgDirs', 'stormTint', 'hurtTint', 'flashTint', 'scope', 'compassStrip', 'aliveN', 'killN', 'minimap', 'zoneTxt', 'feed', 'banner', 'prompt',
       'useBar', 'useFill', 'useTxt', 'stance', 'hpFill', 'hpLag', 'hpNum', 'magN', 'resN', 'wName', 'slots', 'reloadRing', 'debug', 'inv', 'invGround', 'invBag', 'invSlots',
       'invWeight', 'invWFill', 'bigmap', 'bigmapCv', 'vehBox', 'vehName', 'vehSpeed', 'vehFuel', 'vehHp']) this.el[id] = $(id);
     this.cache = {};
@@ -47,9 +47,10 @@ export class HUD {
       else h += `<span style="left:${d * 3}px">${a}</span>`;
       h += `<span class="t" style="left:${d * 3 + 22.5}px"></span>`;
     }
-    s.innerHTML = h + '<span class="z" id="compZone">◆</span><span class="z" id="compMark" style="color:#ffd24a">▼</span>';
+    s.innerHTML = h + '<span class="z" id="compZone">◆</span><span class="z" id="compMark" style="color:#ffd24a">▼</span><span class="z" id="compSupply" style="color:#ff6a50;white-space:nowrap;font-size:10px"></span>';
     this.compZone = document.getElementById('compZone');
     this.compMark = document.getElementById('compMark');
+    this.compSupply = document.getElementById('compSupply');
   }
 
   /** heading in degrees: 0 = north (-Z), 90 = east (+X) */
@@ -118,6 +119,9 @@ export class HUD {
     if (out > 0) zt += ` · 안전구역까지 ${Math.ceil(out)}m`;
     this.set('zone', this.el.zoneTxt, 'text', zt);
     this.set('storm', this.el.stormTint, 'opacity', p.inStorm && p.alive ? '1' : '0');
+    // sniper scope
+    const scoped = !!(p.alive && w.scope && g.adsBlend > 0.85 && g.scoped);
+    if (this.cache.scoped !== scoped) { this.cache.scoped = scoped; this.el.scope.classList.toggle('hide', !scoped); this.el.crosshair.style.visibility = scoped ? 'hidden' : ''; }
     // flashbang: white-out that fades as the blindness wears off
     const fl = p.alive && p.blindT > 0 ? Math.min(1, p.blindT / 1.6) : 0;
     this.set('flash', this.el.flashTint, 'opacity', fl.toFixed(2));
@@ -161,6 +165,17 @@ export class HUD {
     let rel = ((zh - hd + 540) % 360) - 180;
     this.compZone.style.left = ((hd + 360 + rel) * 3) + 'px';
     this.compZone.style.opacity = out > -10 ? 1 : 0.35;
+    // nearest supply crate on the compass
+    let best = null, bd = Infinity;
+    for (const cr of m.supply.crates) { const d = Math.hypot(cr.x - p.body.pos.x, cr.z - p.body.pos.z); if (d < bd && !g.lootedCrates.has(cr.id)) { bd = d; best = cr; } }
+    for (const pl of m.supply.planes) if (!pl.dropped) { const d = Math.hypot(pl.tx - p.body.pos.x, pl.tz - p.body.pos.z); if (d < bd) { bd = d; best = { x: pl.tx, z: pl.tz }; } }
+    if (best) {
+      const sh = HUD.heading(Math.atan2(-(best.x - p.body.pos.x), -(best.z - p.body.pos.z)));
+      const srel = ((sh - hd + 540) % 360) - 180;
+      this.compSupply.style.left = ((hd + 360 + srel) * 3) + 'px';
+      this.compSupply.style.display = '';
+      this.compSupply.textContent = '■ ' + Math.round(bd) + 'm';
+    } else this.compSupply.style.display = 'none';
     if (g.marker) {
       const mh = HUD.heading(Math.atan2(-(g.marker.x - p.body.pos.x), -(g.marker.z - p.body.pos.z)));
       const mrel = ((mh - hd + 540) % 360) - 180;
@@ -258,8 +273,24 @@ export class HUD {
     ctx.restore();
   }
 
+  /** supply crates (landed / falling) and where a supply plane will drop its crate */
+  drawSupply(ctx, g, tp, big = false) {
+    const S = g.match.supply, s = big ? 1.4 : 1;
+    const icon = (x, z, falling) => {
+      const [px, py] = tp(x, z);
+      ctx.save();
+      ctx.fillStyle = falling ? 'rgba(224,64,48,.55)' : '#e04030'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+      ctx.fillRect(px - 5 * s, py - 5 * s, 10 * s, 10 * s); ctx.strokeRect(px - 5 * s, py - 5 * s, 10 * s, 10 * s);
+      ctx.fillStyle = '#fff'; ctx.fillRect(px - 1 * s, py - 3.5 * s, 2 * s, 7 * s); ctx.fillRect(px - 3.5 * s, py - 1 * s, 7 * s, 2 * s);
+      ctx.restore();
+    };
+    for (const pl of S.planes) if (!pl.dropped) icon(pl.tx, pl.tz, true);
+    for (const cr of S.crates) if (!g.lootedCrates.has(cr.id)) icon(cr.x, cr.z, !cr.landed);
+  }
+
   /** plane route + plane + destination marker + vehicles */
   drawRoute(ctx, g, tp, big = false) {
+    this.drawSupply(ctx, g, tp, big);
     for (const v of g.match.vehicles) {
       if (v.dead) continue;
       const [x, y] = tp(v.x, v.z);

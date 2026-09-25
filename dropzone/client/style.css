@@ -204,3 +204,8 @@ body.touch #prompt{top:auto;bottom:22%;pointer-events:auto}
 .vbar i{display:block;height:100%;width:50%;background:var(--acc)}
 #vehHp{background:#57c46d!important}
 body.touch #vehBox{top:58px;bottom:auto;left:10px;min-width:150px}
+#scope{inset:0;background:radial-gradient(circle at center,transparent 0,transparent 32vh,rgba(0,0,0,.35) 32.5vh,#000 33.5vh)}
+#scope i{position:absolute;background:#000;left:50%;top:50%}
+#scope i.h{width:66vh;height:1.5px;transform:translate(-50%,-50%)}
+#scope i.v{height:66vh;width:1.5px;transform:translate(-50%,-50%)}
+#scope b{position:absolute;left:50%;top:50%;width:4px;height:4px;margin:-2px 0 0 -2px;background:#d33;border-radius:50%}

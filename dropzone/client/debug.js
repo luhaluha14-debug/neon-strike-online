@@ -29,6 +29,8 @@ export class DevTools {
     btn('TP', () => this.teleport());
     btn('GIVE', () => this.give());
     btn('ZONE▶', () => this.run('zone'));
+    btn('SUPPLY', () => this.run('supply'));
+    btn('CAR', () => this.run('vehicle', ['sedan', 'suv', 'moto', 'buggy'][(this.carI = ((this.carI || 0) + 1) % 4)]));
     btn('KILL BOTS', () => this.run('killbots'));
     this.fpsAcc = 0; this.frames = 0; this.fps = 0; this.worst = 0; this.worstShown = 0;
   }

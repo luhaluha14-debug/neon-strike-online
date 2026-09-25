@@ -14,7 +14,8 @@
 export const AMMO = {
   light: { name: 'L-탄 (경량)', short: 'L', color: '#e0b64a', weight: 0.4, stack: 30 },
   pistol: { name: 'P-탄 (권총)', short: 'P', color: '#8fb4e0', weight: 0.3, stack: 30 },
-  shell: { name: '12S 산탄', short: 'S', color: '#e0664a', weight: 1.0, stack: 10 }
+  shell: { name: '12S 산탄', short: 'S', color: '#e0664a', weight: 1.0, stack: 10 },
+  heavy: { name: 'H-탄 (중량)', short: 'H', color: '#c77be0', weight: 0.6, stack: 15 }
 };
 
 export const WEAPONS = {
@@ -61,6 +62,18 @@ export const WEAPONS = {
     falloff: [20, 80, 0.5], range: 250,
     moveMul: 1.05, zoom: 1.15, adsTime: 0.12, equip: 0.3,
     sound: 'pistol', model: 'pistol'
+  },
+  // supply crate only: bolt-action sniper with a 4x scope
+  longbow: {
+    name: 'LONGBOW L50', cat: 'sniper', catName: '저격소총 · 보급', slot: 'primary', supply: true,
+    ammo: 'heavy', damage: 92, headMul: 2.4, limbMul: 0.85,
+    rpm: 42, mode: 'semi', mag: 5, reload: 3.1, reloadEmpty: 3.8, reloadType: 'mag',
+    bulletSpeed: 930, gravity: 1.0, pellets: 1,
+    spread: { hip: 5, ads: 0.02, move: 3.5, air: 9, crouch: 0.8, prone: 0.5, bloom: 0, bloomMax: 0, bloomDecay: 1 },
+    recoil: { up: 3.4, side: 0.6, bias: 0, recover: 3, first: 1, ads: 0.9 },
+    falloff: [320, 800, 0.85], range: 900,
+    moveMul: 0.9, zoom: 4, adsTime: 0.3, equip: 0.8, scope: true,
+    sound: 'sniper', model: 'sniper'
   },
   fists: {
     name: 'FISTS', cat: 'melee', catName: '근접', slot: 'melee',

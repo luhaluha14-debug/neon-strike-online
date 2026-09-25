@@ -42,6 +42,20 @@ export const LOOT_TABLES = {
   3: [T(30, [['kestrel', 1], ['ammo_light', 30], ['ammo_light', 30]]), T(20, [['medkit', 1]]), T(20, [['ammo_light', 30], ['bandage', 3]]), T(15, [['frag', 2], ['smoke', 1]])]
 };
 
+/* supply crate contents: always better than anything on the ground */
+export const SUPPLY_TABLES = [
+  T(40, [['longbow', 1], ['ammo_heavy', 15], ['medkit', 1], ['frag', 2]]),
+  T(30, [['longbow', 1], ['ammo_heavy', 15], ['ammo_heavy', 15], ['smoke', 2], ['bandage', 3]]),
+  T(30, [['kestrel', 1], ['ammo_light', 30], ['ammo_light', 30], ['medkit', 1], ['frag', 2], ['molotov', 1]])
+];
+export function rollSupply(rng) {
+  let total = 0;
+  for (const e of SUPPLY_TABLES) total += e.w;
+  let r = rng.next() * total;
+  for (const e of SUPPLY_TABLES) { r -= e.w; if (r <= 0) return e.drops; }
+  return SUPPLY_TABLES[0].drops;
+}
+
 export function rollLoot(rng, tier) {
   const table = LOOT_TABLES[Math.max(0, Math.min(3, tier))];
   let total = 0;

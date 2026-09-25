@@ -9,7 +9,7 @@ import * as THREE from 'three';
 import { BUILD } from '../build-config.js';
 import { buildMap } from '../shared/mapgen.js';
 import { NavGrid } from '../shared/nav.js';
-import { Match, TICK, rayHitPlayer, emptyCommand } from '../shared/game.js';
+import { Match, TICK, CRATE_H, rayHitPlayer, emptyCommand } from '../shared/game.js';
 import { WEAPONS } from '../shared/weapons.js';
 import { ITEMS, invCount } from '../shared/items.js';
 import { THROWABLES, throwLaunch, predictThrow } from '../shared/throwables.js';
@@ -21,7 +21,7 @@ import { TouchControls, isTouchDevice } from './touch.js';
 import { Audio } from './audio.js';
 import { WorldView } from './render/world-view.js';
 import { FX } from './render/fx.js';
-import { Soldier, itemGeometry, weaponGeometry, MUZZLE, planeGeometry, propGeometry, SOLDIER_MAT } from './render/models.js';
+import { Soldier, itemGeometry, weaponGeometry, MUZZLE, planeGeometry, propGeometry, SOLDIER_MAT, crateGeometry, makeChute } from './render/models.js';
 import { ViewModel } from './render/viewmodel.js';
 import { VehicleView } from './render/vehicles.js';
 import { VEHICLES } from '../shared/vehicles.js';
@@ -30,7 +30,7 @@ import { HUD } from './hud.js';
 import { DevTools } from './debug.js';
 
 const $ = (id) => document.getElementById(id);
-const MODEL = { kestrel: 'rifle', wasp: 'smg', breaker: 'shotgun', hornet: 'pistol', fists: 'none' };
+const MODEL = { kestrel: 'rifle', wasp: 'smg', breaker: 'shotgun', hornet: 'pistol', longbow: 'sniper', fists: 'none' };
 /** model shown in hand for a slot (throwables use their own grenade model) */
 function modelFor(sl) { return !sl ? null : sl.id === 'throw' ? (sl.type ? 'g_' + sl.type : 'none') : MODEL[sl.id]; }
 const LOCAL_ID = 1;
@@ -454,6 +454,8 @@ class Session {
     }
     this.syncItems();
     this.marker = null;                 // destination picked on the full map
+    this.supplyViews = new Map();       // id -> mesh (supply planes and crates)
+    this.lootedCrates = new Set();
     this.vehViews = new Map();
     this.vehPrev = new Map();
     this.lastLookT = 0;
@@ -512,6 +514,7 @@ class Session {
     if (this.planeMesh) sc.remove(this.planeMesh);
     sc.remove(this.arc, this.arcEnd);
     for (const vv of this.vehViews.values()) vv.dispose(sc);
+    for (const sv of this.supplyViews.values()) sc.remove(sv);
     this.app.audio.setEngines([]);
     for (const mm of this.nadeMeshes.values()) sc.remove(mm);
     this.app.audio.setFlightSounds(1e9, false, 0);
@@ -634,7 +637,7 @@ class Session {
   computeAim() {
     const me = this.me, m = this.match;
     const e = m.eye(me);
-    if (this.view === 'fps' || this.rig.freeLook) {
+    if (this.view === 'fps' || this.rig.freeLook || this.scoped) {
       if (this.rig.freeLook && this.lastAim) return this.lastAim;
       this.crossOnEnemy = false;
       const d = this.rig.fwd;
@@ -766,6 +769,8 @@ class Session {
         break;
       }
       case 'jumpOut': if (isMe) A.jumpOut(); break;
+      case 'supplyPlane': hud.banner('보급품이 투하됩니다! 지도와 나침반의 ■ 표시를 확인하세요', 'zone', 4); A.ui('zone'); break;
+      case 'supplyLanded': A.crateLand(e); break;
       case 'enterVeh': case 'exitVeh': { const p = m.byId.get(e.id); if (p && (isMe || this.near(e.id, 30))) A.door(p.body.pos, isMe); if (isMe && e.t === 'enterVeh') hud.banner(VEHICLES[m.vehById.get(e.veh).type].name, '', 1.4); break; }
       case 'crash': A.crash(e, e.v); if (me.veh && me.veh.id === e.veh) this.rig.addShake(Math.min(1, e.v / 20)); break;
       case 'vehBoom': { this.fx.explosion(e.x, e.y, e.z); A.explosion(e); const d = Math.hypot(e.x - me.body.pos.x, e.z - me.body.pos.z); if (d < 40) this.rig.addShake(Math.min(1.1, 9 / Math.max(3, d))); break; }
@@ -934,6 +939,9 @@ class Session {
       this.rig.yaw = focus.yaw; this.rig.pitch = focus.pitch * 0.5;
       this.rig.mode = 'tps';
     } else this.rig.mode = this.view;
+    // a scoped weapon always looks through the scope (first person), even in third person
+    this.scoped = focus === me && me.alive && !me.veh && !me.air && w.scope && this.adsBlend > 0.5;
+    if (this.scoped) this.rig.mode = 'fps';
     if (!me.alive && !this.spectating) {
       // death cam: slowly orbit the body
       this.rig.yaw += dt * 0.25;
@@ -1031,6 +1039,7 @@ class Session {
     }
 
     this.renderThrowables(dt, me);
+    this.renderSupply(dt);
 
     // ---- effects ----
     this.fx.renderBullets(m.bullets, alpha, TICK, cp);
@@ -1045,7 +1054,7 @@ class Session {
     app.scene.fog.near = vd * 0.35; app.scene.fog.far = vd;
     app.worldView.sky.scale.setScalar((this.camera.far * 0.92) / 900);
     app.renderer.render(app.scene, this.camera);
-    if (this.rig.mode === 'fps' && focus === me && me.alive) {
+    if (this.rig.mode === 'fps' && focus === me && me.alive && !(this.scoped && this.adsBlend > 0.85)) {
       const sl = m.slotOf(me);
       this.vm.setWeapon(modelFor(sl));
       this.vm.update(dt, { windUp: me.cur === 4 && me.throwHold, ads: this.adsBlend, speed: me.body.moveSpeed, onGround: me.body.onGround, reloading: me.reloading, sprint: me.body.sprinting, aspect: this.camera.aspect });
@@ -1056,6 +1065,38 @@ class Session {
     // ---- HUD ----
     this.hud.update(dt, this);
     if (this.mapOpen) { this.showAllOnMap = app.dev && app.dev.flags.map; this.hud.drawBigMap(this); }
+  }
+
+  renderSupply(dt) {
+    const S = this.match.supply, sc = this.app.scene, seen = new Set();
+    let planeD = Infinity;
+    const cp = this.camera.position;
+    for (const pl of S.planes) {
+      seen.add(pl.id);
+      let v = this.supplyViews.get(pl.id);
+      if (!v) { v = new THREE.Mesh(planeGeometry(), SOLDIER_MAT); v.scale.setScalar(1.4); sc.add(v); this.supplyViews.set(pl.id, v); }
+      v.position.set(pl.x, pl.alt, pl.z); v.rotation.set(0, pl.yaw, 0);
+      planeD = Math.min(planeD, Math.hypot(pl.x - cp.x, pl.alt - cp.y, pl.z - cp.z));
+    }
+    for (const cr of S.crates) {
+      seen.add(cr.id);
+      let v = this.supplyViews.get(cr.id);
+      if (!v) {
+        v = new THREE.Group();
+        const box = new THREE.Mesh(crateGeometry(CRATE_H), SOLDIER_MAT); box.castShadow = true; v.add(box);
+        const chute = makeChute(); chute.scale.set(1.5, 1.4, 1.5); chute.position.y = 0.6; v.add(chute); v.userData.chute = chute;
+        sc.add(v); this.supplyViews.set(cr.id, v);
+      }
+      v.position.set(cr.x, cr.y, cr.z);
+      v.userData.chute.visible = !cr.landed;
+      if (!cr.landed) v.rotation.y += dt * 0.4;
+      // red signal smoke while the crate is fresh
+      if (cr.landed && cr.flareT > 0 && Math.random() < dt * 25) this.fx.emit(cr.x, cr.y + CRATE_H + 0.2, cr.z, 1, 0.85, 0.12, 0.08, 0.7, 5, 0.9, -0.9, 0.4, 1.4, 0.9);
+      // emptied crates drop off the map / compass (client-side view state only)
+      if (cr.landed && !this.match.items.some((it) => it.supply && Math.abs(it.x - cr.x) < 1 && Math.abs(it.z - cr.z) < 1)) this.lootedCrates.add(cr.id);
+    }
+    for (const [id, v] of this.supplyViews) if (!seen.has(id)) { sc.remove(v); this.supplyViews.delete(id); }
+    if (planeD < 1e9) this.supplyPlaneD = planeD; else this.supplyPlaneD = Infinity;
   }
 
   renderVehicles(dt, alpha, cp) {
@@ -1136,7 +1177,7 @@ class Session {
 
   renderPlane(alpha, focus) {
     const pl = this.match.plane, pm = this.planeMesh;
-    if (!pl || !pm) return;
+    if (!pl || !pm) { if (this.supplyPlaneD < Infinity || this.hadSupplyPlane) { this.hadSupplyPlane = this.supplyPlaneD < Infinity; this.app.audio.setFlightSounds(this.supplyPlaneD, false, 0); } return; }
     const x = lerp(this.planePrev.x, pl.x, alpha), z = lerp(this.planePrev.z, pl.z, alpha);
     pm.visible = !pl.done;
     pm.position.set(x, pl.alt + 1.5, z);
@@ -1145,7 +1186,7 @@ class Session {
     const cp = this.camera.position;
     const d = Math.hypot(x - cp.x, pl.alt - cp.y, z - cp.z);
     const f = this.me.alive && this.me.air === 'fall' ? Math.min(1, this.me.body.vel.y * -1 / 45) : this.me.air === 'chute' ? 0.15 : 0;
-    this.app.audio.setFlightSounds(pl.done ? 1e9 : d, focus.air === 'plane', f);
+    this.app.audio.setFlightSounds(Math.min(pl.done ? 1e9 : d, this.supplyPlaneD || Infinity), focus.air === 'plane', f);
   }
 
   setMarker(x, z) {

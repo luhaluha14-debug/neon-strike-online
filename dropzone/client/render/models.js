@@ -54,6 +54,18 @@ export function weaponGeometry(model) {
       box(0.004, 0.05, 0.01, 0.012, 0.068, 0.025, GUN);
       box(-0.003, 0.05, -0.165, 0.003, 0.064, -0.155, GUN);       // front post
       break;
+    case 'sniper':
+      box(-0.035, 0.0, -0.3, 0.035, 0.09, 0.2, OLIVE);           // receiver
+      box(-0.018, 0.025, -1.02, 0.018, 0.065, -0.3, STEEL);      // long barrel
+      box(-0.028, 0.02, -1.08, 0.028, 0.07, -1.0, GUN);          // muzzle brake
+      box(-0.03, -0.14, -0.12, 0.03, 0.0, -0.02, GUN2);          // magazine
+      box(-0.025, -0.13, 0.06, 0.025, 0.0, 0.13, GUN);           // grip
+      box(-0.035, -0.04, 0.2, 0.035, 0.09, 0.55, OLIVE);         // stock
+      box(-0.03, 0.09, -0.2, 0.03, 0.15, 0.1, GUN);              // scope body
+      box(-0.038, 0.085, -0.26, 0.038, 0.165, -0.2, GUN);        // objective
+      box(-0.034, 0.088, 0.1, 0.034, 0.158, 0.15, GUN);          // eyepiece
+      box(0.035, 0.035, 0.0, 0.07, 0.05, 0.02, STEEL);           // bolt handle
+      break;
     case 'g_frag':
       box(-0.035, -0.04, -0.035, 0.035, 0.04, 0.035, C(0x5d6b45)); box(-0.012, 0.04, -0.012, 0.012, 0.065, 0.012, STEEL); box(0.012, 0.03, -0.006, 0.03, 0.06, 0.006, STEEL); break;
     case 'g_smoke':
@@ -71,7 +83,7 @@ export function weaponGeometry(model) {
 }
 
 /** muzzle offset in weapon space */
-export const MUZZLE = { rifle: [0, 0.045, -0.74], smg: [0, 0.044, -0.44], shotgun: [0, 0.065, -0.8], pistol: [0, 0.03, -0.18], none: [0, 0, -0.3], g_frag: [0, 0, 0], g_smoke: [0, 0, 0], g_flash: [0, 0, 0], g_molotov: [0, 0, 0] };
+export const MUZZLE = { sniper: [0, 0.045, -1.08], rifle: [0, 0.045, -0.74], smg: [0, 0.044, -0.44], shotgun: [0, 0.065, -0.8], pistol: [0, 0.03, -0.18], none: [0, 0, -0.3], g_frag: [0, 0, 0], g_smoke: [0, 0, 0], g_flash: [0, 0, 0], g_molotov: [0, 0, 0] };
 
 /* ---------- ground items ---------- */
 const ITEM_GEO = {};
@@ -83,7 +95,7 @@ export function itemGeometry(key) {
     g = weaponGeometry('g_' + key).clone();
     g.scale(1.6, 1.6, 1.6); g.translate(0, 0.08, 0);
   } else if (it.kind === 'weapon') {
-    const src = weaponGeometry({ kestrel: 'rifle', wasp: 'smg', breaker: 'shotgun', hornet: 'pistol' }[key] || 'rifle');
+    const src = weaponGeometry({ kestrel: 'rifle', wasp: 'smg', breaker: 'shotgun', hornet: 'pistol', longbow: 'sniper' }[key] || 'rifle');
     g = src.clone();
     g.rotateZ(Math.PI / 2); g.translate(0, 0.04, 0);
   } else {
@@ -379,4 +391,21 @@ export function makeChute() {
     g.add(l);
   }
   return g;
+}
+
+/* ---------- supply crate (original design: blue-grey with orange bands) ---------- */
+let CRATE_GEO = null;
+export function crateGeometry(h) {
+  if (CRATE_GEO) return CRATE_GEO;
+  const b = new BoxBatch();
+  const body = C(0x3d5a78), band = C(0xe0892a), dark = C(0x243444), white = C(0xe8e8e0);
+  const box = (x0, y0, z0, x1, y1, z1, c) => b.add(x0, y0, z0, x1, y1, z1, c, { ao: false });
+  box(-0.72, 0, -0.72, 0.72, h, 0.72, body);
+  box(-0.74, 0.18, -0.74, 0.74, 0.32, 0.74, band);
+  box(-0.74, h - 0.32, -0.74, 0.74, h - 0.18, 0.74, band);
+  box(-0.76, 0, -0.76, 0.76, 0.08, 0.76, dark);
+  box(-0.12, h - 0.001, -0.45, 0.12, h + 0.01, 0.45, white);        // cross on the lid
+  box(-0.45, h - 0.001, -0.12, 0.45, h + 0.01, 0.12, white);
+  CRATE_GEO = b.build();
+  return CRATE_GEO;
 }
