@@ -33,7 +33,7 @@ function duel(bots = 1) {
   const world = flatWorld();
   world.spawnSpots = [{ x: 0, z: 0 }, { x: 0, z: -20 }, { x: 10, z: -20 }, { x: -10, z: -20 }];
   const nav = new NavGrid(world);
-  const m = new Match({ world, nav, seed: 3, bots, humans: [{ id: 1, name: 'me' }] });
+  const m = new Match({ world, nav, seed: 3, bots, humans: [{ id: 1, name: 'me' }], drop: false });
   const me = m.byId.get(1);
   const others = m.players.filter((p) => p.isBot);
   others.forEach((o, i) => { o.brain = null; o.body.pos.x = i * 10; o.body.pos.z = -20; o.yaw = 0; });
@@ -273,6 +273,8 @@ for (const diff of ['easy', 'normal', 'hard']) {
     assert.equal(m.players.filter((p) => p.alive).length, 1);
     const places = m.players.map((p) => p.place).sort((a, b) => a - b);
     assert.deepEqual(places, Array.from({ length: 20 }, (_, i) => i + 1));
+    // everybody left the plane and landed
+    assert.ok(m.players.every((p) => p.air === null || !p.alive), 'nobody stuck in the air');
     // nobody fell through the world
     for (const p of m.players) assert.ok(p.body.pos.y >= world.groundAt(p.body.pos.x, p.body.pos.z) - 0.01);
   });
@@ -306,7 +308,7 @@ test('ground items are never buried inside walls or crates', () => {
 
 test('simultaneous last deaths still give unique placements', () => {
   const { world, nav } = map();
-  const m = new Match({ world, nav, seed: 5, bots: 2 });
+  const m = new Match({ world, nav, seed: 5, bots: 2, drop: false });
   for (const p of m.players) { p.brain = null; p.hp = 5; }
   m.zone.cur = { x: 999, z: 999, r: 1 }; m.zone.phase = 5;
   for (let i = 0; i < 120 && m.state === 'playing'; i++) m.step(TICK);
@@ -347,4 +349,51 @@ test('loot is dense: most spots have items', () => {
   const { world, nav } = map();
   const m = new Match({ world, nav, seed: 21, bots: 1 });
   assert.ok(m.items.length > world.lootSpots.length * 2, `items ${m.items.length}`);
+});
+
+test('transport plane: everyone boards, jumps, parachutes and lands; human steers to a chosen spot', () => {
+  const { world, nav } = map();
+  const m = new Match({ world, nav, seed: 31, bots: 12, humans: [{ id: 1, name: 'me' }] });
+  const me = m.byId.get(1);
+  assert.ok(m.players.every((p) => p.air === 'plane'));
+  // storm clock is frozen during the flight
+  const zt = m.zone.timer;
+  // pick a destination and steer to it
+  const target = { x: world.locations[0].x + 6, z: world.locations[0].z + 6 };
+  let jumped = false, sawChute = false;
+  for (let i = 0; i < 60 * 90 && (me.air || !jumped); i++) {
+    const c = { yaw: me.yaw, pitch: 0 };
+    if (me.air === 'plane') {
+      const pl = m.plane;
+      if (pl.inside && pl.d >= pl.project(target.x, target.z) - 40) c.jump = true;
+      c.yaw = pl.yaw;
+    } else {
+      jumped = true;
+      const dx = target.x - me.body.pos.x, dz = target.z - me.body.pos.z;
+      c.yaw = Math.atan2(-dx, -dz);
+      c.fwd = Math.hypot(dx, dz) > 3 ? 1 : 0;
+      if (me.air === 'chute') sawChute = true;
+    }
+    tick(m, c);
+  }
+  assert.equal(me.air, null, 'landed');
+  assert.ok(sawChute, 'parachute opened');
+  assert.equal(me.hp, 100, 'no fall damage with a parachute');
+  const miss = Math.hypot(me.body.pos.x - target.x, me.body.pos.z - target.z);
+  assert.ok(miss < 25, 'landed near the chosen spot, miss ' + miss.toFixed(1));
+  assert.ok(m.zone.timer <= zt, 'storm clock running after the flight');
+  // bots are all out and on the ground by now
+  run(m, 20);
+  assert.ok(m.players.filter((p) => p.alive).every((p) => p.air === null));
+  assert.equal(m.plane.done || m.plane.left, true);
+});
+
+test('diving bots / players never hit the ground at dive speed (chute brakes in time)', () => {
+  const { world, nav } = map();
+  for (const seed of [8, 9, 10]) {
+    const m = new Match({ world, nav, seed, bots: 24 });
+    let worst = 0;
+    while (m.time < 60) { m.step(TICK); for (const e of m.drainEvents()) if (e.t === 'landed') worst = Math.max(worst, e.v); }
+    assert.ok(worst < 9, 'max landing speed ' + worst.toFixed(1));
+  }
 });

@@ -23,6 +23,7 @@ export class CameraRig {
     this.fwd = new THREE.Vector3();
     this.right = new THREE.Vector3();
     this.landDip = 0; this.landVel = 0;
+    this.boomOverride = null;
   }
 
   /** mouse / touch look (radians) */
@@ -98,7 +99,8 @@ export class CameraRig {
       this.cam.fov = this.baseFov / zoom;
     } else {
       // over the right shoulder; tighter when aiming
-      const side = lerp(0.62, 0.48, ads), up = lerp(0.28, 0.12, ads), back = lerp(2.7, 1.25, ads);
+      let side = lerp(0.62, 0.48, ads), up = lerp(0.28, 0.12, ads), back = lerp(2.7, 1.25, ads);
+      if (this.boomOverride) ({ side, up, back } = this.boomOverride);   // plane / skydive framing
       const origin = new THREE.Vector3(pos.x, this.pivot.y + up, pos.z);
       const want = origin.clone().addScaledVector(this.right, side).addScaledVector(this.fwd, -back);
       // collide boom against the world

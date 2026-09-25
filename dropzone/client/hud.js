@@ -45,8 +45,9 @@ export class HUD {
       else h += `<span style="left:${d * 3}px">${a}</span>`;
       h += `<span class="t" style="left:${d * 3 + 22.5}px"></span>`;
     }
-    s.innerHTML = h + '<span class="z" id="compZone">◆</span>';
+    s.innerHTML = h + '<span class="z" id="compZone">◆</span><span class="z" id="compMark" style="color:#ffd24a">▼</span>';
     this.compZone = document.getElementById('compZone');
+    this.compMark = document.getElementById('compMark');
   }
 
   /** heading in degrees: 0 = north (-Z), 90 = east (+X) */
@@ -94,7 +95,8 @@ export class HUD {
     // zone text
     const z = m.zone;
     let zt;
-    if (z.stage === 'wait') zt = `자기장 축소까지 ${Math.ceil(z.timer)}s`;
+    if (m.plane && !m.plane.left && !m.plane.done) zt = '수송기 비행 중 · 자기장 대기';
+    else if (z.stage === 'wait') zt = `자기장 축소까지 ${Math.ceil(z.timer)}s`;
     else if (z.stage === 'shrink') zt = `자기장 축소 중 ${Math.ceil(z.timer)}s`;
     else zt = '최종 구역';
     const out = z.distOutside(p.body.pos.x, p.body.pos.z);
@@ -141,6 +143,12 @@ export class HUD {
     let rel = ((zh - hd + 540) % 360) - 180;
     this.compZone.style.left = ((hd + 360 + rel) * 3) + 'px';
     this.compZone.style.opacity = out > -10 ? 1 : 0.35;
+    if (g.marker) {
+      const mh = HUD.heading(Math.atan2(-(g.marker.x - p.body.pos.x), -(g.marker.z - p.body.pos.z)));
+      const mrel = ((mh - hd + 540) % 360) - 180;
+      this.compMark.style.left = ((hd + 360 + mrel) * 3) + 'px';
+      this.compMark.style.display = '';
+    } else this.compMark.style.display = 'none';
     this.drawMinimap(g);
   }
 
@@ -197,6 +205,7 @@ export class HUD {
         -range * 1.5 * k, -range * 1.5 * k, range * 3 * k, range * 3 * k);
     }
     this.drawZone(ctx, m.zone, (x, z) => [(x - cx) * k, (z - cz) * k], k);
+    this.drawRoute(ctx, g, (x, z) => [(x - cx) * k, (z - cz) * k]);
     // dead / alive markers of recent gunfire (sound cue)
     for (const e of g.recentShots) {
       const a = 1 - (g.time - e.t) / 3;
@@ -231,6 +240,32 @@ export class HUD {
     ctx.restore();
   }
 
+  /** plane route + plane + destination marker */
+  drawRoute(ctx, g, tp, big = false) {
+    const pl = g.match.plane;
+    if (pl && !pl.done && (g.me.air === 'plane' || !pl.left)) {
+      const [ax, ay] = tp(pl.ax, pl.az), [bx, by] = tp(pl.bx, pl.bz);
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,255,255,.75)'; ctx.lineWidth = big ? 2 : 1.5; ctx.setLineDash([7, 6]);
+      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); ctx.setLineDash([]);
+      const [px, py] = tp(pl.x, pl.z);
+      ctx.translate(px, py); ctx.rotate(-pl.yaw);
+      ctx.fillStyle = '#fff'; ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5;
+      const s = big ? 1.4 : 1;
+      ctx.beginPath(); ctx.moveTo(0, -9 * s); ctx.lineTo(2 * s, -2 * s); ctx.lineTo(9 * s, 1 * s); ctx.lineTo(2 * s, 2 * s); ctx.lineTo(1.5 * s, 7 * s); ctx.lineTo(4 * s, 9 * s);
+      ctx.lineTo(-4 * s, 9 * s); ctx.lineTo(-1.5 * s, 7 * s); ctx.lineTo(-2 * s, 2 * s); ctx.lineTo(-9 * s, 1 * s); ctx.lineTo(-2 * s, -2 * s); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.restore();
+    }
+    if (g.marker) {
+      const [x, y] = tp(g.marker.x, g.marker.z);
+      ctx.save();
+      ctx.fillStyle = '#ffd24a'; ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5;
+      const s = big ? 1.4 : 1;
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - 5 * s, y - 9 * s); ctx.arc(x, y - 11 * s, 5.5 * s, Math.PI * 0.8, Math.PI * 0.2); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.restore();
+    }
+  }
+
   /* ---------------- full map ---------------- */
   drawBigMap(g) {
     const cv = this.el.bigmapCv, ctx = cv.getContext('2d');
@@ -244,6 +279,7 @@ export class HUD {
     ctx.fillStyle = 'rgba(255,255,255,.5)'; ctx.font = '12px sans-serif';
     for (let i = 0; i < 8; i++) { ctx.fillText(String.fromCharCode(65 + i), (S / 8) * i + 4, 14); ctx.fillText(String(i + 1), 4, (S / 8) * i + 28); }
     ctx.save(); this.drawZone(ctx, g.match.zone, tp, k); ctx.restore();
+    this.drawRoute(ctx, g, tp, true);
     ctx.textAlign = 'center';
     for (const L of g.world.locations) {
       const [x, y] = tp(L.x, L.z);

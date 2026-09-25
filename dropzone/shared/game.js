@@ -10,6 +10,7 @@ import { WEAPONS, falloffMul } from './weapons.js';
 import { ITEMS, newInventory, invAdd, invTake, invCount, invRoomFor, rollLoot } from './items.js';
 import { Zone } from './zone.js';
 import { BotBrain } from './ai.js';
+import { Plane, PLANE, stepAir } from './plane.js';
 
 export const TICK = 1 / 60;
 /** loot density: chance a spot has loot at all, and chances of extra item groups (by tier 0..3) */
@@ -128,7 +129,22 @@ export class Match {
       const p = this.addPlayer({ name: nm, isBot: true, spot: spots[si++] });
       p.brain = new BotBrain(this, p, o.difficulty || 'normal', this.rng.next());
     }
+    // battle royale start: everyone boards the transport plane (drop:false = spawn on the ground)
+    this.plane = null;
+    if (o.drop !== false) {
+      this.plane = new Plane(makeRng(this.seed ^ 0x5bd1e995), this.world.playLimit || this.world.half);
+      for (const p of this.players) {
+        p.air = 'plane';
+        p.body.pos.x = this.plane.x; p.body.pos.y = this.plane.alt; p.body.pos.z = this.plane.z;
+        p.body.onGround = false;
+        p.yaw = this.plane.yaw;
+        if (p.brain) p.brain.planDrop(this.plane);
+      }
+    }
   }
+
+  /** number of players still on board */
+  onBoard() { let n = 0; for (const p of this.players) if (p.alive && p.air === 'plane') n++; return n; }
 
   emit(e) { this.events.push(e); }
   drainEvents() { const e = this.events; this.events = []; return e; }
@@ -157,7 +173,7 @@ export class Match {
       id: pid, name, isBot, team: pid, skin: SKINS[this.rng.int(0, SKINS.length - 1)],
       body: newBody(spot.x, g, spot.z),
       yaw: this.rng.range(-Math.PI, Math.PI), pitch: 0, aimYaw: 0, aimPitch: 0,
-      hp: MAX_HP, alive: true, deathT: 0,
+      hp: MAX_HP, alive: true, deathT: 0, air: null,
       slots: [null, null, null, { id: 'fists', mag: 0 }], cur: 3, switchT: 0,
       inv: newInventory(),
       fireCd: 0, bloom: 0, shots: 0, triggerHeld: false,
@@ -252,17 +268,73 @@ export class Match {
     this.time += dt;
     this.tick++;
     this.pathBudget = 2;
+    if (this.plane && !this.plane.done) this.stepPlane(dt);
     for (const p of this.players) {
       if (!p.alive) continue;
       if (p.brain) p.brain.think(dt);
-      this.stepPlayer(p, dt);
+      if (p.air) this.stepAirPlayer(p, dt);
+      else this.stepPlayer(p, dt);
     }
     this.separatePlayers();
     this.stepBullets(dt);
-    const zev = this.zone.update(dt);
+    // the storm clock starts once the plane has left the island
+    const zev = this.plane && !this.plane.left && !this.plane.done ? null : this.zone.update(dt);
     if (zev) this.emit({ t: 'zone', ev: zev, phase: this.zone.phase });
     this.zoneDamage(dt);
     this.checkWin();
+  }
+
+  /* ---------------- plane / skydive ---------------- */
+  stepPlane(dt) {
+    const pl = this.plane;
+    const ev = pl.update(dt);
+    if (ev === 'enter') this.emit({ t: 'plane', ev: 'enter' });
+    for (const p of this.players) {
+      if (!p.alive || p.air !== 'plane') continue;
+      p.body.pos.x = pl.x; p.body.pos.y = pl.alt; p.body.pos.z = pl.z;
+      p.body.vel.x = pl.dx * PLANE.speed; p.body.vel.z = pl.dz * PLANE.speed; p.body.vel.y = 0;
+    }
+    // leaving the island (or the end of the route): everyone still on board is pushed out
+    if (ev === 'leave' || pl.d >= pl.len) {
+      for (const p of this.players) if (p.alive && p.air === 'plane') this.jumpOut(p);
+      this.emit({ t: 'plane', ev: 'leave' });
+    }
+  }
+
+  jumpOut(p) {
+    p.air = 'fall';
+    p.body.pos.y = this.plane.alt - 3;
+    p.body.vel.y = -4;
+    p.chuteT = 0;
+    this.emit({ t: 'jumpOut', id: p.id });
+  }
+
+  stepAirPlayer(p, dt) {
+    const c = p.cmd, b = p.body;
+    p.yaw = wrapAngle(c.yaw || 0);
+    p.pitch = clamp(c.pitch || 0, -1.45, 1.45);
+    p.aimYaw = p.yaw; p.aimPitch = p.pitch;
+    const press = c.jump || c.interact;
+    if (p.air === 'plane') {
+      if (press && this.plane.inside) this.jumpOut(p);
+    } else {
+      const ev = stepAir(this.world, b, { fwd: c.fwd, right: c.right, yaw: p.yaw, pitch: p.pitch }, dt, p.air);
+      if (p.air === 'fall' && (ev.height < PLANE.chuteAuto || (press && ev.height > PLANE.chuteMinManual))) {
+        p.air = 'chute'; p.chuteT = 0;
+        // the canopy catches air hard: most of the dive speed is gone at once
+        b.vel.y = Math.max(b.vel.y, -12);
+        this.emit({ t: 'chute', id: p.id });
+      }
+      if (p.air === 'chute') p.chuteT += dt;
+      if (ev.landed !== undefined) {
+        const was = p.air;
+        p.air = null;
+        this.emit({ t: 'landed', id: p.id, v: ev.landed });
+        if (was === 'fall' && ev.landed > MOVE.fallSafe) this.damage(p, (ev.landed - MOVE.fallSafe) * MOVE.fallDmg, null, 'fall', null);
+      }
+    }
+    for (const k of EDGE_KEYS) c[k] = false;
+    c.slot = -1; c.use = null; c.cycle = 0;
   }
 
   stepPlayer(p, dt) {
@@ -481,7 +553,7 @@ export class Match {
       let hitP = null, hitPart = null;
       const owner = this.byId.get(bl.owner);
       for (const o of this.players) {
-        if (!o.alive || o.id === bl.owner) continue;
+        if (!o.alive || o.id === bl.owner || o.air === 'plane') continue;
         // broad phase: distance from body centre to segment
         const cx = o.body.pos.x - bl.x, cy = o.body.pos.y + 0.8 - bl.y, cz = o.body.pos.z - bl.z;
         const along = cx * dx + cy * dy + cz * dz;
@@ -512,7 +584,7 @@ export class Match {
 
   /* ---------------- damage / death ---------------- */
   damage(v, amount, attacker, cause, dir, part = 'torso', at = null) {
-    if (this.cheats.god.has(v.id)) return;
+    if (this.cheats.god.has(v.id) || v.air === 'plane') return;
     if (!v.alive || amount <= 0) return;
     const before = v.hp;
     v.hp = Math.max(0, v.hp - amount);
@@ -558,7 +630,7 @@ export class Match {
   zoneDamage(dt) {
     const dps = this.zone.dps;
     for (const p of this.players) {
-      if (!p.alive) continue;
+      if (!p.alive || p.air) continue;
       if (!this.zone.isInside(p.body.pos.x, p.body.pos.z)) {
         this.damage(p, dps * dt, null, 'zone', null);
         p.inStorm = true;
@@ -733,10 +805,10 @@ export class Match {
     const ps = this.players;
     for (let i = 0; i < ps.length; i++) {
       const a = ps[i];
-      if (!a.alive) continue;
+      if (!a.alive || a.air) continue;
       for (let j = i + 1; j < ps.length; j++) {
         const b = ps[j];
-        if (!b.alive) continue;
+        if (!b.alive || b.air) continue;
         const dx = b.body.pos.x - a.body.pos.x, dz = b.body.pos.z - a.body.pos.z;
         if (Math.abs(dx) > 0.7 || Math.abs(dz) > 0.7) continue;
         if (Math.abs(b.body.pos.y - a.body.pos.y) > 1.5) continue;
@@ -752,7 +824,12 @@ export class Match {
   }
   nudge(p, dx, dz) {
     const b = p.body, r = MOVE.radius[b.stance], h = MOVE.height[b.stance];
-    if (!this.world.overlaps(b.pos.x + dx, b.pos.z + dz, r, b.pos.y + 0.05, b.pos.y + h)) { b.pos.x += dx; b.pos.z += dz; }
+    if (!this.world.overlaps(b.pos.x + dx, b.pos.z + dz, r, b.pos.y + 0.05, b.pos.y + h)) {
+      b.pos.x += dx; b.pos.z += dz;
+      // on a slope the push can move us under the terrain: keep the feet on it
+      const g = this.world.groundAt(b.pos.x, b.pos.z);
+      if (b.pos.y < g) b.pos.y = g;
+    }
   }
 
   /* ---------------- dev cheats (disabled in release builds by the client) ---------------- */
@@ -761,7 +838,7 @@ export class Match {
     if (!p) return;
     if (what === 'god') { if (this.cheats.god.has(pid)) this.cheats.god.delete(pid); else this.cheats.god.add(pid); }
     if (what === 'ammo') { if (this.cheats.infAmmo.has(pid)) this.cheats.infAmmo.delete(pid); else this.cheats.infAmmo.add(pid); }
-    if (what === 'tp' && arg) { p.body.pos.x = arg.x; p.body.pos.y = arg.y; p.body.pos.z = arg.z; p.body.vel.x = p.body.vel.y = p.body.vel.z = 0; p.body.onGround = false; }
+    if (what === 'tp' && arg) { p.air = null; p.body.pos.x = arg.x; p.body.pos.y = arg.y; p.body.pos.z = arg.z; p.body.vel.x = p.body.vel.y = p.body.vel.z = 0; p.body.onGround = false; }
     if (what === 'give' && arg) {
       const it = this.dropItem(arg, ITEMS[arg].kind === 'weapon' ? 1 : (ITEMS[arg].stack || 1), p.body.pos.x, p.body.pos.y + 0.5, p.body.pos.z);
       this.pickup(p, it);

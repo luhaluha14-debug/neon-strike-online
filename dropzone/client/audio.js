@@ -198,6 +198,39 @@ export class Audio {
   win() { if (!this.ready) return; const t = this.t(); [523, 659, 784, 1046].forEach((f, i) => this.tone({ t: t + i * 0.12, dur: 0.4, type: 'triangle', f0: f, vol: 0.14, dec: 0.36 })); }
   lose() { if (!this.ready) return; const t = this.t(); [392, 330, 262].forEach((f, i) => this.tone({ t: t + i * 0.16, dur: 0.4, type: 'triangle', f0: f, vol: 0.12, dec: 0.36 })); }
 
+  /* ---------------- plane / skydive ---------------- */
+  /** continuous sounds: plane engine drone (by distance) and free-fall wind (0..1) */
+  setFlightSounds(planeDist, inPlane, wind) {
+    if (!this.ready) return;
+    const c = this.ctx, t = this.t();
+    if (!this.drone) {
+      const g = c.createGain(); g.gain.value = 0; g.connect(this.master);
+      const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 420; lp.connect(g);
+      for (const f of [62, 93, 124.5]) { const o = c.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; const og = c.createGain(); og.gain.value = 0.3; o.connect(og); og.connect(lp); o.start(); }
+      const n = c.createBufferSource(); n.buffer = this.noiseBuf; n.loop = true; const ng = c.createGain(); ng.gain.value = 0.5; n.connect(ng); ng.connect(lp); n.start();
+      const wg = c.createGain(); wg.gain.value = 0; wg.connect(this.master);
+      const wf = c.createBiquadFilter(); wf.type = 'bandpass'; wf.frequency.value = 700; wf.Q.value = 0.4; wf.connect(wg);
+      const wn = c.createBufferSource(); wn.buffer = this.noiseBuf; wn.loop = true; wn.playbackRate.value = 0.7; wn.connect(wf); wn.start();
+      this.drone = { g, lp, wg, wf };
+    }
+    const dv = inPlane ? 0.16 : planeDist < 900 ? 0.22 * Math.max(0, 1 - planeDist / 600) ** 2 : 0;
+    this.drone.g.gain.setTargetAtTime(dv, t, 0.3);
+    this.drone.lp.frequency.setTargetAtTime(inPlane ? 300 : 520, t, 0.3);
+    this.drone.wg.gain.setTargetAtTime(wind * 0.35, t, 0.15);
+    this.drone.wf.frequency.setTargetAtTime(500 + wind * 900, t, 0.2);
+  }
+  chuteOpen() {
+    if (!this.ready) return;
+    const t = this.t();
+    this.noise({ t, dur: 0.35, type: 'lowpass', f0: 1800, f1: 200, q: 0.7, vol: 0.55, atk: 0.01, dec: 0.3 });
+    this.tone({ t, dur: 0.2, type: 'sine', f0: 120, f1: 50, vol: 0.3, dec: 0.18 });
+  }
+  jumpOut() {
+    if (!this.ready) return;
+    const t = this.t();
+    this.noise({ t, dur: 0.5, type: 'bandpass', f0: 900, f1: 2400, q: 0.5, vol: 0.35, atk: 0.05, dec: 0.4 });
+  }
+
   startAmbience() {
     const c = this.ctx;
     const s = c.createBufferSource(); s.buffer = this.noiseBuf; s.loop = true;

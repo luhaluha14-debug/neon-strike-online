@@ -67,7 +67,7 @@ export class BotBrain {
     const p = this.p, m = this.m;
     let best = null, bestD = Infinity;
     for (const o of m.players) {
-      if (o === p || !o.alive) continue;
+      if (o === p || !o.alive || o.air === 'plane') continue;
       const d = Math.hypot(o.body.pos.x - p.body.pos.x, o.body.pos.z - p.body.pos.z);
       if (d > this.d.sight + 5) continue;
       // hearing gunfire: become aware of the shooter
@@ -228,9 +228,60 @@ export class BotBrain {
     return best;
   }
 
+  /* ---------------- skydive ---------------- */
+  /** pick where to land and when to jump (called once at match start) */
+  planDrop(plane) {
+    const W = this.m.world;
+    let tx, tz;
+    if (Math.random() < 0.72 && W.locations.length) {
+      const L = W.locations[Math.floor(Math.random() * W.locations.length)];
+      tx = L.x + (Math.random() - 0.5) * 50; tz = L.z + (Math.random() - 0.5) * 50;
+    } else {
+      const sp = W.spawnSpots[Math.floor(Math.random() * W.spawnSpots.length)];
+      tx = sp.x; tz = sp.z;
+    }
+    // land on a clear outdoor spot, never on a roof
+    let best = null, bd = Infinity;
+    for (const sp of W.spawnSpots) { const d = (sp.x - tx) ** 2 + (sp.z - tz) ** 2; if (d < bd) { bd = d; best = sp; } }
+    this.dropTarget = best ? { x: best.x + (Math.random() - 0.5) * 4, z: best.z + (Math.random() - 0.5) * 4 } : { x: tx, z: tz };
+    // jump a little before the closest point of the route so we can glide the rest
+    this.jumpAt = plane.project(this.dropTarget.x, this.dropTarget.z) - 20 - Math.random() * 35;
+    this.wasAir = true;
+  }
+
+  thinkAir() {
+    const p = this.p, m = this.m, c = p.cmd;
+    c.fwd = 0; c.right = 0; c.fire = false; c.ads = false; c.sprint = false;
+    if (p.air === 'plane') {
+      c.yaw = m.plane.yaw; c.pitch = 0;
+      if (m.plane.inside && m.plane.d >= this.jumpAt) c.jump = true;
+      return;
+    }
+    const T = this.dropTarget || { x: p.body.pos.x, z: p.body.pos.z };
+    const dx = T.x - p.body.pos.x, dz = T.z - p.body.pos.z, d = Math.hypot(dx, dz);
+    if (d > 1) c.yaw = Math.atan2(-dx, -dz);
+    const h = p.body.pos.y - m.world.groundAt(p.body.pos.x, p.body.pos.z);
+    if (p.air === 'fall') {
+      c.fwd = d > 6 ? 1 : 0;
+      c.pitch = d < h * 0.45 ? -1.2 : 0;           // close enough: dive, otherwise glide
+    } else {
+      c.fwd = d > 3 ? 1 : 0;
+      c.pitch = -0.3;
+    }
+    this.aimYaw = c.yaw; this.lookYaw = c.yaw;
+  }
+
   /* ---------------- main ---------------- */
   think(dt) {
     const p = this.p, m = this.m, c = p.cmd;
+    if (p.air) { this.thinkAir(); return; }
+    if (this.wasAir) {
+      // just landed: start looting right here
+      this.wasAir = false;
+      this.state = 'LOOT'; this.path = null; this.pendingPath = false; this.goal = null;
+      this.lastPos.x = p.body.pos.x; this.lastPos.z = p.body.pos.z;
+      this.thinkT = 0;
+    }
     const w = m.weaponOf(p), slot = m.slotOf(p);
     // reset per tick inputs (edges are consumed by the sim)
     c.fwd = 0; c.right = 0; c.fire = false; c.ads = false; c.sprint = false; c.walk = false;

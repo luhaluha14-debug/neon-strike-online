@@ -20,7 +20,7 @@ import { TouchControls, isTouchDevice } from './touch.js';
 import { Audio } from './audio.js';
 import { WorldView } from './render/world-view.js';
 import { FX } from './render/fx.js';
-import { Soldier, itemGeometry, MUZZLE } from './render/models.js';
+import { Soldier, itemGeometry, MUZZLE, planeGeometry, propGeometry, SOLDIER_MAT } from './render/models.js';
 import { ViewModel } from './render/viewmodel.js';
 import { CameraRig } from './camera.js';
 import { HUD } from './hud.js';
@@ -155,7 +155,16 @@ class App {
     let pressT = null;
     inv.addEventListener('touchstart', (e) => { pressT = setTimeout(() => { pressT = 'long'; if (this.session) this.session.invClick(e, true); }, 550); }, { passive: true });
     inv.addEventListener('touchend', (e) => { if (pressT === 'long') e.preventDefault(); else clearTimeout(pressT); pressT = null; });
-    $('prompt').addEventListener('pointerdown', () => this.input.tap('interact'));
+    $('prompt').addEventListener('pointerdown', () => this.input.tap(this.session && this.session.me.air ? 'jump' : 'interact'));
+    // full map: click / tap to place a destination marker, click it again to remove
+    $('bigmapCv').addEventListener('pointerdown', (e) => {
+      const s = this.session; if (!s) return;
+      const cv = $('bigmapCv'), r = cv.getBoundingClientRect();
+      const half = this.world.half;
+      const x = ((e.clientX - r.left) / r.width) * half * 2 - half, z = ((e.clientY - r.top) / r.height) * half * 2 - half;
+      if (s.marker && Math.hypot(s.marker.x - x, s.marker.z - z) < 8) s.setMarker(null);
+      else s.setMarker(x, z);
+    });
     this.screen('menu');
   }
 
@@ -437,7 +446,20 @@ class Session {
       this.prev.set(p.id, { x: p.body.pos.x, y: p.body.pos.y, z: p.body.pos.z, yaw: p.yaw });
     }
     this.syncItems();
-    this.hud.banner('자기장이 곧 줄어듭니다 · 무기를 찾으세요', 'zone', 4);
+    this.marker = null;                 // destination picked on the full map
+    if (this.match.plane) {
+      const pm = new THREE.Group();
+      const body = new THREE.Mesh(planeGeometry(), SOLDIER_MAT);
+      body.castShadow = app.q.shadows > 0;
+      pm.add(body);
+      this.props = [-7, 7].map((x) => { const pr = new THREE.Mesh(propGeometry(), new THREE.MeshBasicMaterial({ color: 0x222222, transparent: true, opacity: 0.55 })); pr.position.set(x, 1.15, -6.3); pm.add(pr); return pr; });
+      pm.scale.setScalar(1.4);
+      app.scene.add(pm);
+      this.planeMesh = pm;
+      this.planePrev = { x: this.match.plane.x, z: this.match.plane.z };
+      this.rig.yaw = this.match.plane.yaw; this.rig.pitch = -0.25;
+      this.hud.banner('수송기 탑승 중 · M 지도를 클릭해 목적지를 찍으세요', 'zone', 5);
+    } else this.hud.banner('자기장이 곧 줄어듭니다 · 무기를 찾으세요', 'zone', 4);
     this.applySettings();
   }
 
@@ -470,6 +492,8 @@ class Session {
     const sc = this.app.scene;
     for (const s of this.soldiers.values()) sc.remove(s.root);
     sc.remove(this.itemGroup);
+    if (this.planeMesh) sc.remove(this.planeMesh);
+    this.app.audio.setFlightSounds(1e9, false, 0);
     this.fx.reset();
     if (this.gyroHandler) removeEventListener('deviceorientation', this.gyroHandler);
   }
@@ -532,6 +556,7 @@ class Session {
       const pr = this.prev.get(p.id);
       pr.x = p.body.pos.x; pr.y = p.body.pos.y; pr.z = p.body.pos.z; pr.yaw = p.yaw;
     }
+    if (m.plane) { this.planePrev.x = m.plane.x; this.planePrev.z = m.plane.z; }
     if (me.alive && this.state === 'playing') m.setCommand(me.id, this.buildCommand());
     else m.setCommand(me.id, emptyCommand());
     const t0 = performance.now();
@@ -554,6 +579,7 @@ class Session {
     c.sprint = input.held('sprint');
     c.walk = input.held('walk');
     c.jump = input.consume('jump');
+    if (me.air) { c.interact = input.consume('interact'); c.fire = false; c.ads = false; return c; }
     c.crouch = input.consume('crouch');
     if (S.crouchHold && input.consume('crouchRelease') && me.body.stance === 'crouch') c.crouch = true;
     c.prone = input.consume('prone');
@@ -691,6 +717,18 @@ class Session {
         break;
       case 'itemAdd': case 'itemRemove': case 'itemUpdate': this.itemsDirty = true; break;
       case 'end': this.onEnd(e.winner); break;
+      case 'plane':
+        if (e.ev === 'enter' && me.air === 'plane') hud.banner('섬 상공입니다 · 원하는 곳에서 뛰어내리세요', 'zone', 3);
+        if (e.ev === 'leave') hud.banner('수송기가 섬을 벗어났습니다 · 자기장 시간이 흐르기 시작합니다', 'zone', 3);
+        break;
+      case 'jumpOut': if (isMe) A.jumpOut(); break;
+      case 'chute': if (isMe || this.near(e.id, 60)) A.chuteOpen(); break;
+      case 'landed': {
+        const p = m.byId.get(e.id);
+        if (p && (isMe || this.near(e.id, 30))) A.land(p.body.pos, isMe, Math.max(4, e.v));
+        if (isMe) { this.rig.land(e.v); hud.banner('착지 · 무기를 찾으세요', '', 2); this.rig.pitch = 0; }
+        break;
+      }
     }
   }
 
@@ -784,9 +822,12 @@ class Session {
     else if (!this.app.touch && this.state === 'playing' && !this.paused) this.app.input.requestLock();
   }
   toggleMap(on) {
+    const was = this.mapOpen;
     this.mapOpen = on;
     $('bigmap').classList.toggle('hide', !on);
-    if (on) { this.invOpen = false; $('inv').classList.add('hide'); }
+    // free the mouse so the map can be clicked (destination marker)
+    if (on) { this.invOpen = false; $('inv').classList.add('hide'); this.app.input.exitLock(); this.app.input.releaseAll(); }
+    else if (was && !this.app.touch && this.state === 'playing' && !this.paused) this.app.input.requestLock();
   }
   invClick(e, alt) {
     const el = e.target.closest ? e.target.closest('.it') : null;
@@ -849,11 +890,20 @@ class Session {
       this.rig.pitch = lerp(this.rig.pitch, -0.35, dt * 2);
       this.rig.mode = 'tps';
     }
-    this.rig.update(dt, pos, me.alive || focus !== me ? eyeHeight(focus.body) : 0.6, this.adsBlend, w, app.settings.fov);
+    // plane / skydive framing: pull the camera far back
+    this.rig.boomOverride = null;
+    if (focus.air) {
+      this.rig.mode = 'tps';
+      this.rig.boomOverride = focus.air === 'plane' ? { side: 0, up: 7, back: 30 } : focus.air === 'fall' ? { side: 0, up: 1.2, back: 5.5 } : { side: 0, up: 0.6, back: 8 };   // under the canopy
+    }
+    let eyeH = me.alive || focus !== me ? eyeHeight(focus.body) : 0.6;
+    if (focus.air === 'plane') eyeH = 1.5;
+    this.rig.update(dt, pos, eyeH, focus.air ? 0 : this.adsBlend, w, app.settings.fov);
     const cp = this.camera.position;
     app.audio.setListener(cp.x, cp.y, cp.z, this.rig.yaw + this.rig.freeYaw);
     app.audio.tickAmbience(dt, this.time - (this.lastFightT || 0) > 10);
     app.worldView.update(dt, cp, m.zone);
+    this.renderPlane(alpha, focus);
 
     // ---- soldiers ----
     const vd2 = (q.viewDist * 0.9) ** 2, lod2 = (40 * q.lodScale) ** 2;
@@ -865,7 +915,8 @@ class Session {
       const far = dx * dx + dz * dz > vd2;
       const hideSelf = p === focus && this.rig.mode === 'fps';
       const hideDead = !p.alive && m.time - p.deathT > 40;
-      s.root.visible = !far && !hideSelf && !hideDead;
+      s.root.visible = !far && !hideSelf && !hideDead && p.air !== 'plane';
+      s.setChute(p.alive && p.air === 'chute', p.chuteT || 0);
       if (!s.root.visible) continue;
       s.setLod(dx * dx + dz * dz > lod2 && p !== focus);
       s.root.position.set(x, y, z);
@@ -876,7 +927,7 @@ class Session {
       s.kickT = Math.max(0, (s.kickT || 0) - dt * 12);
       s.animate({
         dt, speed: Math.hypot(vx, vz), stance: p.body.stance, pitch: p === me ? this.rig.pitch : p.pitch, onGround: p.body.onGround,
-        alive: p.alive, sprint: p.body.sprinting, reloading: p.reloading, kick: s.kickT
+        alive: p.alive, sprint: p.body.sprinting, reloading: p.reloading, kick: s.kickT, air: p.air
       });
       // footsteps
       if (p.alive && p.body.onGround) this.footstep(p, dt);
@@ -891,7 +942,8 @@ class Session {
       const sc = it === target ? 1.25 + Math.sin(this.time * 8) * 0.08 : 1;
       if (mesh.scale.x !== sc) { mesh.scale.setScalar(sc); mesh.updateMatrix(); }
     }
-    if (this.toastT > 0) this.toastT -= dt;
+    if (me.alive && me.air) this.hud.prompt(this.airPrompt());
+    else if (this.toastT > 0) this.toastT -= dt;
     else if (target && !this.uiOpen) {
       const def = ITEMS[target.key];
       const key = app.touch ? '줍기' : keyLabel(app.settings.keys.interact[0]);
@@ -919,6 +971,35 @@ class Session {
     // ---- HUD ----
     this.hud.update(dt, this);
     if (this.mapOpen) { this.showAllOnMap = app.dev && app.dev.flags.map; this.hud.drawBigMap(this); }
+  }
+
+  airPrompt() {
+    const me = this.me, pl = this.match.plane, S = this.app.settings;
+    const key = this.app.touch ? '점프' : keyLabel(S.keys.jump[0]);
+    const h = Math.max(0, me.body.pos.y - this.world.groundAt(me.body.pos.x, me.body.pos.z));
+    const mk = this.marker ? ` · 목적지 ${Math.round(Math.hypot(this.marker.x - me.body.pos.x, this.marker.z - me.body.pos.z))}m` : '';
+    if (me.air === 'plane') return pl.inside ? `<kbd>${key}</kbd>뛰어내리기${mk}` : `섬 상공에 들어가면 뛰어내릴 수 있습니다${mk}`;
+    if (me.air === 'fall') return `<kbd>${key}</kbd>낙하산 펴기 · 고도 ${Math.round(h)}m · 아래를 보면 급강하${mk}`;
+    return `낙하산 · 고도 ${Math.round(h)}m · 앞으로: 빨리 / 뒤로: 천천히${mk}`;
+  }
+
+  renderPlane(alpha, focus) {
+    const pl = this.match.plane, pm = this.planeMesh;
+    if (!pl || !pm) return;
+    const x = lerp(this.planePrev.x, pl.x, alpha), z = lerp(this.planePrev.z, pl.z, alpha);
+    pm.visible = !pl.done;
+    pm.position.set(x, pl.alt + 1.5, z);
+    pm.rotation.set(0, pl.yaw, Math.sin(this.time * 0.6) * 0.02);
+    for (const pr of this.props) pr.rotation.z += 0.9;
+    const cp = this.camera.position;
+    const d = Math.hypot(x - cp.x, pl.alt - cp.y, z - cp.z);
+    const f = this.me.alive && this.me.air === 'fall' ? Math.min(1, this.me.body.vel.y * -1 / 45) : this.me.air === 'chute' ? 0.15 : 0;
+    this.app.audio.setFlightSounds(pl.done ? 1e9 : d, focus.air === 'plane', f);
+  }
+
+  setMarker(x, z) {
+    this.marker = x === null ? null : { x, z };
+    this.app.audio.ui('click');
   }
 
   footstep(p, dt) {
