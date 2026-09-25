@@ -277,3 +277,47 @@ for (const diff of ['easy', 'normal', 'hard']) {
     for (const p of m.players) assert.ok(p.body.pos.y >= world.groundAt(p.body.pos.x, p.body.pos.z) - 0.01);
   });
 }
+
+/* ---------- regressions found in bug hunt #1 ---------- */
+test('prone body never pokes through a wall (no headshots from behind cover)', () => {
+  const { m, me } = duel(1);
+  m.world.addBox(-5, 0, -3.25, 5, 3, -3.0);
+  tick(m, { prone: true }); run(m, 1);
+  assert.equal(me.body.stance, 'prone');
+  run(m, 4, { fwd: 1 });                      // crawl head-first into the wall
+  run(m, 2, { fwd: 1, yaw: 0.9 });            // and try to swing the body around
+  const behind = rayHitPlayer(me, me.body.pos.x, 0.3, -8, 0, 0, 1, 20);
+  const wall = m.world.raycast(me.body.pos.x, 0.3, -8, 0, 0, 1, 20);
+  assert.ok(!behind || behind.t > wall.t, 'hitbox reachable only through the wall');
+  // going prone facing a wall at arm's length is refused
+  const { m: m2, me: me2 } = duel(1);
+  m2.world.addBox(-5, 0, -1.0, 5, 3, -0.8);
+  tick(m2, { prone: true }); run(m2, 1);
+  assert.notEqual(me2.body.stance, 'prone');
+});
+
+test('ground items are never buried inside walls or crates', () => {
+  const { world, nav } = map();
+  for (let seed = 1; seed <= 10; seed++) {
+    const m = new Match({ world, nav, seed, bots: 1 });
+    for (const it of m.items) assert.ok(!world.overlaps(it.x, it.z, 0.1, it.y + 0.05, it.y + 0.35), `item ${it.key} buried at ${it.x.toFixed(1)},${it.z.toFixed(1)}`);
+  }
+});
+
+test('simultaneous last deaths still give unique placements', () => {
+  const { world, nav } = map();
+  const m = new Match({ world, nav, seed: 5, bots: 2 });
+  for (const p of m.players) { p.brain = null; p.hp = 5; }
+  m.zone.cur = { x: 999, z: 999, r: 1 }; m.zone.phase = 5;
+  for (let i = 0; i < 120 && m.state === 'playing'; i++) m.step(TICK);
+  assert.deepEqual(m.players.map((p) => p.place).sort(), [1, 2]);
+  assert.equal(m.byId.get(m.winner).place, 1);
+});
+
+test('god mode takes no damage and emits no hit events', () => {
+  const { m, me, others } = duel(1);
+  m.cheat(1, 'god'); m.drainEvents();
+  m.damage(me, 30, others[0], 'kestrel', { x: 1, y: 0, z: 0 });
+  assert.equal(me.hp, 100);
+  assert.equal(m.drainEvents().filter((e) => e.t === 'hit').length, 0);
+});

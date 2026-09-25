@@ -169,6 +169,16 @@ export class FX {
     const s = 0.7 + Math.random() * 0.6; m.scale.set(s, s, s);
   }
 
+  /** clear everything left over from the previous match */
+  reset() {
+    for (const t of this.tracers) t.visible = false;
+    for (const f of this.flashes) { f.life = 0; f.s.visible = false; }
+    for (const p of this.parts) p.life = 0;
+    for (const d of this.decals) d.visible = false;
+    this.lightLife = 0; this.flashLight.intensity = 0;
+    this.update(0);
+  }
+
   update(dt) {
     for (const f of this.flashes) if (f.life > 0) { f.life -= dt; if (f.life <= 0) f.s.visible = false; }
     if (this.lightLife > 0) { this.lightLife -= dt; if (this.lightLife <= 0) this.flashLight.intensity = 0; }

@@ -36,18 +36,32 @@ export function bodyHeight(b) { return MOVE.height[b.stance]; }
 export function bodyRadius(b) { return MOVE.radius[b.stance]; }
 export function eyeHeight(b) { return MOVE.eye[b.stance]; }
 
+/**
+ * a prone body is ~1.9 m long, far longer than its collision cylinder: check the
+ * head end and the feet end too, so heads never poke through walls (and can't be
+ * shot from the other side).  Low steps/curbs under 0.3 m are ignored.
+ */
+export function proneFits(world, x, z, y, yaw) {
+  const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
+  for (const k of [0.8, -0.78]) {
+    if (world.overlaps(x + fx * k, z + fz * k, 0.2, y + 0.3, y + 0.55)) return false;
+  }
+  return true;
+}
+
 /** can the body occupy `stance` at its current position? */
-export function stanceFits(world, b, stance) {
+export function stanceFits(world, b, stance, yaw = 0) {
   const r = MOVE.radius[stance], h = MOVE.height[stance];
-  return !world.overlaps(b.pos.x, b.pos.z, r, b.pos.y + 0.05, b.pos.y + h);
+  if (world.overlaps(b.pos.x, b.pos.z, r, b.pos.y + 0.05, b.pos.y + h)) return false;
+  return stance !== 'prone' || proneFits(world, b.pos.x, b.pos.z, b.pos.y, yaw);
 }
 
 /** request a stance change. returns true when it happened */
-export function setStance(world, b, stance) {
+export function setStance(world, b, stance, yaw = 0) {
   if (b.stance === stance) return false;
   if (b.stanceLock > 0) return false;
   if (!b.onGround && stance === 'prone') return false;
-  if (!stanceFits(world, b, stance)) return false;
+  if (!stanceFits(world, b, stance, yaw)) return false;
   b.stanceLock = MOVE.stanceTime[stance === 'stand' ? b.stance : stance];
   b.stance = stance;
   return true;
@@ -129,8 +143,8 @@ export function stepBody(world, b, input, dt) {
   }
 
   // ---- horizontal move with collision + step up ----
-  moveAxis(world, b, b.vel.x * dt, 0, ev);
-  moveAxis(world, b, 0, b.vel.z * dt, ev);
+  moveAxis(world, b, b.vel.x * dt, 0, ev, input.yaw || 0);
+  moveAxis(world, b, 0, b.vel.z * dt, ev, input.yaw || 0);
 
   // ---- vertical ----
   const h = MOVE.height[b.stance], rad = MOVE.radius[b.stance];
@@ -172,11 +186,16 @@ export function stepBody(world, b, input, dt) {
   return ev;
 }
 
-function moveAxis(world, b, dx, dz, ev) {
+function moveAxis(world, b, dx, dz, ev, yaw) {
   if (dx === 0 && dz === 0) return;
   const r = MOVE.radius[b.stance], h = MOVE.height[b.stance];
   const nx = b.pos.x + dx, nz = b.pos.z + dz;
   const y = b.pos.y;
+  if (b.stance === 'prone' && !proneFits(world, nx, nz, y, yaw)) {
+    if (dx !== 0) b.vel.x = 0;
+    if (dz !== 0) b.vel.z = 0;
+    return;
+  }
   if (!world.overlaps(nx, nz, r, y + 0.02, y + h)) { b.pos.x = nx; b.pos.z = nz; return; }
   // try stepping up (works mid-air too: acts like a small mantle)
   const top = world.supportHeight(nx, nz, r, y, MOVE.step);

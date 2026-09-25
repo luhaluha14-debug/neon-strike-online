@@ -27,6 +27,12 @@ export class Input {
     addEventListener('keyup', (e) => this.onKey(e, false));
     addEventListener('blur', () => this.releaseAll());
     canvas.addEventListener('mousedown', (e) => this.onMouse(e, true));
+    // key rebinding listens on the whole window: the settings screen covers the canvas
+    addEventListener('mousedown', (e) => {
+      if (!this.onRebind) return;
+      e.preventDefault(); e.stopPropagation();
+      const f = this.onRebind; this.onRebind = null; f('Mouse' + e.button);
+    }, true);
     addEventListener('mouseup', (e) => this.onMouse(e, false));
     addEventListener('mousemove', (e) => {
       if (!this.locked || !this.enabled) return;
@@ -76,7 +82,6 @@ export class Input {
   }
 
   onMouse(e, down) {
-    if (this.onRebind && down) { const f = this.onRebind; this.onRebind = null; f('Mouse' + e.button); return; }
     const acts = this.codeToActions.get('Mouse' + e.button);
     if (!acts) return;
     this.lastDevice = 'kbm';

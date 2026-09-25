@@ -467,7 +467,7 @@ class Session {
     const sc = this.app.scene;
     for (const s of this.soldiers.values()) sc.remove(s.root);
     sc.remove(this.itemGroup);
-    this.fx.renderBullets([], 0, TICK, null);
+    this.fx.reset();
     if (this.gyroHandler) removeEventListener('deviceorientation', this.gyroHandler);
   }
 

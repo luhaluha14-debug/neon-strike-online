@@ -5,7 +5,7 @@
    Input = per-tick commands.  Output = state + a queue of events for FX/UI.
    ========================================================================= */
 import { clamp, makeRng, hashInts, dirFromAngles, DEG, wrapAngle } from './util.js';
-import { newBody, stepBody, setStance, eyeHeight, MOVE } from './movement.js';
+import { newBody, stepBody, setStance, eyeHeight, proneFits, MOVE } from './movement.js';
 import { WEAPONS, falloffMul } from './weapons.js';
 import { ITEMS, newInventory, invAdd, invTake, invCount, invRoomFor, rollLoot } from './items.js';
 import { Zone } from './zone.js';
@@ -180,13 +180,33 @@ export class Match {
       const drops = rollLoot(this.rng, s.tier);
       drops.forEach(([key, count], i) => {
         const a = this.rng.next() * Math.PI * 2, r = i === 0 ? 0 : 0.45 + this.rng.next() * 0.25;
-        this.dropItem(key, count, s.x + Math.cos(a) * r, s.y + 0.3, s.z + Math.sin(a) * r, 0, true);
+        this.dropItem(key, count, s.x + Math.cos(a) * r, s.y + 0.3, s.z + Math.sin(a) * r, 0, true, s.x, s.z);
       });
     }
   }
 
-  dropItem(key, count, x, y, z, mag = 0, silent = false) {
-    const g = this.world.supportHeight(x, z, 0.1, y + 0.3, 0);
+  /**
+   * put an item on the ground.  (cx, cz) is where it was thrown from (loot spot
+   * centre / dying player): if the spot is inside a wall or crate the item slides
+   * back toward that origin, then searches outward, so nothing is ever buried.
+   */
+  dropItem(key, count, x, y, z, mag = 0, silent = false, cx = x, cz = z) {
+    const W = this.world;
+    const free = (px, pz) => { const g = W.supportHeight(px, pz, 0.1, y + 0.3, 0); return !W.overlaps(px, pz, 0.15, g + 0.05, g + 0.45); };
+    if (!free(x, z)) {
+      let found = false;
+      for (const t of [0.25, 0.5, 0.75, 1]) {
+        const px = x + (cx - x) * t, pz = z + (cz - z) * t;
+        if (free(px, pz)) { x = px; z = pz; found = true; break; }
+      }
+      for (let r = 0.3; !found && r <= 1.8; r += 0.3) {
+        for (let k = 0; k < 8; k++) {
+          const a = (k / 8) * Math.PI * 2, px = cx + Math.cos(a) * r, pz = cz + Math.sin(a) * r;
+          if (free(px, pz)) { x = px; z = pz; found = true; break; }
+        }
+      }
+    }
+    const g = W.supportHeight(x, z, 0.1, y + 0.3, 0);
     const it = { id: this.nextId++, key, count, mag, x, y: g, z };
     this.items.push(it);
     this.itemById.set(it.id, it);
@@ -240,7 +260,10 @@ export class Match {
     const c = p.cmd;
     const b = p.body;
     const w = this.weaponOf(p);
-    p.yaw = wrapAngle(c.yaw || 0);
+    // a prone body can't swing its head/feet into a wall: keep the old heading then
+    const wantYaw = wrapAngle(c.yaw || 0);
+    if (b.stance !== 'prone' || proneFits(this.world, b.pos.x, b.pos.z, b.pos.y, wantYaw) ||
+        !proneFits(this.world, b.pos.x, b.pos.z, b.pos.y, p.yaw)) p.yaw = wantYaw;
     p.pitch = clamp(c.pitch || 0, -1.45, 1.45);
     p.aimYaw = wrapAngle(c.aimYaw !== undefined ? c.aimYaw : p.yaw);
     p.aimPitch = clamp(c.aimPitch !== undefined ? c.aimPitch : p.pitch, -1.5, 1.5);
@@ -260,7 +283,7 @@ export class Match {
     }
     if (B.prone > 0) {
       const target = b.stance === 'prone' ? 'stand' : 'prone';
-      if (setStance(this.world, b, target)) { B.prone = 0; if (target === 'prone') this.cancelReloadIfShell(p); }
+      if (setStance(this.world, b, target, p.yaw)) { B.prone = 0; if (target === 'prone') this.cancelReloadIfShell(p); }
     }
 
     // ---- weapon switch ----
@@ -474,8 +497,8 @@ export class Match {
 
   /* ---------------- damage / death ---------------- */
   damage(v, amount, attacker, cause, dir, part = 'torso', at = null) {
+    if (this.cheats.god.has(v.id)) return;
     if (!v.alive || amount <= 0) return;
-    if (this.cheats.god.has(v.id)) amount = 0;
     const before = v.hp;
     v.hp = Math.max(0, v.hp - amount);
     const dealt = before - v.hp;
@@ -511,7 +534,7 @@ export class Match {
     const n = drops.length;
     drops.forEach(([key, count, mag], i) => {
       const a = (i / Math.max(1, n)) * Math.PI * 2, r = 0.5 + (i % 2) * 0.45;
-      this.dropItem(key, count, v.body.pos.x + Math.cos(a) * r, v.body.pos.y + 0.6, v.body.pos.z + Math.sin(a) * r, mag);
+      this.dropItem(key, count, v.body.pos.x + Math.cos(a) * r, v.body.pos.y + 0.6, v.body.pos.z + Math.sin(a) * r, mag, false, v.body.pos.x, v.body.pos.z);
     });
     v.slots = [null, null, null, { id: 'fists', mag: 0 }];
     v.inv.items = {};
@@ -535,8 +558,8 @@ export class Match {
       this.state = 'ended';
       let w = alive[0];
       if (!w) {
-        // everyone died on the same tick: last to die wins
-        w = this.players.slice().sort((a, b) => b.deathT - a.deathT || b.hp - a.hp)[0];
+        // everyone died on the same tick: the last one processed already holds place 1
+        w = this.players.find((p) => p.place === 1) || this.players.slice().sort((a, b) => b.deathT - a.deathT)[0];
       }
       w.place = 1;
       this.winner = w.id;

@@ -189,6 +189,7 @@ body.touch #minimap{width:calc(130px*var(--ui));height:calc(130px*var(--ui))}
 body.touch #feed{font-size:10px;left:auto;right:calc(150px*var(--ui) + 20px)}
 body.touch #compass{top:4px;width:40vw}
 body.touch #bottomLeft{display:none}
+body.touch #hud{z-index:21}
 body.touch #prompt{top:auto;bottom:22%;pointer-events:auto}
 @media (max-height:500px){ #inv{grid-template-columns:1fr 1fr 1fr;padding:10px 10px 28px} .it{padding:5px 7px;font-size:12px} }
 @media (max-height:500px){ .card{padding:4px 12px;margin-bottom:8px} .row{padding:4px 0} #resPlace{font-size:44px;margin:0} #resStats{margin:4px 0 8px} #resStats div{padding:6px 12px} #resStats b{font-size:18px} .btn{padding:10px 18px;margin:3px} .logo{font-size:44px} .tag{margin:6px 0 10px} }
