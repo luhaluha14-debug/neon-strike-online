@@ -251,6 +251,51 @@ export class Audio {
     this.noise({ t: t + 0.05, dur: 0.25, type: 'bandpass', f0: 700, f1: 1800, q: 1, vol: 0.3 * sp.v, atk: 0.04, dec: 0.2, dest: sp.dest });
   }
 
+  /* ---------------- vehicles ---------------- */
+  /** up to 4 engine voices for the nearest running vehicles: [{pos, speed, local, moto}] */
+  setEngines(list) {
+    if (!this.ready) return;
+    const c = this.ctx, t = this.t();
+    if (!this.engines) {
+      this.engines = [];
+      for (let i = 0; i < 4; i++) {
+        const g = c.createGain(); g.gain.value = 0;
+        const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900;
+        const pan = c.createStereoPanner ? c.createStereoPanner() : null;
+        lp.connect(g); if (pan) { g.connect(pan); pan.connect(this.master); } else g.connect(this.master);
+        const o1 = c.createOscillator(); o1.type = 'sawtooth'; const o2 = c.createOscillator(); o2.type = 'square';
+        const g1 = c.createGain(); g1.gain.value = 0.25; const g2 = c.createGain(); g2.gain.value = 0.12;
+        o1.connect(g1); o2.connect(g2); g1.connect(lp); g2.connect(lp); o1.start(); o2.start();
+        this.engines.push({ g, lp, pan, o1, o2 });
+      }
+    }
+    const L = this.listener;
+    for (let i = 0; i < 4; i++) {
+      const e = this.engines[i], s = list[i];
+      if (!s) { e.g.gain.setTargetAtTime(0, t, 0.15); continue; }
+      const dx = s.pos.x - L.x, dz = s.pos.z - L.z, d = Math.hypot(dx, dz);
+      const vol = s.local ? 0.2 : 0.28 * Math.max(0, 1 - d / 90) ** 2;
+      const rpm = (s.moto ? 70 : 42) + Math.abs(s.speed) * (s.moto ? 6 : 3.4);
+      e.o1.frequency.setTargetAtTime(rpm, t, 0.08); e.o2.frequency.setTargetAtTime(rpm * 0.5, t, 0.08);
+      e.lp.frequency.setTargetAtTime(500 + Math.abs(s.speed) * 45, t, 0.1);
+      e.g.gain.setTargetAtTime(vol, t, 0.1);
+      if (e.pan) e.pan.pan.setTargetAtTime(d > 1 && !s.local ? Math.max(-1, Math.min(1, (L.rx * dx + L.rz * dz) / d)) * 0.8 : 0, t, 0.1);
+    }
+  }
+  crash(pos, v) {
+    if (!this.ready) return;
+    const sp = this.spatial(pos, 120, { ref: 6 }); if (!sp) return;
+    const t = this.t() + sp.delay, k = Math.min(1.4, v / 15) * sp.v;
+    this.noise({ t, dur: 0.35, type: 'lowpass', f0: 2500, f1: 200, q: 0.8, vol: 0.9 * k, atk: 0.002, dec: 0.3, dest: sp.dest });
+    this.tone({ t, dur: 0.25, type: 'square', f0: 90, f1: 40, vol: 0.4 * k, dec: 0.22, dest: sp.dest });
+    this.noise({ t: t + 0.04, dur: 0.3, type: 'bandpass', f0: 3500, q: 3, vol: 0.2 * k, dec: 0.28, dest: sp.dest });
+  }
+  door(pos, local) {
+    if (!this.ready) return;
+    const sp = local ? { dest: this.master, v: 0.5 } : this.spatial(pos, 30, { ref: 3 }); if (!sp) return;
+    this.noise({ t: this.t(), dur: 0.12, type: 'lowpass', f0: 900, f1: 200, vol: 0.5 * sp.v, dec: 0.1, dest: sp.dest });
+  }
+
   /* ---------------- plane / skydive ---------------- */
   /** continuous sounds: plane engine drone (by distance) and free-fall wind (0..1) */
   setFlightSounds(planeDist, inPlane, wind) {

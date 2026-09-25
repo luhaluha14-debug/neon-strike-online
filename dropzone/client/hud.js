@@ -6,6 +6,7 @@
 import { WEAPONS, AMMO } from '../shared/weapons.js';
 import { ITEMS, invWeight } from '../shared/items.js';
 import { THROWABLES, THROW_ORDER } from '../shared/throwables.js';
+import { VEHICLES } from '../shared/vehicles.js';
 import { MAX_HP } from '../shared/game.js';
 import { DEG } from '../shared/util.js';
 
@@ -16,7 +17,7 @@ export class HUD {
     this.el = {};
     for (const id of ['hud', 'crosshair', 'hitmark', 'dmgDirs', 'stormTint', 'hurtTint', 'flashTint', 'compassStrip', 'aliveN', 'killN', 'minimap', 'zoneTxt', 'feed', 'banner', 'prompt',
       'useBar', 'useFill', 'useTxt', 'stance', 'hpFill', 'hpLag', 'hpNum', 'magN', 'resN', 'wName', 'slots', 'reloadRing', 'debug', 'inv', 'invGround', 'invBag', 'invSlots',
-      'invWeight', 'invWFill', 'bigmap', 'bigmapCv']) this.el[id] = $(id);
+      'invWeight', 'invWFill', 'bigmap', 'bigmapCv', 'vehBox', 'vehName', 'vehSpeed', 'vehFuel', 'vehHp']) this.el[id] = $(id);
     this.cache = {};
     this.mm = this.el.minimap.getContext('2d');
     this.hitT = 0; this.hurtA = 0; this.bannerT = 0; this.hpLag = 100;
@@ -79,7 +80,7 @@ export class HUD {
       return `<div class="${p.cur === i ? 'on' : ''}"><i>${i + 1}</i>${s ? WEAPONS[s.id].name.split(' ')[0] : '—'}</div>`;
     }).join('') + `<div class="${p.cur === 4 ? 'on' : ''}"><i>5</i>${tLabel}</div>`;
     this.set('slots', this.el.slots, 'html', slotsHtml);
-    const st = { stand: '서기', crouch: '앉기', prone: '엎드림' }[p.body.stance] + (p.body.sprinting ? ' · 달리기' : '');
+    const st = p.veh ? '탑승' : p.air ? '비행' : { stand: '서기', crouch: '앉기', prone: '엎드림' }[p.body.stance] + (p.body.sprinting ? ' · 달리기' : '');
     this.set('stance', this.el.stance, 'text', st);
     // reload ring
     if (p.reloading) {
@@ -93,6 +94,16 @@ export class HUD {
       this.el.useFill.style.width = (p.using.t / p.using.dur * 100).toFixed(1) + '%';
       this.set('useTxt', this.el.useTxt, 'text', ITEMS[p.using.key].name + ' 사용 중… ' + Math.max(0, p.using.dur - p.using.t).toFixed(1) + 's');
     } else this.set('use', this.el.useBar, 'opacity', '0');
+    // vehicle panel
+    const car = p.veh ? m.vehById.get(p.veh.id) : null;
+    if (this.cache.inCar !== !!car) { this.cache.inCar = !!car; this.el.vehBox.classList.toggle('hide', !car); }
+    if (car) {
+      const D = VEHICLES[car.type];
+      this.set('vn', this.el.vehName, 'text', `${D.name} · ${p.veh.seat === 0 ? '운전석' : (p.veh.seat + 1) + '번 좌석'}`);
+      this.set('vs', this.el.vehSpeed, 'html', `${Math.round(Math.abs(car.speed) * 3.6)}<span>km/h</span>`);
+      this.set('vf', this.el.vehFuel, 'width', Math.round(car.fuel) + '%');
+      this.set('vh', this.el.vehHp, 'width', Math.max(0, Math.round(car.hp / D.hp * 100)) + '%');
+    }
     // counters
     this.set('alive', this.el.aliveN, 'text', String(m.aliveCount()));
     this.set('kills', this.el.killN, 'text', String(p.kills));
@@ -247,8 +258,18 @@ export class HUD {
     ctx.restore();
   }
 
-  /** plane route + plane + destination marker */
+  /** plane route + plane + destination marker + vehicles */
   drawRoute(ctx, g, tp, big = false) {
+    for (const v of g.match.vehicles) {
+      if (v.dead) continue;
+      const [x, y] = tp(v.x, v.z);
+      const D = VEHICLES[v.type], sc = big ? 1.2 : 1;
+      ctx.save(); ctx.translate(x, y); ctx.rotate(-v.yaw);
+      ctx.fillStyle = g.me.veh && g.me.veh.id === v.id ? '#f2a33a' : 'rgba(255,255,255,.85)'; ctx.strokeStyle = 'rgba(0,0,0,.7)'; ctx.lineWidth = 1;
+      const w = Math.max(2.5, D.wid * 1.6) * sc, l = Math.max(4, D.len * 1.3) * sc;
+      ctx.fillRect(-w / 2, -l / 2, w, l); ctx.strokeRect(-w / 2, -l / 2, w, l);
+      ctx.restore();
+    }
     const pl = g.match.plane;
     if (pl && !pl.done && (g.me.air === 'plane' || !pl.left)) {
       const [ax, ay] = tp(pl.ax, pl.az), [bx, by] = tp(pl.bx, pl.bz);

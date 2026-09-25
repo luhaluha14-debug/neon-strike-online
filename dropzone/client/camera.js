@@ -81,8 +81,13 @@ export class CameraRig {
 
     // ---- eye height / landing dip spring ----
     this.eye = lerp(this.eye, eyeH, Math.min(1, dt * 11));
-    this.landVel += (-this.landDip * 120 - this.landVel * 16) * dt;
-    this.landDip += this.landVel * dt;
+    // stiff spring: integrate in small steps so slow frames (low-end phones) can't blow it up
+    for (let t = dt; t > 1e-6; t -= 1 / 240) {
+      const h = Math.min(t, 1 / 240);
+      this.landVel += (-this.landDip * 120 - this.landVel * 16) * h;
+      this.landDip += this.landVel * h;
+    }
+    this.landDip = clamp(this.landDip, -3, 3);
     this.adsT = ads;
     this.shake *= Math.exp(-dt * 9);
 

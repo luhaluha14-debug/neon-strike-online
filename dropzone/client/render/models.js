@@ -256,6 +256,21 @@ export class Soldier {
       return;
     }
     this.deadT = 0;
+    if (s.seated) {
+      // sitting: thighs forward, shins down, hands on the wheel / bars
+      this.body.rotation.x = 0; this.body.position.set(0, s.seated === 'moto' ? -0.35 : -0.45, 0);
+      this.hips.position.y = 0.92;
+      this.torso.rotation.x = -0.08; this.head.rotation.x = s.pitch * 0.3;
+      const drive = s.driver ? 1 : 0;
+      this.armR.sh.rotation.set(0.9 + drive * 0.2, 0, -0.2); this.armL.sh.rotation.set(0.9 + drive * 0.2, 0, 0.2);
+      this.armR.el.rotation.set(0.6, 0, 0); this.armL.el.rotation.set(0.6, 0, 0);
+      const moto = s.seated === 'moto';
+      this.legR.th.rotation.set(1.45, 0, moto ? -0.3 : -0.05); this.legL.th.rotation.set(1.45, 0, moto ? 0.3 : 0.05);
+      this.legR.kn.rotation.x = -1.45; this.legL.kn.rotation.x = -1.45;
+      if (this.gun) this.gun.visible = false;
+      return;
+    }
+    if (this.gun) this.gun.visible = true;
     if (s.air === 'fall' || s.air === 'chute') {
       const fall = s.air === 'fall';
       // free fall: belly to earth, arms and legs spread; chute: hanging upright

@@ -194,3 +194,13 @@ body.touch #hud{z-index:21}
 body.touch #prompt{top:auto;bottom:22%;pointer-events:auto}
 @media (max-height:500px){ #inv{grid-template-columns:1fr 1fr 1fr;padding:10px 10px 28px} .it{padding:5px 7px;font-size:12px} }
 @media (max-height:500px){ .card{padding:4px 12px;margin-bottom:8px} .row{padding:4px 0} #resPlace{font-size:44px;margin:0} #resStats{margin:4px 0 8px} #resStats div{padding:6px 12px} #resStats b{font-size:18px} .btn{padding:10px 18px;margin:3px} .logo{font-size:44px} .tag{margin:6px 0 10px} }
+#vehBox{bottom:46px;left:12px;background:rgba(12,17,23,.62);border-radius:8px;padding:6px 12px;min-width:200px;text-align:center}
+#vehName{font-size:11px;letter-spacing:.14em;color:#c9d6e2}
+#vehSpeed{font-size:26px;font-weight:800;line-height:1.1}
+#vehSpeed span{font-size:12px;color:#9fb0c2;margin-left:4px;font-weight:400}
+.vrow{display:flex;align-items:center;gap:8px;margin-top:3px}
+.vrow em{font-style:normal;font-size:10px;color:#9fb0c2;width:26px}
+.vbar{flex:1;height:6px;background:rgba(255,255,255,.12);border-radius:3px;overflow:hidden}
+.vbar i{display:block;height:100%;width:50%;background:var(--acc)}
+#vehHp{background:#57c46d!important}
+body.touch #vehBox{top:58px;bottom:auto;left:10px;min-width:150px}

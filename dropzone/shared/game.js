@@ -12,6 +12,8 @@ import { Zone } from './zone.js';
 import { BotBrain } from './ai.js';
 import { Plane, PLANE, stepAir } from './plane.js';
 import { THROWABLES, THROW_ORDER, throwLaunch, stepProjectile, smokeBlocks } from './throwables.js';
+import { VEHICLES, VEHICLE_TYPES, newVehicle, stepVehicle, vehToWorld, worldToVeh, vehCircles, vehDistance, rayVehicle } from './vehicles.js';
+import { roadDist } from './mapgen.js';
 
 export const TICK = 1 / 60;
 /** loot density: chance a spot has loot at all, and chances of extra item groups (by tier 0..3) */
@@ -117,6 +119,9 @@ export class Match {
     this.projectiles = [];     // thrown grenades in flight / on the ground
     this.smokes = [];          // {x,y,z,r,t}
     this.fires = [];           // {x,y,z,r,t,owner}
+    this.vehicles = [];
+    this.vehById = new Map();
+    this.world.dyn = [];
     this.nextId = 1;
     this.difficulty = o.difficulty || 'normal';
     this.zone = new Zone(makeRng(this.seed ^ 0x9e3779b9), this.world.playLimit || this.world.half, o.zonePhases);
@@ -124,6 +129,7 @@ export class Match {
     this.deaths = 0;
 
     this.spawnLoot();
+    if (o.vehicles !== false) this.spawnVehicles();
     const spots = this.pickSpawns((o.humans ? o.humans.length : 0) + (o.bots || 0));
     let si = 0;
     for (const h of o.humans || []) this.addPlayer({ id: h.id, name: h.name, isBot: false, spot: spots[si++] });
@@ -188,7 +194,7 @@ export class Match {
       lastHitBy: null, lastHitT: -99, lastShotT: -99, lastFootT: 0,
       autoPickup: true, autoT: 0, autoReload: true,
       buf: { jump: 0, crouch: 0, prone: 0, reload: 0 },
-      throwType: null, throwHold: false, throwLob: false, blindT: 0,
+      throwType: null, throwHold: false, throwLob: false, blindT: 0, veh: null,
       cmd: emptyCommand()
     };
     p.aimYaw = p.yaw;
@@ -305,12 +311,15 @@ export class Match {
     this.tick++;
     this.pathBudget = 2;
     if (this.plane && !this.plane.done) this.stepPlane(dt);
+    this.rebuildObstacles();
     for (const p of this.players) {
       if (!p.alive) continue;
       if (p.brain) p.brain.think(dt);
       if (p.air) this.stepAirPlayer(p, dt);
+      else if (p.veh) this.stepOccupant(p, dt);
       else this.stepPlayer(p, dt);
     }
+    this.stepVehicles(dt);
     this.separatePlayers();
     this.stepBullets(dt);
     this.stepProjectiles(dt);
@@ -465,8 +474,13 @@ export class Match {
 
     // ---- interact / pickup ----
     if (c.interact) {
-      const it = this.findPickup(p);
-      if (it) this.pickup(p, it);
+      const v = this.findVehicle(p);
+      if (v) this.enterVehicle(p, v);
+      else {
+        const it = this.findPickup(p);
+        if (it) this.pickup(p, it);
+      }
+      if (p.veh) { for (const k of EDGE_KEYS) c[k] = false; c.slot = -1; c.use = null; c.cycle = 0; c.throwType = null; return; }
     }
     p.autoT -= dt;
     if (p.autoPickup && p.autoT <= 0) { p.autoT = 0.25; this.autoPickup(p); }
@@ -533,7 +547,10 @@ export class Match {
         const k = Math.pow(1 - d / T.radius, 1.25);
         this.damage(p, T.damage * k, owner, 'frag', { x: (c.x - x) / (d || 1), y: 0, z: (c.z - z) / (d || 1) }, 'torso', c);
       }
-      if (this.onExplosion) this.onExplosion(x, y, z, T.radius, T.damage, owner);
+      for (const v of this.vehicles) {
+        const d = Math.hypot(v.x - x, v.y + 0.6 - y, v.z - z);
+        if (d < T.radius + 1) this.damageVehicle(v, T.damage * 1.2 * Math.max(0, 1 - d / (T.radius + 1)), owner);
+      }
     } else if (g.type === 'smoke') {
       this.smokes.push({ x, y: y + 1.2, z, r: 1, maxR: T.smokeR, t: T.smokeT });
     } else if (g.type === 'flash') {
@@ -550,6 +567,181 @@ export class Match {
     } else if (g.type === 'molotov') {
       const gy = this.world.supportHeight(x, z, 0.2, y + 0.3, 0);
       this.fires.push({ x, y: gy, z, r: T.fireR, t: T.fireT, dps: T.dps, owner: g.owner });
+    }
+  }
+
+  /* ---------------- vehicles ---------------- */
+  spawnVehicles() {
+    const spots = this.world.vehicleSpots || [];
+    for (const sp of spots) {
+      if (!this.rng.chance(0.75)) continue;
+      const type = VEHICLE_TYPES[this.rng.int(0, VEHICLE_TYPES.length - 1)];
+      const y = this.world.supportHeight(sp.x, sp.z, 0.5, 1e4, 0);
+      this.addVehicle(type, sp.x, y, sp.z, sp.yaw, 35 + this.rng.next() * 60);
+    }
+  }
+  addVehicle(type, x, y, z, yaw, fuel = 80) {
+    const v = newVehicle(this.nextId++, type, x, y, z, yaw, fuel);
+    v.color = this.rng.int(0, 7);
+    this.vehicles.push(v);
+    this.vehById.set(v.id, v);
+    return v;
+  }
+  rebuildObstacles() {
+    const dyn = this.world.dyn;
+    dyn.length = 0;
+    for (const v of this.vehicles) {
+      const D = VEHICLES[v.type];
+      for (const c of vehCircles(v)) dyn.push({ x: c.x, z: c.z, r: c.r * 0.95, y0: v.y + 0.2, y1: v.y + D.hgt, veh: v.id });
+    }
+  }
+  driverOf(v) { return v.seats[0] !== null ? this.byId.get(v.seats[0]) || null : null; }
+
+  /** vehicle within reach to get in */
+  findVehicle(p) {
+    let best = null, bd = 2.0;
+    for (const v of this.vehicles) {
+      if (v.dead || v.seats.every((s) => s !== null)) continue;
+      if (Math.abs(p.body.pos.y - v.y) > 2) continue;
+      const d = vehDistance(v, p.body.pos.x, p.body.pos.z);
+      if (d < bd) { bd = d; best = v; }
+    }
+    return best;
+  }
+  enterVehicle(p, v, seat = -1) {
+    if (seat < 0) seat = v.seats[0] === null ? 0 : v.seats.findIndex((s) => s === null);
+    if (seat < 0 || v.seats[seat] !== null || v.dead) return false;
+    v.seats[seat] = p.id;
+    p.veh = { id: v.id, seat };
+    p.reloading = false; p.using = null; p.ads = false; p.adsT = 0; p.throwHold = false;
+    p.body.stance = 'crouch'; p.body.stanceLock = 0;
+    this.syncOccupant(p, v);
+    this.emit({ t: 'enterVeh', id: p.id, veh: v.id, seat });
+    return true;
+  }
+  exitVehicle(p) {
+    const v = this.vehById.get(p.veh.id), D = VEHICLES[v.type];
+    const [sx, sz] = D.seats[p.veh.seat];
+    const side = sx < 0 ? -1 : 1;
+    const R = 0.33;
+    const tries = [[side * (D.wid / 2 + 0.6), sz], [-side * (D.wid / 2 + 0.6), sz], [side * (D.wid / 2 + 0.6), D.len / 2 + 0.6], [0, D.len / 2 + 0.8], [0, -D.len / 2 - 0.8]];
+    let spot = null;
+    for (const [lx, lz] of tries) {
+      const w = vehToWorld(v, lx, lz);
+      const g = this.world.supportHeight(w.x, w.z, 0.25, v.y + 1, 0);
+      if (!this.world.overlapsStatic(w.x, w.z, R, g + 0.05, g + 1.8)) { spot = { x: w.x, y: g, z: w.z }; break; }
+    }
+    if (!spot) spot = { x: v.x, y: v.y + VEHICLES[v.type].hgt + 0.1, z: v.z };        // climb out on top
+    v.seats[p.veh.seat] = null;
+    const speed = Math.abs(v.speed);
+    p.veh = null;
+    p.body.stance = 'stand';
+    p.body.pos.x = spot.x; p.body.pos.y = spot.y; p.body.pos.z = spot.z;
+    p.body.vel.x = -Math.sin(v.yaw) * v.speed * 0.5; p.body.vel.z = -Math.cos(v.yaw) * v.speed * 0.5; p.body.vel.y = 0;
+    p.body.onGround = false;
+    this.emit({ t: 'exitVeh', id: p.id, veh: v.id });
+    if (speed > 9) this.damage(p, (speed - 9) * 4, null, 'fall', null);          // bailing out at speed hurts
+  }
+  changeSeat(p, seat) {
+    const v = this.vehById.get(p.veh.id);
+    if (seat >= v.seats.length || v.seats[seat] !== null) return;
+    v.seats[p.veh.seat] = null; v.seats[seat] = p.id; p.veh.seat = seat;
+    this.emit({ t: 'seat', id: p.id, seat });
+  }
+  syncOccupant(p, v) {
+    const D = VEHICLES[v.type], st = D.seats[p.veh.seat];
+    const w = vehToWorld(v, st[0], st[1]);
+    p.body.pos.x = w.x; p.body.pos.z = w.z; p.body.pos.y = v.y + st[2];
+    p.body.vel.x = -Math.sin(v.yaw) * v.speed; p.body.vel.z = -Math.cos(v.yaw) * v.speed; p.body.vel.y = 0;
+    p.body.onGround = true; p.body.moveSpeed = 0; p.body.sprinting = false;
+  }
+  stepOccupant(p, dt) {
+    const c = p.cmd, v = this.vehById.get(p.veh.id);
+    p.yaw = wrapAngle(c.yaw || 0); p.pitch = clamp(c.pitch || 0, -1.45, 1.45);
+    p.aimYaw = p.yaw; p.aimPitch = p.pitch;
+    if (p.blindT > 0) p.blindT = Math.max(0, p.blindT - dt);
+    if (c.interact) this.exitVehicle(p);
+    else {
+      if (c.slot >= 0 && c.slot < 4) this.changeSeat(p, c.slot);
+      if (p.veh.seat === 0) v.input = { throttle: c.fwd || 0, steer: c.right || 0, handbrake: !!c.brake, boost: !!c.sprint };
+    }
+    for (const k of EDGE_KEYS) c[k] = false;
+    c.slot = -1; c.use = null; c.cycle = 0; c.throwType = null;
+  }
+
+  damageVehicle(v, amount, attacker) {
+    if (v.dead || amount <= 0) return;
+    v.hp -= amount;
+    if (attacker) v.lastHitBy = attacker.id;
+    this.emit({ t: 'vehHit', veh: v.id, dmg: amount });
+    if (v.hp <= 0) this.destroyVehicle(v, attacker || (v.lastHitBy ? this.byId.get(v.lastHitBy) : null));
+  }
+  destroyVehicle(v, attacker) {
+    v.dead = true; v.hp = 0; v.speed = 0; v.burnT = 40; v.input = null;
+    const D = VEHICLES[v.type];
+    this.emit({ t: 'vehBoom', veh: v.id, x: v.x, y: v.y + 0.8, z: v.z });
+    for (const pid of v.seats) {
+      if (pid === null) continue;
+      const p = this.byId.get(pid);
+      if (p && p.alive) this.damage(p, 150, attacker && attacker !== p ? attacker : null, 'vehicle', null);
+    }
+    for (const p of this.players) {
+      if (!p.alive || p.veh || p.air === 'plane') continue;
+      const d = Math.hypot(p.body.pos.x - v.x, p.body.pos.y + 0.9 - v.y - 0.8, p.body.pos.z - v.z);
+      if (d < 6.5 && this.world.lineClear(v.x, v.y + 1, v.z, p.body.pos.x, p.body.pos.y + 0.9, p.body.pos.z)) this.damage(p, 95 * (1 - d / 6.5), attacker, 'vehicle', null);
+    }
+    void D;
+  }
+
+  stepVehicles(dt) {
+    for (const v of this.vehicles) {
+      if (v.dead) { v.burnT = Math.max(0, v.burnT - dt); v.speed = 0; continue; }
+      const drv = this.driverOf(v);
+      const input = drv && drv.alive ? (v.input || {}) : {};
+      const onRoad = roadDist(this.world, v.x, v.z) < 0.6;
+      const ev = stepVehicle(this.world, v, input, dt, onRoad);
+      const D = VEHICLES[v.type];
+      if (ev.crash > 7) {
+        this.damageVehicle(v, (ev.crash - 7) * 4.5, null);
+        this.emit({ t: 'crash', veh: v.id, v: ev.crash, x: v.x, y: v.y + 0.6, z: v.z });
+        if (ev.crash > 12) for (const pid of v.seats) { const o = pid !== null && this.byId.get(pid); if (o && o.alive) this.damage(o, (ev.crash - 12) * 3, null, 'vehicle', null); }
+      }
+      if (ev.landed > 10) this.damageVehicle(v, (ev.landed - 10) * 6, null);
+      // running people over
+      const sp = Math.abs(v.speed);
+      for (const p of this.players) {
+        if (!p.alive || p.veh || p.air) continue;
+        if (Math.abs(p.body.pos.y - v.y) > 1.6) continue;
+        if (vehDistance(v, p.body.pos.x, p.body.pos.z) > 0.35) continue;
+        // knock the person out to the side of the car (never bulldoze them ahead of it)
+        const loc = worldToVeh(v, p.body.pos.x, p.body.pos.z);
+        const side = loc.x >= 0 ? 1 : -1;
+        const out = vehToWorld(v, side * (D.wid / 2 + 0.45), loc.z);
+        const rx = Math.cos(v.yaw) * side, rz = -Math.sin(v.yaw) * side;
+        if (sp > 3.5 && (!p.lastRunT || this.time - p.lastRunT > 0.6)) {
+          p.lastRunT = this.time;
+          this.damage(p, sp * (2 + D.weight * 3), drv && drv.alive ? drv : null, 'vehicle', { x: rx, y: 0, z: rz });
+          v.speed *= 0.9;
+        }
+        if (p.alive) this.nudge(p, out.x - p.body.pos.x, out.z - p.body.pos.z);
+      }
+      for (const pid of v.seats) { if (pid === null) continue; const o = this.byId.get(pid); if (o && o.alive) this.syncOccupant(o, v); }
+    }
+    // vehicle vs vehicle
+    const vs = this.vehicles;
+    for (let i = 0; i < vs.length; i++) {
+      for (let j = i + 1; j < vs.length; j++) {
+        const a = vs[i], b = vs[j];
+        if (Math.abs(a.x - b.x) > 6 || Math.abs(a.z - b.z) > 6 || Math.abs(a.y - b.y) > 2) continue;
+        let hit = false;
+        for (const ca of vehCircles(a)) for (const cb of vehCircles(b)) if (Math.hypot(ca.x - cb.x, ca.z - cb.z) < ca.r + cb.r) hit = true;
+        if (!hit) continue;
+        const rel = Math.abs(a.speed - b.speed);
+        const dx = b.x - a.x, dz = b.z - a.z, dl = Math.hypot(dx, dz) || 1;
+        a.x -= dx / dl * 0.15; a.z -= dz / dl * 0.15; b.x += dx / dl * 0.15; b.z += dz / dl * 0.15;
+        a.speed *= -0.3; b.speed *= -0.3;
+        if (rel > 6) { this.damageVehicle(a, (rel - 6) * 3, null); this.damageVehicle(b, (rel - 6) * 3, null); this.emit({ t: 'crash', veh: a.id, v: rel, x: (a.x + b.x) / 2, y: a.y + 0.6, z: (a.z + b.z) / 2 }); }
+      }
     }
   }
 
@@ -688,9 +880,20 @@ export class Match {
         const h = rayHitPlayer(o, bl.x, bl.y, bl.z, dx, dy, dz, maxT);
         if (h && h.t <= maxT) { maxT = h.t; hitP = o; hitPart = h.part; }
       }
+      let hitV = null;
+      for (const v of this.vehicles) {
+        if (Math.abs(v.x - bl.x) > maxT + 6 || Math.abs(v.z - bl.z) > maxT + 6) continue;
+        const t = rayVehicle(v, bl.x, bl.y, bl.z, dx, dy, dz, maxT);
+        if (t >= 0 && t < maxT) { maxT = t; hitV = v; hitP = null; }
+      }
       const hx = bl.x + dx * maxT, hy = bl.y + dy * maxT, hz = bl.z + dz * maxT;
       bl.dist += maxT;
-      if (hitP) {
+      if (hitV) {
+        const w = WEAPONS[bl.w];
+        this.damageVehicle(hitV, w.damage * 0.35 * falloffMul(w, bl.dist), owner);
+        this.emit({ t: 'impact', x: hx, y: hy, z: hz, nx: -dx, ny: -dy, nz: -dz, mat: 'car' });
+        bl.alive = false;
+      } else if (hitP) {
         const w = WEAPONS[bl.w];
         const mul = hitPart === 'head' ? w.headMul : hitPart === 'legs' ? w.limbMul : 1;
         const dmg = w.damage * mul * falloffMul(w, bl.dist);
@@ -728,6 +931,7 @@ export class Match {
   }
 
   kill(v, attacker, cause, head) {
+    if (v.veh) { const car = this.vehById.get(v.veh.id); if (car) car.seats[v.veh.seat] = null; v.veh = null; v.body.stance = 'stand'; }
     v.alive = false;
     v.hp = 0;
     v.deathT = this.time;
@@ -822,10 +1026,19 @@ export class Match {
   }
 
   /* ---------------- items ---------------- */
+  nearestVehicle(p, maxD) {
+    let best = null, bd = maxD;
+    for (const v of this.vehicles) { if (v.dead) continue; const d = vehDistance(v, p.body.pos.x, p.body.pos.z); if (d < bd) { bd = d; best = v; } }
+    return best;
+  }
   startUse(p, key) {
     const it = ITEMS[key];
-    if (!it || it.kind !== 'heal' || invCount(p.inv, key) <= 0) return false;
-    if (p.hp >= it.maxTo) { this.emit({ t: 'deny', id: p.id, why: 'hpfull' }); return false; }
+    if (!it || (it.kind !== 'heal' && it.kind !== 'fuel') || invCount(p.inv, key) <= 0) return false;
+    if (it.kind === 'fuel') {
+      const v = this.nearestVehicle(p, 2.5);
+      if (!v) { this.emit({ t: 'deny', id: p.id, why: 'novehicle' }); return false; }
+      if (v.fuel >= 99) { this.emit({ t: 'deny', id: p.id, why: 'fuelfull' }); return false; }
+    } else if (p.hp >= it.maxTo) { this.emit({ t: 'deny', id: p.id, why: 'hpfull' }); return false; }
     p.reloading = false;
     p.using = { key, t: 0, dur: it.useTime };
     this.emit({ t: 'useStart', id: p.id, key, dur: it.useTime });
@@ -834,6 +1047,13 @@ export class Match {
   finishUse(p) {
     const key = p.using.key, it = ITEMS[key];
     p.using = null;
+    if (it.kind === 'fuel') {
+      const v = this.nearestVehicle(p, 3);
+      if (!v || invTake(p.inv, key, 1) <= 0) return;
+      v.fuel = Math.min(100, v.fuel + it.fuel);
+      this.emit({ t: 'refuel', id: p.id, veh: v.id });
+      return;
+    }
     if (invTake(p.inv, key, 1) <= 0) return;
     p.hp = Math.min(Math.max(p.hp, Math.min(it.maxTo, p.hp + it.heal)), MAX_HP);
     this.emit({ t: 'healed', id: p.id, key, hp: p.hp });
@@ -932,10 +1152,10 @@ export class Match {
     const ps = this.players;
     for (let i = 0; i < ps.length; i++) {
       const a = ps[i];
-      if (!a.alive || a.air) continue;
+      if (!a.alive || a.air || a.veh) continue;
       for (let j = i + 1; j < ps.length; j++) {
         const b = ps[j];
-        if (!b.alive || b.air) continue;
+        if (!b.alive || b.air || b.veh) continue;
         const dx = b.body.pos.x - a.body.pos.x, dz = b.body.pos.z - a.body.pos.z;
         if (Math.abs(dx) > 0.7 || Math.abs(dz) > 0.7) continue;
         if (Math.abs(b.body.pos.y - a.body.pos.y) > 1.5) continue;
@@ -971,6 +1191,10 @@ export class Match {
       this.pickup(p, it);
     }
     if (what === 'heal') p.hp = MAX_HP;
+    if (what === 'vehicle') {
+      const x = p.body.pos.x - Math.sin(p.yaw) * 5, z = p.body.pos.z - Math.cos(p.yaw) * 5;
+      this.addVehicle(arg || 'sedan', x, this.world.supportHeight(x, z, 0.5, p.body.pos.y + 2, 0), z, p.yaw, 100);
+    }
     if (what === 'killbots') for (const o of this.players) if (o.isBot && o.alive) this.damage(o, 999, null, 'dev', null);
     if (what === 'zone') this.zone.timer = Math.min(this.zone.timer, 1);
   }
@@ -981,7 +1205,7 @@ export const EDGE_KEYS = ['jump', 'crouch', 'prone', 'reload', 'interact'];
 export function emptyCommand() {
   return {
     fwd: 0, right: 0, yaw: 0, pitch: 0, aimYaw: undefined, aimPitch: undefined,
-    fire: false, ads: false, sprint: false, walk: false,
+    fire: false, ads: false, sprint: false, walk: false, brake: false,
     jump: false, crouch: false, prone: false, reload: false, interact: false,
     slot: -1, use: null, cycle: 0
   };

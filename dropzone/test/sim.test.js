@@ -10,6 +10,7 @@ import { Match, TICK, emptyCommand, rayHitPlayer } from '../shared/game.js';
 import { WEAPONS } from '../shared/weapons.js';
 import { newInventory, invAdd, invWeight } from '../shared/items.js';
 import { Zone } from '../shared/zone.js';
+import { vehDistance } from '../shared/vehicles.js';
 import { makeRng } from '../shared/util.js';
 
 /* ---------- helpers ---------- */
@@ -466,4 +467,78 @@ test('slot 5 cycles throwable types and returns to a gun when empty', () => {
   // throw everything
   for (let i = 0; i < 6 && me.cur === 4; i++) { run(m, 1, { aimPitch: 0.5 }); run(m, 0.2, { fire: true, aimPitch: 0.5 }); tick(m, { aimPitch: 0.5 }); }
   assert.equal(me.cur, 0, 'back to the rifle');
+});
+
+/* ---------- vehicles ---------- */
+test('the map spawns vehicles of every kind over a few matches', () => {
+  const { world, nav } = map();
+  const kinds = new Set();
+  for (const seed of [1, 2, 3]) { const m = new Match({ world, nav, seed, bots: 1 }); for (const v of m.vehicles) kinds.add(v.type); assert.ok(m.vehicles.length > 10); }
+  assert.deepEqual([...kinds].sort(), ['buggy', 'moto', 'sedan', 'suv']);
+});
+
+test('drive: enter, accelerate, steer, burn fuel, exit beside the car', () => {
+  const { m, me } = duel(1);
+  const v = m.addVehicle('sedan', 0, 0, -3.6, 0, 60);
+  run(m, 0.2);
+  tick(m, { interact: true });
+  assert.ok(me.veh && me.veh.seat === 0, 'in the driver seat');
+  const z0 = v.z, fuel0 = v.fuel;
+  run(m, 4, { fwd: 1 });
+  assert.ok(v.speed > 12, 'speed ' + v.speed.toFixed(1));
+  assert.ok(v.z < z0 - 30, 'moved forward');
+  assert.ok(v.fuel < fuel0, 'fuel used');
+  const yaw0 = v.yaw;
+  run(m, 1, { fwd: 1, right: 1 });
+  assert.ok(v.yaw < yaw0 - 0.5, 'turned right');
+  run(m, 1.2, { fwd: -1 });                       // brake (holding longer would start reversing)
+  run(m, 2);                                       // coast to a stop
+  assert.ok(Math.abs(v.speed) < 0.5, 'stopped ' + v.speed.toFixed(2));
+  tick(m, { interact: true });
+  assert.equal(me.veh, null);
+  assert.ok(!m.world.overlapsStatic(me.body.pos.x, me.body.pos.z, 0.3, me.body.pos.y + 0.1, me.body.pos.y + 1.7));
+  assert.ok(vehDistance(v, me.body.pos.x, me.body.pos.z) > 0.2, 'standing next to it, not inside');
+  // walking into the parked car is blocked
+  const back = { x: me.body.pos.x, z: me.body.pos.z };
+  const toCar = Math.atan2(-(v.x - back.x), -(v.z - back.z));
+  run(m, 2, { fwd: 1, yaw: toCar });
+  assert.ok(vehDistance(v, me.body.pos.x, me.body.pos.z) > 0.15, 'body did not pass into the car');
+});
+
+test('crashing into a wall stops and damages the car; running over a bot hurts it', () => {
+  const { m, me, others } = duel(1);
+  const bot = others[0];
+  bot.body.pos.x = 0; bot.body.pos.z = -30;
+  const v = m.addVehicle('suv', 0, 0, -4, 0, 100);
+  run(m, 0.2); tick(m, { interact: true });
+  run(m, 3.5, { fwd: 1 });
+  assert.ok(bot.hp < 100, 'hit the bot, hp ' + bot.hp.toFixed(0));
+  m.world.addBox(-10, 0, -72, 10, 4, -70);
+  const hp0 = v.hp;
+  run(m, 5, { fwd: 1 });
+  assert.ok(v.z > -71, 'stopped at the wall');
+  assert.ok(v.hp < hp0, 'damaged by the crash');
+});
+
+test('shooting / blowing up a vehicle destroys it and kills the occupants', () => {
+  const { m, me, others } = duel(1);
+  const bot = others[0];
+  const v = m.addVehicle('buggy', 0, 0, -12, 0, 100);
+  m.enterVehicle(bot, v);
+  assert.ok(bot.veh);
+  m.damageVehicle(v, v.hp - 5, me);
+  assert.equal(v.dead, false);
+  m.detonate({ type: 'frag', owner: 1, x: 1.5, y: 0.1, z: -12 });
+  assert.equal(v.dead, true);
+  assert.equal(bot.alive, false);
+  assert.equal(me.kills, 1);
+  assert.equal(m.findVehicle(me), null, 'wrecks cannot be entered');
+});
+
+test('fuel can refuels a nearby vehicle', () => {
+  const { m, me } = duel(1);
+  const v = m.addVehicle('sedan', 0, 0, -3, 0, 10);
+  m.cheat(1, 'give', 'fuel');
+  tick(m, { use: 'fuel' }); run(m, 4.5);
+  assert.equal(v.fuel, 60);
 });

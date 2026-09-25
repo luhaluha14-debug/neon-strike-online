@@ -23,6 +23,8 @@ import { WorldView } from './render/world-view.js';
 import { FX } from './render/fx.js';
 import { Soldier, itemGeometry, weaponGeometry, MUZZLE, planeGeometry, propGeometry, SOLDIER_MAT } from './render/models.js';
 import { ViewModel } from './render/viewmodel.js';
+import { VehicleView } from './render/vehicles.js';
+import { VEHICLES } from '../shared/vehicles.js';
 import { CameraRig } from './camera.js';
 import { HUD } from './hud.js';
 import { DevTools } from './debug.js';
@@ -452,6 +454,9 @@ class Session {
     }
     this.syncItems();
     this.marker = null;                 // destination picked on the full map
+    this.vehViews = new Map();
+    this.vehPrev = new Map();
+    this.lastLookT = 0;
     this.nadeMeshes = new Map();
     this.arc = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 0.35, gapSize: 0.25, transparent: true, opacity: 0.85, depthTest: false }));
     this.arc.frustumCulled = false; this.arc.renderOrder = 60; this.arc.visible = false;
@@ -506,6 +511,8 @@ class Session {
     sc.remove(this.itemGroup);
     if (this.planeMesh) sc.remove(this.planeMesh);
     sc.remove(this.arc, this.arcEnd);
+    for (const vv of this.vehViews.values()) vv.dispose(sc);
+    this.app.audio.setEngines([]);
     for (const mm of this.nadeMeshes.values()) sc.remove(mm);
     this.app.audio.setFlightSounds(1e9, false, 0);
     this.fx.reset();
@@ -532,6 +539,7 @@ class Session {
     if (input.lastDevice === 'touch') sens = 0.0022 * (this.adsBlend > 0.5 ? S.adsSens / zoom : 1) * this.aimAssistMul();
     const invert = S.invertY ? -1 : 1;
     this.rig.freeLook = input.held('freelook') && this.view === 'tps';
+    if (lk.x || lk.y) this.lastLookT = this.time;
     if (!this.spectating) {
       this.rig.look(lk.x * sens, lk.y * sens * invert);
       this.vm.sway(lk.x, lk.y);
@@ -571,6 +579,11 @@ class Session {
       pr.x = p.body.pos.x; pr.y = p.body.pos.y; pr.z = p.body.pos.z; pr.yaw = p.yaw;
     }
     if (m.plane) { this.planePrev.x = m.plane.x; this.planePrev.z = m.plane.z; }
+    for (const v of m.vehicles) {
+      let pv = this.vehPrev.get(v.id);
+      if (!pv) { pv = {}; this.vehPrev.set(v.id, pv); }
+      pv.x = v.x; pv.y = v.y; pv.z = v.z; pv.yaw = v.yaw;
+    }
     if (me.alive && this.state === 'playing') m.setCommand(me.id, this.buildCommand());
     else m.setCommand(me.id, emptyCommand());
     const t0 = performance.now();
@@ -593,6 +606,14 @@ class Session {
     c.sprint = input.held('sprint');
     c.walk = input.held('walk');
     c.jump = input.consume('jump');
+    if (me.veh) {
+      // driving: W/S throttle, A/D steer, Space handbrake, Shift boost, F get out, 1-4 change seat
+      c.brake = input.held('jump');
+      c.interact = input.consume('interact');
+      for (let i = 0; i < 4; i++) if (input.consume('slot' + (i + 1))) c.slot = i;
+      c.fire = false; c.ads = false;
+      return c;
+    }
     if (me.air) { c.interact = input.consume('interact'); c.fire = false; c.ads = false; return c; }
     c.crouch = input.consume('crouch');
     if (S.crouchHold && input.consume('crouchRelease') && me.body.stance === 'crouch') c.crouch = true;
@@ -703,7 +724,7 @@ class Session {
       case 'kill': {
         const v = m.byId.get(e.id), k = e.by !== null ? m.byId.get(e.by) : null;
         const nm = (p) => `<b class="${p === me ? 'me' : ''}">${escapeHtml(p.name)}</b>`;
-        const how = e.cause === 'zone' ? '자기장' : e.cause === 'fall' ? '낙하' : THROWABLES[e.cause] ? THROWABLES[e.cause].name : (WEAPONS[e.cause] ? WEAPONS[e.cause].name : e.cause);
+        const how = e.cause === 'zone' ? '자기장' : e.cause === 'fall' ? '낙하' : e.cause === 'vehicle' ? '차량' : THROWABLES[e.cause] ? THROWABLES[e.cause].name : (WEAPONS[e.cause] ? WEAPONS[e.cause].name : e.cause);
         hud.feed(k && k !== v ? `${nm(k)}<span class="w">${how}${e.head ? ' ✦' : ''}</span>${nm(v)}` : `${nm(v)}<span class="w">${how}</span>`);
         if (k === me && v !== me) hud.banner(`${v.name} 처치${e.head ? ' · 헤드샷' : ''}`, '', 1.8);
         if (isMe) this.onDeath(k);
@@ -715,7 +736,7 @@ class Session {
       case 'dry': if (isMe) A.dry(); break;
       case 'noAmmo': if (isMe) { hud.banner('탄약이 없습니다', '', 1.4); A.ui('deny'); } break;
       case 'pickup': if (isMe) { A.pickup(); const it = ITEMS[e.key]; hud.prompt(null); if (it) this.toast(`${it.name}${e.n > 1 ? ' ×' + e.n : ''} 획득`); } this.itemsDirty = true; break;
-      case 'deny': if (isMe) { A.ui('deny'); hud.banner(e.why === 'full' ? '가방이 가득 찼습니다' : e.why === 'hpfull' ? '더 회복할 수 없습니다' : e.why === 'nothrow' ? '투척물이 없습니다' : '사용할 수 없습니다', '', 1.4); } break;
+      case 'deny': if (isMe) { A.ui('deny'); hud.banner(e.why === 'full' ? '가방이 가득 찼습니다' : e.why === 'hpfull' ? '더 회복할 수 없습니다' : e.why === 'nothrow' ? '투척물이 없습니다' : e.why === 'novehicle' ? '차량 가까이에서 사용하세요' : e.why === 'fuelfull' ? '연료가 가득 찼습니다' : '사용할 수 없습니다', '', 1.4); } break;
       case 'healed': if (isMe) A.heal(); break;
       case 'land': {
         const p = m.byId.get(e.id);
@@ -744,6 +765,11 @@ class Session {
         else if (e.type === 'molotov') { this.fx.emit(e.x, e.y + 0.2, e.z, 20, 1, 0.55, 0.15, 5, 0.6, 0.3, 1, 1, 0.8, 1); A.fireBurst(e); }
         break;
       }
+      case 'jumpOut': if (isMe) A.jumpOut(); break;
+      case 'enterVeh': case 'exitVeh': { const p = m.byId.get(e.id); if (p && (isMe || this.near(e.id, 30))) A.door(p.body.pos, isMe); if (isMe && e.t === 'enterVeh') hud.banner(VEHICLES[m.vehById.get(e.veh).type].name, '', 1.4); break; }
+      case 'crash': A.crash(e, e.v); if (me.veh && me.veh.id === e.veh) this.rig.addShake(Math.min(1, e.v / 20)); break;
+      case 'vehBoom': { this.fx.explosion(e.x, e.y, e.z); A.explosion(e); const d = Math.hypot(e.x - me.body.pos.x, e.z - me.body.pos.z); if (d < 40) this.rig.addShake(Math.min(1.1, 9 / Math.max(3, d))); break; }
+      case 'refuel': if (isMe) this.toast('연료 +50%'); break;
       case 'blind': if (isMe) { A.ringing(Math.min(4, e.amount)); this.blindMax = Math.max(e.amount, 0.5); } break;
       case 'chute': if (isMe || this.near(e.id, 60)) A.chuteOpen(); break;
       case 'landed': {
@@ -862,7 +888,7 @@ class Session {
     } else if (el.dataset.b) {
       const key = el.dataset.b;
       if (!alt && ITEMS[key].kind === 'throw') { m.setCommand(me.id, Object.assign(emptyCommand(), { slot: 4, throwType: key, yaw: this.rig.yaw, pitch: this.rig.pitch })); this.toggleInventory(false); }
-      else if (alt || ITEMS[key].kind !== 'heal') m.requestDrop(me.id, key, alt ? me.inv.items[key] : Math.min(me.inv.items[key], ITEMS[key].stack || 1));
+      else if (alt || (ITEMS[key].kind !== 'heal' && ITEMS[key].kind !== 'fuel')) m.requestDrop(me.id, key, alt ? me.inv.items[key] : Math.min(me.inv.items[key], ITEMS[key].stack || 1));
       else { m.setCommand(me.id, Object.assign(emptyCommand(), { use: key, yaw: this.rig.yaw, pitch: this.rig.pitch })); this.toggleInventory(false); }
     } else if (el.dataset.s !== undefined) {
       if (alt) m.requestDrop(me.id, 'slot' + el.dataset.s, 1);
@@ -922,12 +948,27 @@ class Session {
     }
     let eyeH = me.alive || focus !== me ? eyeHeight(focus.body) : 0.6;
     if (focus.air === 'plane') eyeH = 1.5;
+    const car = focus.veh ? m.vehById.get(focus.veh.id) : null;
+    if (car) {
+      const moto = car.type === 'moto';
+      this.rig.mode = 'tps';
+      this.rig.boomOverride = moto ? { side: 0, up: 1.4, back: 4.8 } : { side: 0, up: 2.0, back: VEHICLES[car.type].len + 3.2 };
+      eyeH = 0.9;
+      // settle the camera behind the car when the player is not looking around
+      if (focus === me && Math.abs(car.speed) > 4 && this.time - this.lastLookT > 1.2) {
+        const target = car.speed > 0 ? car.yaw : car.yaw + Math.PI;
+        this.rig.yaw += wrapAngle(target - this.rig.yaw) * Math.min(1, dt * 1.6);
+        this.rig.pitch += (-0.12 - this.rig.pitch) * Math.min(1, dt * 1.6);
+      }
+    }
     this.rig.update(dt, pos, eyeH, focus.air ? 0 : this.adsBlend, w, app.settings.fov);
     const cp = this.camera.position;
     app.audio.setListener(cp.x, cp.y, cp.z, this.rig.yaw + this.rig.freeYaw);
     app.audio.tickAmbience(dt, this.time - (this.lastFightT || 0) > 10);
     app.worldView.update(dt, cp, m.zone);
     this.renderPlane(alpha, focus);
+
+    this.renderVehicles(dt, alpha, cp);
 
     // ---- soldiers ----
     const vd2 = (q.viewDist * 0.9) ** 2, lod2 = (40 * q.lodScale) ** 2;
@@ -944,17 +985,20 @@ class Session {
       if (!s.root.visible) continue;
       s.setLod(dx * dx + dz * dz > lod2 && p !== focus);
       s.root.position.set(x, y, z);
-      s.root.rotation.y = p === me && me.alive ? this.rig.yaw : pp.yaw + wrapAngle(p.yaw - pp.yaw) * alpha;
+      const pv = p.veh ? this.vehPrev.get(p.veh.id) : null, pvCar = p.veh ? m.vehById.get(p.veh.id) : null;
+      s.root.rotation.y = pvCar ? (pv ? pv.yaw + wrapAngle(pvCar.yaw - pv.yaw) * alpha : pvCar.yaw)
+        : p === me && me.alive ? this.rig.yaw : pp.yaw + wrapAngle(p.yaw - pp.yaw) * alpha;
       const sl = p.alive ? m.slotOf(p) : null;
       s.setWeapon(modelFor(sl));
       const vx = p.body.vel.x, vz = p.body.vel.z;
       s.kickT = Math.max(0, (s.kickT || 0) - dt * 12);
       s.animate({
         dt, speed: Math.hypot(vx, vz), stance: p.body.stance, pitch: p === me ? this.rig.pitch : p.pitch, onGround: p.body.onGround,
-        alive: p.alive, sprint: p.body.sprinting, reloading: p.reloading, kick: s.kickT, air: p.air
+        alive: p.alive, sprint: p.body.sprinting, reloading: p.reloading, kick: s.kickT, air: p.air,
+        seated: pvCar ? (pvCar.type === 'moto' ? 'moto' : 'car') : null, driver: p.veh && p.veh.seat === 0
       });
       // footsteps
-      if (p.alive && p.body.onGround) this.footstep(p, dt);
+      if (p.alive && p.body.onGround && !p.veh) this.footstep(p, dt);
     }
     // ---- ground items: only near ones are drawn; highlight pickup target ----
     const target = me.alive && this.state === 'playing' ? m.findPickup(me) : null;
@@ -966,7 +1010,9 @@ class Session {
       const sc = it === target ? 1.25 + Math.sin(this.time * 8) * 0.08 : 1;
       if (mesh.scale.x !== sc) { mesh.scale.setScalar(sc); mesh.updateMatrix(); }
     }
+    const vp = me.alive && !me.air && this.state === 'playing' ? this.vehiclePrompt(me) : null;
     if (me.alive && me.air) this.hud.prompt(this.airPrompt());
+    else if (vp && !this.uiOpen) this.hud.prompt(vp);
     else if (me.alive && me.cur === 4 && !target && !(this.toastT > 0)) this.hud.prompt(me.throwHold ? '놓으면 던지기 · 조준 버튼을 누르면 짧게 던지기' : `<kbd>${app.touch ? '발사' : keyLabel(app.settings.keys.fire[0])}</kbd>누르고 조준 → 놓으면 던지기 · 5번: 종류 바꾸기`);
     else if (this.toastT > 0) this.toastT -= dt;
     else if (target && !this.uiOpen) {
@@ -975,7 +1021,14 @@ class Session {
       const extra = def.kind === 'weapon' ? ` <span style="color:#9fb0c2">${WEAPONS[target.key].catName}</span>` : target.count > 1 ? ` ×${target.count}` : '';
       this.hud.prompt(`<kbd>${key}</kbd>${escapeHtml(def.name)}${extra}`);
     } else this.hud.prompt(null);
-    if (app.touch) { app.touchUI.setEnabled('interact', !!target); app.touchUI.setState('ads', app.input.adsToggled); }
+    if (app.touch) {
+      const canCar = me.veh || m.findVehicle(me);
+      app.touchUI.setEnabled('interact', !!target || !!canCar);
+      app.touchUI.setLabel('interact', me.veh ? '하차' : canCar ? '탑승' : '줍기');
+      app.touchUI.setMode(me.veh ? 'veh' : 'foot');
+      app.touchUI.setLabel('jump', me.veh ? '브레이크' : '점프');
+      app.touchUI.setState('ads', app.input.adsToggled);
+    }
 
     this.renderThrowables(dt, me);
 
@@ -1003,6 +1056,39 @@ class Session {
     // ---- HUD ----
     this.hud.update(dt, this);
     if (this.mapOpen) { this.showAllOnMap = app.dev && app.dev.flags.map; this.hud.drawBigMap(this); }
+  }
+
+  renderVehicles(dt, alpha, cp) {
+    const m = this.match, sc = this.app.scene;
+    const engines = [];
+    for (const v of m.vehicles) {
+      let view = this.vehViews.get(v.id);
+      if (!view) { view = new VehicleView(sc, v, this.app.q.shadows > 0); this.vehViews.set(v.id, view); }
+      const pv = this.vehPrev.get(v.id) || v;
+      const x = lerp(pv.x, v.x, alpha), y = lerp(pv.y, v.y, alpha), z = lerp(pv.z, v.z, alpha);
+      const d2 = (x - cp.x) ** 2 + (z - cp.z) ** 2;
+      view.root.visible = d2 < (this.app.q.viewDist * 0.95) ** 2;
+      if (!view.root.visible) continue;
+      view.update(v, x, y, z, pv.yaw + wrapAngle(v.yaw - pv.yaw) * alpha, dt);
+      if (v.dead && v.burnT > 0 && Math.random() < dt * 20) this.fx.fireTick(x, y + 0.6, z, 1.2);
+      if (!v.dead && (v.seats[0] !== null || Math.abs(v.speed) > 0.5)) engines.push({ pos: { x, y, z }, speed: v.speed, moto: v.type === 'moto', local: !!(this.me.veh && this.me.veh.id === v.id), d: d2 });
+    }
+    engines.sort((a, b) => (b.local - a.local) || a.d - b.d);
+    this.app.audio.setEngines(engines.slice(0, 4));
+  }
+
+  vehiclePrompt(me) {
+    const m = this.match, app = this.app;
+    const key = app.touch ? '' : `<kbd>${keyLabel(app.settings.keys.interact[0])}</kbd>`;
+    if (me.veh) {
+      const v = m.vehById.get(me.veh.id);
+      if (app.touch) return `${VEHICLES[v.type].name} · ${me.veh.seat === 0 ? '운전석' : me.veh.seat + 1 + '번 좌석'}`;
+      return `${key}하차 · 1~${v.seats.length} 좌석 · ${keyLabel(app.settings.keys.jump[0])} 핸드브레이크 · ${keyLabel(app.settings.keys.sprint[0])} 부스트`;
+    }
+    const v = m.findVehicle(me);
+    if (!v) return null;
+    const D = VEHICLES[v.type];
+    return `${key || '<kbd>탑승</kbd>'}탑승 · ${D.name} <span style="color:#9fb0c2">${D.cat} · 연료 ${Math.round(v.fuel)}%</span>`;
   }
 
   renderThrowables(dt, me) {

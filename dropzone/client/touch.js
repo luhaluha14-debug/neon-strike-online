@@ -117,6 +117,14 @@ export class TouchControls {
 
   setVisible(v) { this.root.classList.toggle('hide', !v); }
   setState(id, on) { if (this.btns[id]) this.btns[id].el.classList.toggle('on', !!on); }
+  /** hide buttons that do nothing in the current situation (e.g. weapons while driving) */
+  setMode(mode) {
+    if (this.mode === mode || this.edit) return;
+    this.mode = mode;
+    const hideInCar = ['fire', 'fire2', 'ads', 'reload', 'crouch', 'prone', 'throw', 'swap', 'heal'];
+    for (const id of hideInCar) if (this.btns[id]) this.btns[id].el.style.display = mode === 'veh' ? 'none' : '';
+  }
+  setLabel(id, text) { const b = this.btns[id]; if (b && b.label !== text) { b.label = text; b.el.textContent = text; } }
   setEnabled(id, on) { if (this.btns[id]) this.btns[id].el.style.filter = on ? '' : 'grayscale(1) brightness(.6)'; }
 
   /* ---------------- stick ---------------- */
@@ -175,6 +183,7 @@ export class TouchControls {
 
   /* ---------------- layout editing ---------------- */
   setEdit(on) {
+    if (on) this.setMode('foot');
     this.edit = on;
     this.root.classList.toggle('edit', on);
     this.setVisible(on || this.visible);

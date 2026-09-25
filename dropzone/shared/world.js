@@ -24,6 +24,7 @@ export class World {
     this.roads = [];               // [{ax,az,bx,bz,w}]
     this.spawnSpots = [];
     this.doors = [];               // {x,z,nx,nz} door centres + normals (for bot navigation)
+    this.dyn = [];                 // moving obstacles {x,z,r,y0,y1}, rebuilt every tick
   }
 
   cellIndex(x, z) {
@@ -67,9 +68,19 @@ export class World {
     return false;
   }
 
-  /** true when a vertical box (collider) overlaps any solid box */
-  overlaps(x, z, r, y0, y1) {
+  /** true when a vertical box (collider) overlaps any solid static box */
+  overlapsStatic(x, z, r, y0, y1) {
     return this.forBoxesIn(x - r, z - r, x + r, z + r, (b) => b.minY < y1 && b.maxY > y0 && !b.passable);
+  }
+  /** static geometry + moving obstacles (vehicles, as circles) */
+  overlaps(x, z, r, y0, y1) {
+    if (this.overlapsStatic(x, z, r, y0, y1)) return true;
+    for (const d of this.dyn) {
+      if (d.y0 >= y1 || d.y1 <= y0) continue;
+      const dx = x - d.x, dz = z - d.z, rr = r + d.r;
+      if (dx * dx + dz * dz < rr * rr) return true;
+    }
+    return false;
   }
 
   /**
