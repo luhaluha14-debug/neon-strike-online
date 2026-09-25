@@ -222,6 +222,7 @@ class App {
       seg('앉기 방식', 'crouchHold', [[false, '토글'], [true, '누르고 있기']]);
       seg('기본 시점', 'view', [['tps', '3인칭'], ['fps', '1인칭']]);
       seg('자동 줍기', 'autoPickup', onoff, '탄약과 회복 아이템을 지나가면 자동으로 줍습니다');
+      seg('자동 재장전', 'autoReload', onoff, '탄창이 비면 가방의 탄약으로 자동 재장전합니다');
     } else if (this.setTab === 'graphics') {
       seg('그래픽 품질', 'quality', [['low', 'LOW'], ['medium', 'MEDIUM'], ['high', 'HIGH'], ['ultra', 'ULTRA']], '아래 개별 옵션은 품질 프리셋을 덮어씁니다');
       const q = gfx(S);
@@ -245,6 +246,7 @@ class App {
       slider('자이로 감도', 'gyroSens', 0.2, 3, 0.1, (v) => v.toFixed(1));
       seg('진동', 'vibrate', onoff);
       seg('자동 줍기', 'autoPickup', onoff);
+      seg('자동 재장전', 'autoReload', onoff);
     } else if (this.setTab === 'keys') {
       for (const [a, label] of ACTIONS) {
         const b = document.createElement('button'); b.className = 'kb';
@@ -442,6 +444,7 @@ class Session {
   applySettings() {
     const S = this.app.settings;
     this.me.autoPickup = S.autoPickup;
+    this.me.autoReload = S.autoReload;
     if (S.gyro && !this.gyroHandler) {
       this.gyroHandler = (e) => this.onGyro(e);
       try {

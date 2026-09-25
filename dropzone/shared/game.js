@@ -12,6 +12,9 @@ import { Zone } from './zone.js';
 import { BotBrain } from './ai.js';
 
 export const TICK = 1 / 60;
+/** loot density: chance a spot has loot at all, and chances of extra item groups (by tier 0..3) */
+export const LOOT_CHANCE = [0.8, 0.95, 1, 1];
+export const LOOT_EXTRA = [[0.3], [0.5, 0.2], [0.6, 0.3], [0.7, 0.4]];
 export const MAX_HP = 100;
 
 const BOT_NAMES = ['Rook', 'Vesper', 'Kite', 'Mako', 'Halden', 'Juno', 'Brask', 'Tamsin', 'Oriel', 'Pike', 'Sable', 'Wren',
@@ -163,7 +166,7 @@ export class Match {
       using: null,
       kills: 0, dmgDealt: 0, place: 0,
       lastHitBy: null, lastHitT: -99, lastShotT: -99, lastFootT: 0,
-      autoPickup: true, autoT: 0,
+      autoPickup: true, autoT: 0, autoReload: true,
       buf: { jump: 0, crouch: 0, prone: 0, reload: 0 },
       cmd: emptyCommand()
     };
@@ -175,12 +178,18 @@ export class Match {
 
   spawnLoot() {
     for (const s of this.world.lootSpots) {
-      const chance = [0.45, 0.72, 0.85, 0.95][clamp(s.tier, 0, 3)];
-      if (!this.rng.chance(chance)) continue;
-      const drops = rollLoot(this.rng, s.tier);
-      drops.forEach(([key, count], i) => {
-        const a = this.rng.next() * Math.PI * 2, r = i === 0 ? 0 : 0.45 + this.rng.next() * 0.25;
-        this.dropItem(key, count, s.x + Math.cos(a) * r, s.y + 0.3, s.z + Math.sin(a) * r, 0, true, s.x, s.z);
+      const tier = clamp(s.tier, 0, 3);
+      // first group: almost every spot has something; extra groups make busy spots
+      const rolls = [LOOT_CHANCE[tier], ...LOOT_EXTRA[tier]];
+      rolls.forEach((chance, g) => {
+        if (!this.rng.chance(chance)) return;
+        // later groups sit a little away from the spot so piles don't overlap
+        const ga = this.rng.next() * Math.PI * 2, gr = g === 0 ? 0 : 0.9 + g * 0.35;
+        const cx = s.x + Math.cos(ga) * gr, cz = s.z + Math.sin(ga) * gr;
+        rollLoot(this.rng, tier).forEach(([key, count], i) => {
+          const a = this.rng.next() * Math.PI * 2, r = i === 0 ? 0 : 0.45 + this.rng.next() * 0.25;
+          this.dropItem(key, count, cx + Math.cos(a) * r, s.y + 0.3, cz + Math.sin(a) * r, 0, true, s.x, s.z);
+        });
       });
     }
   }
@@ -333,6 +342,12 @@ export class Match {
     p.fireCd = Math.max(p.fireCd - dt, -dt);
     if (c.fire) this.tryFire(p, w);
     else p.triggerHeld = false;
+    // auto reload: an empty magazine reloads by itself as soon as it can
+    // (not while healing; sprint / weapon swap simply delay it a few ticks)
+    if (p.autoReload && !p.reloading && !p.using && p.fireCd <= 0) {
+      const cw = this.weaponOf(p), cs = this.slotOf(p);
+      if (cw.reloadType !== 'none' && cs.mag === 0 && (this.cheats.infAmmo.has(p.id) || invCount(p.inv, 'ammo_' + cw.ammo) > 0)) this.startReload(p);
+    }
 
     // ---- interact / pickup ----
     if (c.interact) {

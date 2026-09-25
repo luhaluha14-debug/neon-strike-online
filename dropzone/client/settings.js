@@ -40,7 +40,7 @@ export function defaults(touch) {
     // audio
     volume: 0.7,
     // gameplay
-    autoPickup: true,
+    autoPickup: true, autoReload: true,
     // touch
     touchSens: 1.0, uiScale: 1.0, btnScale: 1.0, btnOpacity: 0.8, autoFire: false, aimAssist: true, gyro: false, gyroSens: 1.0, vibrate: true,
     layout: null

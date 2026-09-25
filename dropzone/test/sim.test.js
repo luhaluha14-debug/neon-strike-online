@@ -321,3 +321,30 @@ test('god mode takes no damage and emits no hit events', () => {
   assert.equal(me.hp, 100);
   assert.equal(m.drainEvents().filter((e) => e.t === 'hit').length, 0);
 });
+
+test('auto reload: empty magazine reloads by itself, never interrupts healing', () => {
+  const { m, me } = duel();
+  m.cheat(1, 'give', 'hornet'); m.cheat(1, 'give', 'ammo_pistol');
+  run(m, 0.5);
+  assert.equal(me.reloading, true, 'picked up an empty gun with ammo in the bag');
+  run(m, 2.5);
+  assert.equal(m.slotOf(me).mag, 15);
+  for (let i = 0; i < 15; i++) { tick(m, { fire: true, aimPitch: 0.5 }); run(m, 0.16); }
+  assert.equal(m.slotOf(me).mag, 0);
+  run(m, 0.2);
+  assert.equal(me.reloading, true);
+  run(m, 2.5);
+  assert.equal(m.slotOf(me).mag, 15);
+  // healing with an empty gun: no auto reload until the heal finishes
+  m.slotOf(me).mag = 0; me.hp = 50; m.cheat(1, 'give', 'bandage');
+  tick(m, { use: 'bandage' }); run(m, 1);
+  assert.ok(me.using && !me.reloading);
+  me.autoReload = false; run(m, 3.5);
+  assert.equal(me.reloading, false, 'setting off -> manual only');
+});
+
+test('loot is dense: most spots have items', () => {
+  const { world, nav } = map();
+  const m = new Match({ world, nav, seed: 21, bots: 1 });
+  assert.ok(m.items.length > world.lootSpots.length * 2, `items ${m.items.length}`);
+});
