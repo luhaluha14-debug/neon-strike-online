@@ -399,3 +399,71 @@ test('diving bots / players never hit the ground at dive speed (chute brakes in 
     assert.ok(worst < 9, 'max landing speed ' + worst.toFixed(1));
   }
 });
+
+/* ---------- throwables ---------- */
+function holdThrow(m, type, aim, lob = false) {
+  m.cheat(1, 'give', type);
+  tick(m, { slot: 4, throwType: type, ...aim });
+  run(m, 0.5, aim);                              // equip
+  run(m, 0.2, { fire: true, ads: lob, ...aim }); // wind up
+  tick(m, aim);                                  // release = throw
+}
+
+test('frag: damages in the open, walls protect, thrower gets the kill', () => {
+  const { m, me, others } = duel(2);
+  const [a, b] = others;
+  a.body.pos.x = 0; a.body.pos.z = -10;           // in the open
+  b.body.pos.x = 6; b.body.pos.z = -10;           // behind a wall
+  m.world.addBox(4.5, 0, -14, 4.8, 3, -6);
+  a.hp = 40;
+  holdThrow(m, 'frag', { aimYaw: 0, aimPitch: 0.1, yaw: 0, pitch: 0.1 }, true);    // short lob ~10 m
+  assert.equal(m.projectiles.length, 1);
+  run(m, 4);
+  assert.equal(m.projectiles.length, 0, 'exploded');
+  assert.equal(a.alive, false, 'killed by the blast');
+  assert.equal(me.kills, 1);
+  assert.equal(b.hp, 100, 'wall stopped the fragments');
+});
+
+test('grenades bounce off walls instead of passing through', () => {
+  const { m } = duel(1);
+  m.world.addBox(-5, 0, -3.2, 5, 4, -3);
+  holdThrow(m, 'smoke', { aimYaw: 0, aimPitch: 0.1, yaw: 0, pitch: 0.1 });
+  run(m, 1.2);
+  const g = m.projectiles[0];
+  assert.ok(g && g.z > -3, 'stayed on the thrower side, z=' + (g && g.z.toFixed(2)));
+  assert.ok(g.y >= m.world.groundAt(g.x, g.z));
+});
+
+test('smoke blocks bot vision, flash blinds, molotov burns over time', () => {
+  const { m, me, others } = duel(1);
+  const bot = others[0];
+  bot.body.pos.x = 0; bot.body.pos.z = -20;
+  const e = m.eye(me);
+  assert.equal(m.sightClear(e.x, e.y, e.z, 0, 1.5, -20), true);
+  m.smokes.push({ x: 0, y: 1.5, z: -10, r: 6, maxR: 6, t: 20 });
+  assert.equal(m.sightClear(e.x, e.y, e.z, 0, 1.5, -20), false);
+  m.smokes.length = 0;
+  // flash right in front of the bot, bot facing it
+  bot.aimYaw = Math.PI; bot.aimPitch = 0;          // bot looks toward +Z (at me)
+  m.detonate({ type: 'flash', owner: 1, x: 0, y: 0.5, z: -16 });
+  assert.ok(bot.blindT > 2, 'bot blinded ' + bot.blindT.toFixed(2));
+  // molotov under the bot
+  const hp0 = bot.hp;
+  m.detonate({ type: 'molotov', owner: 1, x: 0, y: 0.1, z: -20 });
+  run(m, 1);
+  assert.ok(bot.hp < hp0 - 8 && bot.hp > hp0 - 20, 'burning ~14/s, hp ' + bot.hp.toFixed(1));
+});
+
+test('slot 5 cycles throwable types and returns to a gun when empty', () => {
+  const { m, me } = duel(1);
+  m.cheat(1, 'give', 'kestrel'); m.cheat(1, 'give', 'frag'); m.cheat(1, 'give', 'smoke');
+  run(m, 1);
+  tick(m, { slot: 4 }); run(m, 0.5);
+  assert.equal(me.cur, 4); assert.equal(me.throwType, 'frag');
+  tick(m, { slot: 4 }); run(m, 0.1);
+  assert.equal(me.throwType, 'smoke');
+  // throw everything
+  for (let i = 0; i < 6 && me.cur === 4; i++) { run(m, 1, { aimPitch: 0.5 }); run(m, 0.2, { fire: true, aimPitch: 0.5 }); tick(m, { aimPitch: 0.5 }); }
+  assert.equal(me.cur, 0, 'back to the rifle');
+});

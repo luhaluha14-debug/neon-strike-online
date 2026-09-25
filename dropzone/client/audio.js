@@ -198,6 +198,59 @@ export class Audio {
   win() { if (!this.ready) return; const t = this.t(); [523, 659, 784, 1046].forEach((f, i) => this.tone({ t: t + i * 0.12, dur: 0.4, type: 'triangle', f0: f, vol: 0.14, dec: 0.36 })); }
   lose() { if (!this.ready) return; const t = this.t(); [392, 330, 262].forEach((f, i) => this.tone({ t: t + i * 0.16, dur: 0.4, type: 'triangle', f0: f, vol: 0.12, dec: 0.36 })); }
 
+  /* ---------------- throwables ---------------- */
+  explosion(pos) {
+    if (!this.ready) return;
+    const sp = this.spatial(pos, 700, { ref: 18, muffle: 220 }); if (!sp) return;
+    const t = this.t() + sp.delay, d = sp.dest, v = Math.min(1.4, sp.v * 1.6);
+    this.noise({ t, dur: 0.05, type: 'highpass', f0: 2500, q: 0.5, vol: 0.8 * v * (1 - sp.far), atk: 0.001, dec: 0.04, dest: d });
+    this.noise({ t, dur: 1.1, type: 'lowpass', f0: 3000, f1: 90, q: 0.9, vol: 1.5 * v, atk: 0.002, dec: 1.05, dest: d });
+    this.tone({ t, dur: 0.9, type: 'sine', f0: 90, f1: 22, vol: 1.3 * v, atk: 0.002, dec: 0.85, dest: d });
+    this.noise({ t: t + 0.08, dur: 1.6, type: 'bandpass', f0: 400, f1: 90, q: 0.5, vol: 0.45 * v, dec: 1.5, dest: d });
+  }
+  flashBang(pos) {
+    if (!this.ready) return;
+    const sp = this.spatial(pos, 300, { ref: 14 }); if (!sp) return;
+    const t = this.t() + sp.delay, d = sp.dest, v = Math.min(1.3, sp.v * 1.5);
+    this.noise({ t, dur: 0.18, type: 'highpass', f0: 1800, q: 0.4, vol: 1.2 * v, atk: 0.001, dec: 0.16, dest: d });
+    this.tone({ t, dur: 0.3, type: 'square', f0: 180, f1: 60, vol: 0.5 * v, dec: 0.28, dest: d });
+  }
+  ringing(amount) {
+    if (!this.ready) return;
+    const t = this.t();
+    this.tone({ t, dur: amount, type: 'sine', f0: 3150, vol: 0.1, atk: 0.05, dec: amount - 0.05 });
+  }
+  smokePop(pos) {
+    if (!this.ready) return;
+    const sp = this.spatial(pos, 60, { ref: 6 }); if (!sp) return;
+    const t = this.t();
+    this.noise({ t, dur: 2.5, type: 'bandpass', f0: 3200, f1: 1200, q: 0.8, vol: 0.28 * sp.v, atk: 0.05, dec: 2.4, dest: sp.dest });
+  }
+  fireBurst(pos) {
+    if (!this.ready) return;
+    const sp = this.spatial(pos, 80, { ref: 6 }); if (!sp) return;
+    const t = this.t();
+    this.noise({ t, dur: 0.1, type: 'highpass', f0: 3000, vol: 0.4 * sp.v, dec: 0.08, dest: sp.dest });           // glass
+    this.noise({ t, dur: 0.9, type: 'lowpass', f0: 1400, f1: 300, vol: 0.6 * sp.v, atk: 0.02, dec: 0.85, dest: sp.dest });
+  }
+  crackle(pos) {
+    if (!this.ready || !this.budget()) return;
+    const sp = this.spatial(pos, 40, { ref: 4 }); if (!sp) return;
+    this.noise({ t: this.t(), dur: 0.05, type: 'bandpass', f0: 1800 + Math.random() * 2000, q: 3, vol: 0.2 * sp.v, dec: 0.045, dest: sp.dest });
+  }
+  clink(pos) {
+    if (!this.ready || !this.budget()) return;
+    const sp = this.spatial(pos, 35, { ref: 3 }); if (!sp) return;
+    this.tone({ t: this.t(), dur: 0.06, type: 'triangle', f0: 1900 + Math.random() * 700, vol: 0.12 * sp.v, dec: 0.05, dest: sp.dest });
+  }
+  throwWhoosh(pos, local) {
+    if (!this.ready) return;
+    const sp = local ? { dest: this.master, v: 0.5 } : this.spatial(pos, 25, { ref: 3 }); if (!sp) return;
+    const t = this.t();
+    this.tone({ t, dur: 0.05, type: 'square', f0: 2600, vol: 0.05 * sp.v, dec: 0.04, dest: sp.dest });          // pin
+    this.noise({ t: t + 0.05, dur: 0.25, type: 'bandpass', f0: 700, f1: 1800, q: 1, vol: 0.3 * sp.v, atk: 0.04, dec: 0.2, dest: sp.dest });
+  }
+
   /* ---------------- plane / skydive ---------------- */
   /** continuous sounds: plane engine drone (by distance) and free-fall wind (0..1) */
   setFlightSounds(planeDist, inPlane, wind) {

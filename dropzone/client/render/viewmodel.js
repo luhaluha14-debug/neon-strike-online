@@ -56,8 +56,10 @@ export class ViewModel {
     this.switchT = Math.max(0, this.switchT - dt * 3.2);
     this.reloadK += ((s.reloading ? 1 : 0) - this.reloadK) * Math.min(1, dt * 10);
     const m = this.model || 'none';
-    const A = ADS_POS[m] || ADS_POS.rifle;
-    const t = s.ads;
+    const nade = m.startsWith('g_');
+    const A = nade ? [0.16, -0.14, -0.3] : (ADS_POS[m] || ADS_POS.rifle);
+    // throwables: wind back while the throw is held
+    const t = nade ? 0 : s.ads;
     const x = HIP_POS[0] + (A[0] - HIP_POS[0]) * t, y = HIP_POS[1] + (A[1] - HIP_POS[1]) * t, z = HIP_POS[2] + (A[2] - HIP_POS[2]) * t;
     const sprint = s.sprint ? 1 : 0;
     this.root.position.set(
@@ -67,6 +69,15 @@ export class ViewModel {
     );
     this.root.rotation.set(this.kickR + this.reloadK * -0.5 + sprint * -0.35, sprint * 0.5 + this.swayX * 2, this.reloadK * 0.4 + sprint * 0.2);
     this.gun.visible = m !== 'none';
+    if (nade) {
+      const wind = s.windUp ? 1 : 0;
+      this.windK = (this.windK || 0) + (wind - (this.windK || 0)) * Math.min(1, dt * 12);
+      this.root.position.set(0.17 + this.windK * 0.08, -0.16 + this.windK * 0.1, -0.33 + this.windK * 0.18 + this.kickZ * 3);
+      this.root.rotation.set(0.2 - this.windK * 0.6, 0, 0);
+      this.armR.position.set(0.0, -0.06, 0.08); this.armR.rotation.set(0.5, 0, 0);
+      this.armL.position.set(-0.32, -0.05, 0.1); this.armL.rotation.set(0.3, 0, 0);
+      return;
+    }
     // hands on the gun
     if (m === 'none') {
       this.armR.position.set(0.12, -0.02 - this.kickZ * 2, 0.1 - this.kickZ * 4); this.armR.rotation.set(0.2, 0, 0);

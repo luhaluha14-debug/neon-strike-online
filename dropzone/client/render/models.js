@@ -54,6 +54,14 @@ export function weaponGeometry(model) {
       box(0.004, 0.05, 0.01, 0.012, 0.068, 0.025, GUN);
       box(-0.003, 0.05, -0.165, 0.003, 0.064, -0.155, GUN);       // front post
       break;
+    case 'g_frag':
+      box(-0.035, -0.04, -0.035, 0.035, 0.04, 0.035, C(0x5d6b45)); box(-0.012, 0.04, -0.012, 0.012, 0.065, 0.012, STEEL); box(0.012, 0.03, -0.006, 0.03, 0.06, 0.006, STEEL); break;
+    case 'g_smoke':
+      box(-0.03, -0.06, -0.03, 0.03, 0.06, 0.03, C(0x9aa3a8)); box(-0.012, 0.06, -0.012, 0.012, 0.08, 0.012, STEEL); box(-0.031, -0.01, -0.031, 0.031, 0.01, 0.031, C(0x3a4a58)); break;
+    case 'g_flash':
+      box(-0.028, -0.06, -0.028, 0.028, 0.06, 0.028, C(0xd9d2b0)); box(-0.012, 0.06, -0.012, 0.012, 0.08, 0.012, STEEL); box(-0.029, 0.02, -0.029, 0.029, 0.035, 0.029, C(0x2f2f2f)); break;
+    case 'g_molotov':
+      box(-0.035, -0.08, -0.035, 0.035, 0.05, 0.035, C(0x6a8a4a)); box(-0.015, 0.05, -0.015, 0.015, 0.12, 0.015, C(0x6a8a4a)); box(-0.012, 0.12, -0.012, 0.012, 0.16, 0.012, C(0xe0d4b0)); break;
     default:
       box(-0.01, -0.01, -0.01, 0.01, 0.01, 0.01, GUN);
   }
@@ -63,7 +71,7 @@ export function weaponGeometry(model) {
 }
 
 /** muzzle offset in weapon space */
-export const MUZZLE = { rifle: [0, 0.045, -0.74], smg: [0, 0.044, -0.44], shotgun: [0, 0.065, -0.8], pistol: [0, 0.03, -0.18], none: [0, 0, -0.3] };
+export const MUZZLE = { rifle: [0, 0.045, -0.74], smg: [0, 0.044, -0.44], shotgun: [0, 0.065, -0.8], pistol: [0, 0.03, -0.18], none: [0, 0, -0.3], g_frag: [0, 0, 0], g_smoke: [0, 0, 0], g_flash: [0, 0, 0], g_molotov: [0, 0, 0] };
 
 /* ---------- ground items ---------- */
 const ITEM_GEO = {};
@@ -71,7 +79,10 @@ export function itemGeometry(key) {
   if (ITEM_GEO[key]) return ITEM_GEO[key];
   const it = ITEMS[key];
   let g;
-  if (it.kind === 'weapon') {
+  if (it.kind === 'throw') {
+    g = weaponGeometry('g_' + key).clone();
+    g.scale(1.6, 1.6, 1.6); g.translate(0, 0.08, 0);
+  } else if (it.kind === 'weapon') {
     const src = weaponGeometry({ kestrel: 'rifle', wasp: 'smg', breaker: 'shotgun', hornet: 'pistol' }[key] || 'rifle');
     g = src.clone();
     g.rotateZ(Math.PI / 2); g.translate(0, 0.04, 0);
@@ -81,6 +92,9 @@ export function itemGeometry(key) {
     if (it.kind === 'ammo') {
       b.add(-0.13, 0, -0.09, 0.13, 0.12, 0.09, C(0x4b5a3a), { ao: false });
       b.add(-0.1, 0.12, -0.06, 0.1, 0.14, 0.06, col, { ao: false });
+    } else if (key === 'fuel') {
+      b.add(-0.17, 0, -0.1, 0.17, 0.42, 0.1, col, { ao: false });
+      b.add(-0.05, 0.42, -0.04, 0.05, 0.5, 0.04, C(0x2b2b2b), { ao: false });
     } else if (key === 'medkit') {
       b.add(-0.2, 0, -0.14, 0.2, 0.14, 0.14, C(0xd8d4cc), { ao: false });
       b.add(-0.04, 0.14, -0.1, 0.04, 0.15, 0.1, C(0xc83a32), { ao: false });

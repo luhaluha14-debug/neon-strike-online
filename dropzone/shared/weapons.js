@@ -75,6 +75,19 @@ export const WEAPONS = {
   }
 };
 
+/* pseudo weapon used while a throwable is in hand (slot 5) */
+WEAPONS.throw = {
+  name: 'THROWABLE', cat: 'throw', catName: '투척물', slot: 'throw',
+  ammo: null, damage: 0, headMul: 1, limbMul: 1,
+  rpm: 60, mode: 'semi', mag: 0, reload: 0, reloadEmpty: 0, reloadType: 'none',
+  bulletSpeed: 0, gravity: 0, pellets: 0,
+  spread: { hip: 0, ads: 0, move: 0, air: 0, crouch: 1, prone: 1, bloom: 0, bloomMax: 0, bloomDecay: 1 },
+  recoil: { up: 0, side: 0, bias: 0, recover: 5, first: 1, ads: 1 },
+  falloff: [99, 99, 1], range: 0,
+  moveMul: 1.0, zoom: 1.0, adsTime: 0.12, equip: 0.35,
+  sound: 'none', model: 'grenade'
+};
+
 export const SLOT_NAMES = ['주무기 1', '주무기 2', '보조무기', '근접'];
 
 /** falloff multiplier by travel distance */

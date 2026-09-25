@@ -5,6 +5,7 @@
    ========================================================================= */
 import { WEAPONS, AMMO } from '../shared/weapons.js';
 import { ITEMS, invWeight } from '../shared/items.js';
+import { THROWABLES, THROW_ORDER } from '../shared/throwables.js';
 import { MAX_HP } from '../shared/game.js';
 import { DEG } from '../shared/util.js';
 
@@ -13,7 +14,7 @@ const $ = (id) => document.getElementById(id);
 export class HUD {
   constructor() {
     this.el = {};
-    for (const id of ['hud', 'crosshair', 'hitmark', 'dmgDirs', 'stormTint', 'hurtTint', 'compassStrip', 'aliveN', 'killN', 'minimap', 'zoneTxt', 'feed', 'banner', 'prompt',
+    for (const id of ['hud', 'crosshair', 'hitmark', 'dmgDirs', 'stormTint', 'hurtTint', 'flashTint', 'compassStrip', 'aliveN', 'killN', 'minimap', 'zoneTxt', 'feed', 'banner', 'prompt',
       'useBar', 'useFill', 'useTxt', 'stance', 'hpFill', 'hpLag', 'hpNum', 'magN', 'resN', 'wName', 'slots', 'reloadRing', 'debug', 'inv', 'invGround', 'invBag', 'invSlots',
       'invWeight', 'invWFill', 'bigmap', 'bigmapCv']) this.el[id] = $(id);
     this.cache = {};
@@ -65,15 +66,18 @@ export class HUD {
     if (this.cache.low !== low) { this.cache.low = low; this.el.hpFill.classList.toggle('low', low); }
     // ---- weapon ----
     const reserve = w.ammo ? (p.inv.items['ammo_' + w.ammo] || 0) : 0;
+    const thr = w.cat === 'throw';
     this.set('mag', this.el.magN, 'text', w.cat === 'melee' ? '—' : String(slot.mag));
-    this.set('res', this.el.resN, 'text', w.cat === 'melee' ? '' : '/ ' + reserve);
-    const lowMag = w.cat !== 'melee' && slot.mag <= Math.ceil(w.mag * 0.2);
+    this.set('res', this.el.resN, 'text', w.cat === 'melee' || thr ? '' : '/ ' + reserve);
+    const lowMag = w.cat !== 'melee' && !thr && slot.mag <= Math.ceil(w.mag * 0.2);
     if (this.cache.lowMag !== lowMag) { this.cache.lowMag = lowMag; this.el.magN.classList.toggle('low', lowMag); }
-    this.set('wn', this.el.wName, 'text', w.name + (w.ammo ? '  ·  ' + AMMO[w.ammo].short : '') + (w.mode === 'semi' ? '  ·  단발' : w.cat === 'melee' ? '' : '  ·  연사'));
+    this.set('wn', this.el.wName, 'text', thr ? (THROWABLES[slot.type] ? THROWABLES[slot.type].name : '') : w.name + (w.ammo ? '  ·  ' + AMMO[w.ammo].short : '') + (w.mode === 'semi' ? '  ·  단발' : w.cat === 'melee' ? '' : '  ·  연사'));
+    const tt = THROW_ORDER.filter((k) => p.inv.items[k] > 0);
+    const tLabel = tt.length ? THROWABLES[p.cur === 4 && p.throwType ? p.throwType : tt[0]].short + ' ' + tt.reduce((a, k) => a + p.inv.items[k], 0) : '—';
     const slotsHtml = [0, 1, 2, 3].map((i) => {
       const s = p.slots[i];
       return `<div class="${p.cur === i ? 'on' : ''}"><i>${i + 1}</i>${s ? WEAPONS[s.id].name.split(' ')[0] : '—'}</div>`;
-    }).join('');
+    }).join('') + `<div class="${p.cur === 4 ? 'on' : ''}"><i>5</i>${tLabel}</div>`;
     this.set('slots', this.el.slots, 'html', slotsHtml);
     const st = { stand: '서기', crouch: '앉기', prone: '엎드림' }[p.body.stance] + (p.body.sprinting ? ' · 달리기' : '');
     this.set('stance', this.el.stance, 'text', st);
@@ -103,6 +107,9 @@ export class HUD {
     if (out > 0) zt += ` · 안전구역까지 ${Math.ceil(out)}m`;
     this.set('zone', this.el.zoneTxt, 'text', zt);
     this.set('storm', this.el.stormTint, 'opacity', p.inStorm && p.alive ? '1' : '0');
+    // flashbang: white-out that fades as the blindness wears off
+    const fl = p.alive && p.blindT > 0 ? Math.min(1, p.blindT / 1.6) : 0;
+    this.set('flash', this.el.flashTint, 'opacity', fl.toFixed(2));
     // ---- crosshair spread ----
     const spreadDeg = m.spreadDeg(p, w);
     const px = Math.max(3, Math.tan(spreadDeg * DEG) / Math.tan((g.camera.fov * DEG) / 2) * (innerHeight / 2));

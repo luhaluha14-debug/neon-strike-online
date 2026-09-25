@@ -11,6 +11,7 @@ import { ITEMS, newInventory, invAdd, invTake, invCount, invRoomFor, rollLoot } 
 import { Zone } from './zone.js';
 import { BotBrain } from './ai.js';
 import { Plane, PLANE, stepAir } from './plane.js';
+import { THROWABLES, THROW_ORDER, throwLaunch, stepProjectile, smokeBlocks } from './throwables.js';
 
 export const TICK = 1 / 60;
 /** loot density: chance a spot has loot at all, and chances of extra item groups (by tier 0..3) */
@@ -113,6 +114,9 @@ export class Match {
     this.items = [];
     this.itemById = new Map();
     this.bullets = [];
+    this.projectiles = [];     // thrown grenades in flight / on the ground
+    this.smokes = [];          // {x,y,z,r,t}
+    this.fires = [];           // {x,y,z,r,t,owner}
     this.nextId = 1;
     this.difficulty = o.difficulty || 'normal';
     this.zone = new Zone(makeRng(this.seed ^ 0x9e3779b9), this.world.playLimit || this.world.half, o.zonePhases);
@@ -184,6 +188,7 @@ export class Match {
       lastHitBy: null, lastHitT: -99, lastShotT: -99, lastFootT: 0,
       autoPickup: true, autoT: 0, autoReload: true,
       buf: { jump: 0, crouch: 0, prone: 0, reload: 0 },
+      throwType: null, throwHold: false, throwLob: false, blindT: 0,
       cmd: emptyCommand()
     };
     p.aimYaw = p.yaw;
@@ -245,8 +250,39 @@ export class Match {
   }
 
   aliveCount() { let n = 0; for (const p of this.players) if (p.alive) n++; return n; }
-  weaponOf(p) { const s = p.slots[p.cur]; return s ? WEAPONS[s.id] : WEAPONS.fists; }
-  slotOf(p) { return p.slots[p.cur] || p.slots[3]; }
+  weaponOf(p) {
+    if (p.cur === 4) return WEAPONS.throw;
+    const s = p.slots[p.cur]; return s ? WEAPONS[s.id] : WEAPONS.fists;
+  }
+  slotOf(p) {
+    if (p.cur === 4) return { id: 'throw', type: p.throwType, mag: p.throwType ? invCount(p.inv, p.throwType) : 0 };
+    return p.slots[p.cur] || p.slots[3];
+  }
+  /** throwable types the player carries, in a fixed order */
+  throwTypes(p) { return THROW_ORDER.filter((k) => invCount(p.inv, k) > 0); }
+
+  /** slot 5: take a throwable in hand (press again to cycle types) */
+  selectThrow(p, want = null) {
+    const types = this.throwTypes(p);
+    if (!types.length) { this.emit({ t: 'deny', id: p.id, why: 'nothrow' }); return false; }
+    let type;
+    if (want && types.includes(want)) type = want;
+    else if (p.cur === 4 && p.throwType) type = types[(types.indexOf(p.throwType) + 1) % types.length];
+    else type = types.includes(p.throwType) ? p.throwType : types[0];
+    if (p.cur !== 4) { p.prevSlot = p.cur; p.switchT = WEAPONS.throw.equip; p.reloading = false; p.using = null; }
+    p.cur = 4; p.throwType = type; p.throwHold = false;
+    this.emit({ t: 'switch', id: p.id, w: 'throw', type });
+    return true;
+  }
+  /** after a throw / drop: keep a throwable in hand if possible, otherwise go back to a gun */
+  ensureThrowable(p) {
+    if (p.cur !== 4) return;
+    if (p.throwType && invCount(p.inv, p.throwType) > 0) return;
+    const types = this.throwTypes(p);
+    if (types.length) { p.throwType = types[0]; return; }
+    const back = [p.prevSlot, 0, 1, 2, 3].find((i) => i !== undefined && i < 4 && p.slots[i]);
+    this.switchTo(p, back ?? 3);
+  }
   eye(p) { return { x: p.body.pos.x, y: p.body.pos.y + eyeHeight(p.body), z: p.body.pos.z }; }
 
   /* ---------------- commands ---------------- */
@@ -257,7 +293,7 @@ export class Match {
     const prev = p.cmd;
     const merged = Object.assign({}, cmd);
     for (const k of EDGE_KEYS) merged[k] = cmd[k] || prev[k];
-    if (cmd.slot === undefined || cmd.slot < 0) merged.slot = prev.slot;
+    if (cmd.slot === undefined || cmd.slot < 0) { merged.slot = prev.slot; merged.throwType = prev.throwType; }
     if (!cmd.use) merged.use = prev.use;
     p.cmd = merged;
   }
@@ -277,6 +313,7 @@ export class Match {
     }
     this.separatePlayers();
     this.stepBullets(dt);
+    this.stepProjectiles(dt);
     // the storm clock starts once the plane has left the island
     const zev = this.plane && !this.plane.left && !this.plane.done ? null : this.zone.update(dt);
     if (zev) this.emit({ t: 'zone', ev: zev, phase: this.zone.phase });
@@ -334,7 +371,7 @@ export class Match {
       }
     }
     for (const k of EDGE_KEYS) c[k] = false;
-    c.slot = -1; c.use = null; c.cycle = 0;
+    c.slot = -1; c.use = null; c.cycle = 0; c.throwType = null;
   }
 
   stepPlayer(p, dt) {
@@ -368,13 +405,17 @@ export class Match {
     }
 
     // ---- weapon switch ----
-    if (c.slot !== undefined && c.slot >= 0 && c.slot !== p.cur && p.slots[c.slot]) this.switchTo(p, c.slot);
+    if (c.slot === 4) this.selectThrow(p, c.throwType || null);
+    else if (c.slot !== undefined && c.slot >= 0 && c.slot !== p.cur && p.slots[c.slot]) this.switchTo(p, c.slot);
     if (c.cycle) {
-      for (let k = 1; k <= 4; k++) {
-        const s = (p.cur + c.cycle * k + 8) % 4;
-        if (p.slots[s]) { this.switchTo(p, s); break; }
+      // the wheel goes through the four weapon slots and the throwable slot
+      const has = (i) => (i === 4 ? this.throwTypes(p).length > 0 : !!p.slots[i]);
+      for (let k = 1; k <= 5; k++) {
+        const s = (p.cur + c.cycle * k + 10) % 5;
+        if (has(s)) { if (s === 4) this.selectThrow(p); else this.switchTo(p, s); break; }
       }
     }
+    if (p.blindT > 0) p.blindT = Math.max(0, p.blindT - dt);
     if (p.switchT > 0) p.switchT -= dt;
 
     // ---- item use ----
@@ -412,7 +453,8 @@ export class Match {
     // ---- fire ----
     p.bloom -= p.bloom * Math.min(1, w.spread.bloomDecay * dt);
     p.fireCd = Math.max(p.fireCd - dt, -dt);
-    if (c.fire) this.tryFire(p, w);
+    if (w.cat === 'throw') this.updateThrow(p, c);
+    else if (c.fire) this.tryFire(p, w);
     else p.triggerHeld = false;
     // auto reload: an empty magazine reloads by itself as soon as it can
     // (not while healing; sprint / weapon swap simply delay it a few ticks)
@@ -431,7 +473,90 @@ export class Match {
 
     // consume edges
     for (const k of EDGE_KEYS) c[k] = false;
-    c.slot = -1; c.use = null; c.cycle = 0;
+    c.slot = -1; c.use = null; c.cycle = 0; c.throwType = null;
+  }
+
+  /* ---------------- throwables ---------------- */
+  /** hold fire = wind up (client shows the arc), release = throw; aim button = short lob */
+  updateThrow(p, c) {
+    if (p.switchT > 0 || p.fireCd > 0) { if (!c.fire) p.throwHold = false; return; }
+    if (c.fire) { p.throwHold = true; p.throwLob = !!c.ads; if (p.using) { p.using = null; this.emit({ t: 'useCancel', id: p.id }); } return; }
+    if (!p.throwHold) return;
+    p.throwHold = false;
+    const type = p.throwType;
+    if (!type || invTake(p.inv, type, 1) <= 0) { this.ensureThrowable(p); return; }
+    const L = throwLaunch(this.eye(p), p.aimYaw, p.aimPitch, p.throwLob, p.body.vel);
+    const g = { id: this.nextId++, type, owner: p.id, ...L, fuse: THROWABLES[type].fuse, rest: false, bounces: 0 };
+    this.projectiles.push(g);
+    p.fireCd = 0.9;
+    p.lastShotT = this.time;
+    this.emit({ t: 'throw', id: p.id, type, gid: g.id });
+    this.ensureThrowable(p);
+  }
+
+  stepProjectiles(dt) {
+    for (const g of this.projectiles) {
+      if (g.done) continue;
+      g.fuse -= dt;
+      const ev = stepProjectile(this.world, g, dt);
+      if (ev === 'hit') this.emit({ t: 'bounce', x: g.x, y: g.y, z: g.z, type: g.type });
+      if (g.fuse <= 0 || (ev === 'hit' && THROWABLES[g.type].impact)) this.detonate(g);
+    }
+    if (this.projectiles.some((g) => g.done)) this.projectiles = this.projectiles.filter((g) => !g.done);
+    for (const s of this.smokes) { s.t -= dt; s.r = Math.min(s.maxR, s.r + dt * 4); if (s.t < 3) s.r = Math.max(0, s.r - dt * 2.5); }
+    if (this.smokes.length && this.smokes[0].t <= 0) this.smokes = this.smokes.filter((s) => s.t > 0);
+    for (const f of this.fires) {
+      f.t -= dt;
+      const owner = this.byId.get(f.owner) || null;
+      for (const p of this.players) {
+        if (!p.alive || p.air) continue;
+        const dx = p.body.pos.x - f.x, dz = p.body.pos.z - f.z;
+        if (dx * dx + dz * dz < f.r * f.r && Math.abs(p.body.pos.y - f.y) < 1.6) this.damage(p, f.dps * dt, owner, 'molotov', null);
+      }
+    }
+    if (this.fires.length && this.fires.some((f) => f.t <= 0)) this.fires = this.fires.filter((f) => f.t > 0);
+  }
+
+  detonate(g) {
+    g.done = true;
+    const T = THROWABLES[g.type], owner = this.byId.get(g.owner) || null;
+    const x = g.x, y = g.y + 0.15, z = g.z;
+    this.emit({ t: 'detonate', type: g.type, x, y, z, gid: g.id });
+    if (g.type === 'frag') {
+      for (const p of this.players) {
+        if (!p.alive || p.air === 'plane') continue;
+        const c = { x: p.body.pos.x, y: p.body.pos.y + (p.body.stance === 'prone' ? 0.25 : 0.9), z: p.body.pos.z };
+        const d = Math.hypot(c.x - x, c.y - y, c.z - z);
+        if (d > T.radius) continue;
+        // walls and cover stop fragments
+        if (!this.world.lineClear(x, y + 0.2, z, c.x, c.y, c.z)) continue;
+        const k = Math.pow(1 - d / T.radius, 1.25);
+        this.damage(p, T.damage * k, owner, 'frag', { x: (c.x - x) / (d || 1), y: 0, z: (c.z - z) / (d || 1) }, 'torso', c);
+      }
+      if (this.onExplosion) this.onExplosion(x, y, z, T.radius, T.damage, owner);
+    } else if (g.type === 'smoke') {
+      this.smokes.push({ x, y: y + 1.2, z, r: 1, maxR: T.smokeR, t: T.smokeT });
+    } else if (g.type === 'flash') {
+      for (const p of this.players) {
+        if (!p.alive || p.air === 'plane') continue;
+        const e = this.eye(p);
+        const dx = x - e.x, dy = y - e.y, dz = z - e.z, d = Math.hypot(dx, dy, dz);
+        if (d > T.flashR || !this.world.lineClear(x, y + 0.1, z, e.x, e.y, e.z)) continue;
+        const cp = Math.cos(p.aimPitch);
+        const facing = (-Math.sin(p.aimYaw) * cp * dx + Math.sin(p.aimPitch) * dy - Math.cos(p.aimYaw) * cp * dz) / (d || 1);
+        const amount = T.blind * (1 - d / T.flashR) * (0.3 + 0.7 * Math.max(0, facing)) + (d < 4 ? 1.2 : 0);
+        if (amount > 0.3) { p.blindT = Math.max(p.blindT, amount); this.emit({ t: 'blind', id: p.id, amount }); }
+      }
+    } else if (g.type === 'molotov') {
+      const gy = this.world.supportHeight(x, z, 0.2, y + 0.3, 0);
+      this.fires.push({ x, y: gy, z, r: T.fireR, t: T.fireT, dps: T.dps, owner: g.owner });
+    }
+  }
+
+  /** line of sight for bots: world + smoke clouds */
+  sightClear(ax, ay, az, bx, by, bz) {
+    if (!this.world.lineClear(ax, ay, az, bx, by, bz)) return false;
+    return !smokeBlocks(this.smokes, ax, ay, az, bx, by, bz);
   }
 
   switchTo(p, slot) {
@@ -625,6 +750,7 @@ export class Match {
     });
     v.slots = [null, null, null, { id: 'fists', mag: 0 }];
     v.inv.items = {};
+    v.cur = 3; v.throwType = null; v.throwHold = false;
   }
 
   zoneDamage(dt) {
@@ -798,6 +924,7 @@ export class Match {
     if (n <= 0) return false;
     this.dropItem(key, n, p.body.pos.x, p.body.pos.y + 0.5, p.body.pos.z);
     if (p.using && p.using.key === key && invCount(p.inv, key) <= 0) p.using = null;
+    this.ensureThrowable(p);
     return true;
   }
 

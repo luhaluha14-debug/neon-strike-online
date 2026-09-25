@@ -5,36 +5,41 @@
      - a backpack of stackable items limited by total weight (capacity)
    ========================================================================= */
 import { AMMO, WEAPONS } from './weapons.js';
+import { THROWABLES } from './throwables.js';
 
 export const BASE_CAPACITY = 100;
 
 export const ITEMS = {};
 for (const k in AMMO) ITEMS['ammo_' + k] = { kind: 'ammo', ammo: k, name: AMMO[k].name, weight: AMMO[k].weight, stack: AMMO[k].stack, color: AMMO[k].color };
-for (const k in WEAPONS) if (k !== 'fists') ITEMS[k] = { kind: 'weapon', weapon: k, name: WEAPONS[k].name, weight: 0, color: '#d0d6dc' };
+for (const k in WEAPONS) if (k !== 'fists' && k !== 'throw') ITEMS[k] = { kind: 'weapon', weapon: k, name: WEAPONS[k].name, weight: 0, color: '#d0d6dc' };
 Object.assign(ITEMS, {
   bandage: { kind: 'heal', name: '압박붕대', weight: 2, stack: 3, useTime: 3.5, heal: 15, maxTo: 75, color: '#e8e2d2' },
-  medkit: { kind: 'heal', name: '구급 키트', weight: 10, stack: 1, useTime: 7, heal: 100, maxTo: 100, color: '#e05656' }
+  medkit: { kind: 'heal', name: '구급 키트', weight: 10, stack: 1, useTime: 7, heal: 100, maxTo: 100, color: '#e05656' },
+  fuel: { kind: 'fuel', name: '연료통', weight: 12, stack: 1, useTime: 4, fuel: 50, color: '#c9462e' }
 });
+for (const k in THROWABLES) ITEMS[k] = { kind: 'throw', name: THROWABLES[k].name, weight: k === 'flash' ? 3 : 4, stack: 2, color: THROWABLES[k].color };
 
 /* loot tables: weighted entries, each yields a list of [itemKey, count] */
 const T = (w, drops) => ({ w, drops });
 export const LOOT_TABLES = {
-  0: [T(30, [['ammo_light', 30]]), T(25, [['ammo_pistol', 30]]), T(20, [['bandage', 3]]), T(12, [['hornet', 1], ['ammo_pistol', 20]]), T(8, [['ammo_shell', 10]]), T(5, [['wasp', 1], ['ammo_pistol', 30]])],
+  0: [T(10, [['frag', 1]]), T(6, [['smoke', 1]]), T(5, [['molotov', 1]]), T(5, [['fuel', 1]]), T(30, [['ammo_light', 30]]), T(25, [['ammo_pistol', 30]]), T(20, [['bandage', 3]]), T(12, [['hornet', 1], ['ammo_pistol', 20]]), T(8, [['ammo_shell', 10]]), T(5, [['wasp', 1], ['ammo_pistol', 30]])],
   1: [
     T(16, [['kestrel', 1], ['ammo_light', 30], ['ammo_light', 30]]),
     T(14, [['wasp', 1], ['ammo_pistol', 30], ['ammo_pistol', 30]]),
     T(12, [['breaker', 1], ['ammo_shell', 10]]),
     T(12, [['hornet', 1], ['ammo_pistol', 20]]),
     T(18, [['ammo_light', 30]]), T(12, [['ammo_pistol', 30]]), T(6, [['ammo_shell', 10]]),
-    T(16, [['bandage', 3]]), T(5, [['medkit', 1]])
+    T(16, [['bandage', 3]]), T(5, [['medkit', 1]]),
+    T(12, [['frag', 2]]), T(7, [['smoke', 2]]), T(6, [['flash', 2]]), T(6, [['molotov', 1]]), T(6, [['fuel', 1]])
   ],
   2: [
     T(26, [['kestrel', 1], ['ammo_light', 30], ['ammo_light', 30]]),
     T(14, [['wasp', 1], ['ammo_pistol', 30], ['ammo_pistol', 30]]),
     T(10, [['breaker', 1], ['ammo_shell', 10]]),
-    T(16, [['ammo_light', 30]]), T(14, [['bandage', 3]]), T(10, [['medkit', 1]])
+    T(16, [['ammo_light', 30]]), T(14, [['bandage', 3]]), T(10, [['medkit', 1]]),
+    T(14, [['frag', 2]]), T(8, [['smoke', 2]]), T(7, [['flash', 2]]), T(7, [['molotov', 2]])
   ],
-  3: [T(30, [['kestrel', 1], ['ammo_light', 30], ['ammo_light', 30]]), T(20, [['medkit', 1]]), T(20, [['ammo_light', 30], ['bandage', 3]])]
+  3: [T(30, [['kestrel', 1], ['ammo_light', 30], ['ammo_light', 30]]), T(20, [['medkit', 1]]), T(20, [['ammo_light', 30], ['bandage', 3]]), T(15, [['frag', 2], ['smoke', 1]])]
 };
 
 export function rollLoot(rng, tier) {

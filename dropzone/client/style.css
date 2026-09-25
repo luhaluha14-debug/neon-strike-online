@@ -87,6 +87,7 @@ h2{font-size:26px;letter-spacing:.2em;margin-bottom:16px}
 #dmgDirs .dd{position:absolute;left:-60px;top:-60px;width:120px;height:120px;border-radius:50%;
   border-top:4px solid rgba(255,70,50,.85);transition:opacity .2s}
 #stormTint{inset:0;background:radial-gradient(ellipse at center,rgba(60,120,255,0) 40%,rgba(60,120,255,.42) 100%);opacity:0;transition:opacity .4s}
+#flashTint{inset:0;background:#fffdf4;opacity:0}
 #hurtTint{inset:0;background:radial-gradient(ellipse at center,rgba(200,20,10,0) 45%,rgba(200,20,10,.55) 100%);opacity:0}
 
 #compass{top:10px;left:50%;width:min(460px,60vw);height:26px;transform:translateX(-50%);overflow:hidden;
@@ -134,7 +135,7 @@ h2{font-size:26px;letter-spacing:.2em;margin-bottom:16px}
 #ammoLine span{font-size:16px;color:#b7c6d4;margin-left:4px}
 #wName{font-size:12px;letter-spacing:.16em;color:#c9d6e2}
 #slots{display:flex;gap:4px;justify-content:flex-end;margin-top:6px}
-#slots div{min-width:62px;padding:3px 6px;background:rgba(12,17,23,.55);border-radius:4px;font-size:10px;color:#8ea2b5;text-align:center;border:1px solid transparent}
+#slots div{min-width:44px;padding:3px 5px;background:rgba(12,17,23,.55);border-radius:4px;font-size:10px;color:#8ea2b5;text-align:center;border:1px solid transparent}
 #slots div.on{border-color:var(--acc);color:#fff}
 #slots div i{font-style:normal;color:var(--acc);margin-right:4px}
 #reloadRing{left:50%;top:50%;width:40px;height:40px;transform:translate(-50%,-50%);opacity:0}

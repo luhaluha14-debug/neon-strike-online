@@ -169,6 +169,60 @@ export class FX {
     const s = 0.7 + Math.random() * 0.6; m.scale.set(s, s, s);
   }
 
+  /* ---------------- throwables ---------------- */
+  explosion(x, y, z) {
+    this.emit(x, y + 0.3, z, 26, 1, 0.62, 0.2, 9, 0.35, 0.35, 2, 1, 0.6, 1.5);      // fireball
+    this.emit(x, y + 0.5, z, 18, 0.28, 0.27, 0.26, 3.5, 2.2, 0.6, -0.4, 1, 0.7, 1.6); // smoke
+    this.emit(x, y + 0.2, z, 14, 1, 0.85, 0.5, 14, 0.5, 0.04, 9, 1, 0.5);            // sparks
+    this.emit(x, y + 0.1, z, 10, 0.4, 0.34, 0.26, 5, 0.9, 0.12, 8, 1, 0.9);           // dirt
+    if (this.q.effects >= 1) { this.flashLight.position.set(x, y + 1, z); this.flashLight.intensity = 90; this.flashLight.distance = 25; this.lightLife = 0.14; }
+    const m = this.decals[this.di]; this.di = (this.di + 1) % this.decals.length;
+    m.visible = true; m.position.set(x, y - 0.13, z); m.quaternion.setFromUnitVectors(this.up, this.tmpN.set(0, 1, 0)); m.scale.setScalar(26);
+  }
+  fireTick(x, y, z, r) {
+    for (let i = 0; i < (this.q.effects ? 3 : 1); i++) {
+      const a = Math.random() * 6.28, d = Math.sqrt(Math.random()) * r;
+      const p = this.parts[this.pi]; this.pi = (this.pi + 1) % this.PN;
+      p.life = p.max = 0.5 + Math.random() * 0.4;
+      p.x = x + Math.cos(a) * d; p.y = y + 0.1; p.z = z + Math.sin(a) * d;
+      p.vx = (Math.random() - 0.5) * 0.6; p.vy = 1.6 + Math.random() * 1.5; p.vz = (Math.random() - 0.5) * 0.6;
+      p.g = -1; p.s = 0.35 + Math.random() * 0.3; p.r = 1; p.gg = 0.45 + Math.random() * 0.3; p.b = 0.12; p.grow = -0.3;
+    }
+    if (Math.random() < 0.2) this.emit(x, y + 1.2, z, 1, 0.2, 0.2, 0.2, 0.6, 2, 0.8, -0.5, 1, 0.8, 0.8);
+  }
+
+  /** big soft sprites for smoke clouds, kept in sync with the sim's smoke list */
+  syncSmoke(smokes) {
+    if (!this.smokePool) {
+      this.smokeTex = this.smokeTex || dotTexture();
+      this.smokePool = [];
+      for (let i = 0; i < 72; i++) {
+        const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.smokeTex, color: 0xc8ccce, transparent: true, depthWrite: false, opacity: 0 }));
+        sp.visible = false; this.scene.add(sp); this.smokePool.push(sp);
+      }
+      this.smokeMap = new Map();
+    }
+    const seen = new Set();
+    let used = 0;
+    for (const sm of smokes) {
+      seen.add(sm);
+      let cl = this.smokeMap.get(sm);
+      if (!cl) { cl = []; for (let k = 0; k < 12; k++) cl.push({ ox: Math.random() * 2 - 1, oy: Math.random() * 0.9 - 0.2, oz: Math.random() * 2 - 1, s: 0.7 + Math.random() * 0.5, rot: Math.random() * 6 }); this.smokeMap.set(sm, cl); }
+      const fade = Math.min(1, sm.t / 3);
+      for (const c of cl) {
+        const sp = this.smokePool[used++];
+        if (!sp) break;
+        sp.visible = true;
+        sp.position.set(sm.x + c.ox * sm.r * 0.7, sm.y + c.oy * sm.r * 0.6, sm.z + c.oz * sm.r * 0.7);
+        const sc = sm.r * 1.25 * c.s; sp.scale.set(sc, sc, sc);
+        sp.material.opacity = 0.92 * fade;
+        sp.material.rotation = c.rot;
+      }
+    }
+    for (let i = used; i < this.smokePool.length; i++) this.smokePool[i].visible = false;
+    for (const k of this.smokeMap.keys()) if (!seen.has(k)) this.smokeMap.delete(k);
+  }
+
   /** clear everything left over from the previous match */
   reset() {
     for (const t of this.tracers) t.visible = false;
@@ -176,12 +230,13 @@ export class FX {
     for (const p of this.parts) p.life = 0;
     for (const d of this.decals) d.visible = false;
     this.lightLife = 0; this.flashLight.intensity = 0;
+    if (this.smokePool) this.syncSmoke([]);
     this.update(0);
   }
 
   update(dt) {
     for (const f of this.flashes) if (f.life > 0) { f.life -= dt; if (f.life <= 0) f.s.visible = false; }
-    if (this.lightLife > 0) { this.lightLife -= dt; if (this.lightLife <= 0) this.flashLight.intensity = 0; }
+    if (this.lightLife > 0) { this.lightLife -= dt; if (this.lightLife <= 0) { this.flashLight.intensity = 0; this.flashLight.distance = 9; } }
     const P = this.pPos, C = this.pCol, S = this.pSize;
     for (let i = 0; i < this.PN; i++) {
       const p = this.parts[i];

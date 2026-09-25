@@ -12,6 +12,7 @@ import { NavGrid } from '../shared/nav.js';
 import { Match, TICK, rayHitPlayer, emptyCommand } from '../shared/game.js';
 import { WEAPONS } from '../shared/weapons.js';
 import { ITEMS, invCount } from '../shared/items.js';
+import { THROWABLES, throwLaunch, predictThrow } from '../shared/throwables.js';
 import { eyeHeight } from '../shared/movement.js';
 import { anglesFromDir, lerp, wrapAngle } from '../shared/util.js';
 import { loadSettings, saveSettings, defaults, gfx, ACTIONS, DEFAULT_KEYS, keyLabel } from './settings.js';
@@ -20,7 +21,7 @@ import { TouchControls, isTouchDevice } from './touch.js';
 import { Audio } from './audio.js';
 import { WorldView } from './render/world-view.js';
 import { FX } from './render/fx.js';
-import { Soldier, itemGeometry, MUZZLE, planeGeometry, propGeometry, SOLDIER_MAT } from './render/models.js';
+import { Soldier, itemGeometry, weaponGeometry, MUZZLE, planeGeometry, propGeometry, SOLDIER_MAT } from './render/models.js';
 import { ViewModel } from './render/viewmodel.js';
 import { CameraRig } from './camera.js';
 import { HUD } from './hud.js';
@@ -28,6 +29,8 @@ import { DevTools } from './debug.js';
 
 const $ = (id) => document.getElementById(id);
 const MODEL = { kestrel: 'rifle', wasp: 'smg', breaker: 'shotgun', hornet: 'pistol', fists: 'none' };
+/** model shown in hand for a slot (throwables use their own grenade model) */
+function modelFor(sl) { return !sl ? null : sl.id === 'throw' ? (sl.type ? 'g_' + sl.type : 'none') : MODEL[sl.id]; }
 const LOCAL_ID = 1;
 
 /* ======================================================================= */
@@ -449,6 +452,13 @@ class Session {
     }
     this.syncItems();
     this.marker = null;                 // destination picked on the full map
+    this.nadeMeshes = new Map();
+    this.arc = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 0.35, gapSize: 0.25, transparent: true, opacity: 0.85, depthTest: false }));
+    this.arc.frustumCulled = false; this.arc.renderOrder = 60; this.arc.visible = false;
+    this.arcEnd = new THREE.Mesh(new THREE.RingGeometry(0.35, 0.5, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffd24a, transparent: true, opacity: 0.9, depthTest: false }));
+    this.arcEnd.renderOrder = 61; this.arcEnd.visible = false;
+    app.scene.add(this.arc, this.arcEnd);
+    this.nadeMat = new THREE.MeshLambertMaterial({ vertexColors: true });
     if (this.match.plane) {
       const pm = new THREE.Group();
       const body = new THREE.Mesh(planeGeometry(), SOLDIER_MAT);
@@ -495,6 +505,8 @@ class Session {
     for (const s of this.soldiers.values()) sc.remove(s.root);
     sc.remove(this.itemGroup);
     if (this.planeMesh) sc.remove(this.planeMesh);
+    sc.remove(this.arc, this.arcEnd);
+    for (const mm of this.nadeMeshes.values()) sc.remove(mm);
     this.app.audio.setFlightSounds(1e9, false, 0);
     this.fx.reset();
     if (this.gyroHandler) removeEventListener('deviceorientation', this.gyroHandler);
@@ -587,8 +599,7 @@ class Session {
     c.prone = input.consume('prone');
     c.reload = input.consume('reload');
     c.interact = input.consume('interact');
-    for (let i = 0; i < 4; i++) if (input.consume('slot' + (i + 1))) c.slot = i;
-    input.consume('slot5');
+    for (let i = 0; i < 5; i++) if (input.consume('slot' + (i + 1))) c.slot = i;
     if (input.consume('nextWeapon')) c.cycle = 1;
     if (input.consume('prevWeapon')) c.cycle = -1;
     if (input.consume('heal')) {
@@ -692,7 +703,7 @@ class Session {
       case 'kill': {
         const v = m.byId.get(e.id), k = e.by !== null ? m.byId.get(e.by) : null;
         const nm = (p) => `<b class="${p === me ? 'me' : ''}">${escapeHtml(p.name)}</b>`;
-        const how = e.cause === 'zone' ? '자기장' : e.cause === 'fall' ? '낙하' : (WEAPONS[e.cause] ? WEAPONS[e.cause].name : e.cause);
+        const how = e.cause === 'zone' ? '자기장' : e.cause === 'fall' ? '낙하' : THROWABLES[e.cause] ? THROWABLES[e.cause].name : (WEAPONS[e.cause] ? WEAPONS[e.cause].name : e.cause);
         hud.feed(k && k !== v ? `${nm(k)}<span class="w">${how}${e.head ? ' ✦' : ''}</span>${nm(v)}` : `${nm(v)}<span class="w">${how}</span>`);
         if (k === me && v !== me) hud.banner(`${v.name} 처치${e.head ? ' · 헤드샷' : ''}`, '', 1.8);
         if (isMe) this.onDeath(k);
@@ -704,7 +715,7 @@ class Session {
       case 'dry': if (isMe) A.dry(); break;
       case 'noAmmo': if (isMe) { hud.banner('탄약이 없습니다', '', 1.4); A.ui('deny'); } break;
       case 'pickup': if (isMe) { A.pickup(); const it = ITEMS[e.key]; hud.prompt(null); if (it) this.toast(`${it.name}${e.n > 1 ? ' ×' + e.n : ''} 획득`); } this.itemsDirty = true; break;
-      case 'deny': if (isMe) { A.ui('deny'); hud.banner(e.why === 'full' ? '가방이 가득 찼습니다' : e.why === 'hpfull' ? '더 회복할 수 없습니다' : '사용할 수 없습니다', '', 1.4); } break;
+      case 'deny': if (isMe) { A.ui('deny'); hud.banner(e.why === 'full' ? '가방이 가득 찼습니다' : e.why === 'hpfull' ? '더 회복할 수 없습니다' : e.why === 'nothrow' ? '투척물이 없습니다' : '사용할 수 없습니다', '', 1.4); } break;
       case 'healed': if (isMe) A.heal(); break;
       case 'land': {
         const p = m.byId.get(e.id);
@@ -723,7 +734,17 @@ class Session {
         if (e.ev === 'enter' && me.air === 'plane') hud.banner('섬 상공입니다 · 원하는 곳에서 뛰어내리세요', 'zone', 3);
         if (e.ev === 'leave') hud.banner('수송기가 섬을 벗어났습니다 · 자기장 시간이 흐르기 시작합니다', 'zone', 3);
         break;
-      case 'jumpOut': if (isMe) A.jumpOut(); break;
+      case 'throw': { const p = m.byId.get(e.id); if (p && (isMe || this.near(e.id, 25))) A.throwWhoosh(p.body.pos, isMe); if (isMe) this.vm.shot(WEAPONS.throw); break; }
+      case 'bounce': A.clink(e); break;
+      case 'detonate': {
+        const d = Math.hypot(e.x - me.body.pos.x, e.y - me.body.pos.y, e.z - me.body.pos.z);
+        if (e.type === 'frag') { this.fx.explosion(e.x, e.y, e.z); A.explosion(e); if (d < 40) this.rig.addShake(Math.min(1.1, 9 / Math.max(3, d))); }
+        else if (e.type === 'flash') { this.fx.emit(e.x, e.y, e.z, 12, 1, 1, 0.95, 6, 0.25, 0.25, 0, 1, 0.5); A.flashBang(e); }
+        else if (e.type === 'smoke') A.smokePop(e);
+        else if (e.type === 'molotov') { this.fx.emit(e.x, e.y + 0.2, e.z, 20, 1, 0.55, 0.15, 5, 0.6, 0.3, 1, 1, 0.8, 1); A.fireBurst(e); }
+        break;
+      }
+      case 'blind': if (isMe) { A.ringing(Math.min(4, e.amount)); this.blindMax = Math.max(e.amount, 0.5); } break;
       case 'chute': if (isMe || this.near(e.id, 60)) A.chuteOpen(); break;
       case 'landed': {
         const p = m.byId.get(e.id);
@@ -840,7 +861,8 @@ class Session {
       if (it) m.pickup(me, it);
     } else if (el.dataset.b) {
       const key = el.dataset.b;
-      if (alt || ITEMS[key].kind !== 'heal') m.requestDrop(me.id, key, alt ? me.inv.items[key] : Math.min(me.inv.items[key], ITEMS[key].stack || 1));
+      if (!alt && ITEMS[key].kind === 'throw') { m.setCommand(me.id, Object.assign(emptyCommand(), { slot: 4, throwType: key, yaw: this.rig.yaw, pitch: this.rig.pitch })); this.toggleInventory(false); }
+      else if (alt || ITEMS[key].kind !== 'heal') m.requestDrop(me.id, key, alt ? me.inv.items[key] : Math.min(me.inv.items[key], ITEMS[key].stack || 1));
       else { m.setCommand(me.id, Object.assign(emptyCommand(), { use: key, yaw: this.rig.yaw, pitch: this.rig.pitch })); this.toggleInventory(false); }
     } else if (el.dataset.s !== undefined) {
       if (alt) m.requestDrop(me.id, 'slot' + el.dataset.s, 1);
@@ -924,7 +946,7 @@ class Session {
       s.root.position.set(x, y, z);
       s.root.rotation.y = p === me && me.alive ? this.rig.yaw : pp.yaw + wrapAngle(p.yaw - pp.yaw) * alpha;
       const sl = p.alive ? m.slotOf(p) : null;
-      s.setWeapon(sl ? MODEL[sl.id] : null);
+      s.setWeapon(modelFor(sl));
       const vx = p.body.vel.x, vz = p.body.vel.z;
       s.kickT = Math.max(0, (s.kickT || 0) - dt * 12);
       s.animate({
@@ -945,6 +967,7 @@ class Session {
       if (mesh.scale.x !== sc) { mesh.scale.setScalar(sc); mesh.updateMatrix(); }
     }
     if (me.alive && me.air) this.hud.prompt(this.airPrompt());
+    else if (me.alive && me.cur === 4 && !target && !(this.toastT > 0)) this.hud.prompt(me.throwHold ? '놓으면 던지기 · 조준 버튼을 누르면 짧게 던지기' : `<kbd>${app.touch ? '발사' : keyLabel(app.settings.keys.fire[0])}</kbd>누르고 조준 → 놓으면 던지기 · 5번: 종류 바꾸기`);
     else if (this.toastT > 0) this.toastT -= dt;
     else if (target && !this.uiOpen) {
       const def = ITEMS[target.key];
@@ -953,6 +976,8 @@ class Session {
       this.hud.prompt(`<kbd>${key}</kbd>${escapeHtml(def.name)}${extra}`);
     } else this.hud.prompt(null);
     if (app.touch) { app.touchUI.setEnabled('interact', !!target); app.touchUI.setState('ads', app.input.adsToggled); }
+
+    this.renderThrowables(dt, me);
 
     // ---- effects ----
     this.fx.renderBullets(m.bullets, alpha, TICK, cp);
@@ -969,8 +994,8 @@ class Session {
     app.renderer.render(app.scene, this.camera);
     if (this.rig.mode === 'fps' && focus === me && me.alive) {
       const sl = m.slotOf(me);
-      this.vm.setWeapon(MODEL[sl.id]);
-      this.vm.update(dt, { ads: this.adsBlend, speed: me.body.moveSpeed, onGround: me.body.onGround, reloading: me.reloading, sprint: me.body.sprinting, aspect: this.camera.aspect });
+      this.vm.setWeapon(modelFor(sl));
+      this.vm.update(dt, { windUp: me.cur === 4 && me.throwHold, ads: this.adsBlend, speed: me.body.moveSpeed, onGround: me.body.onGround, reloading: me.reloading, sprint: me.body.sprinting, aspect: this.camera.aspect });
       this.vm.cam.fov = 62 / (1 + (w.zoom - 1) * this.adsBlend * 0.5);
       app.renderer.clearDepth();
       app.renderer.render(this.vm.scene, this.vm.cam);
@@ -978,6 +1003,39 @@ class Session {
     // ---- HUD ----
     this.hud.update(dt, this);
     if (this.mapOpen) { this.showAllOnMap = app.dev && app.dev.flags.map; this.hud.drawBigMap(this); }
+  }
+
+  renderThrowables(dt, me) {
+    const m = this.match, sc = this.app.scene;
+    // grenades in flight / on the ground
+    const seen = new Set();
+    for (const g of m.projectiles) {
+      seen.add(g.id);
+      let mesh = this.nadeMeshes.get(g.id);
+      if (!mesh) { mesh = new THREE.Mesh(weaponGeometry('g_' + g.type), this.nadeMat); mesh.scale.setScalar(1.5); sc.add(mesh); this.nadeMeshes.set(g.id, mesh); }
+      mesh.position.set(g.x, g.y, g.z);
+      if (!g.rest) { mesh.rotation.x += dt * 9; mesh.rotation.z += dt * 5; }
+    }
+    for (const [id, mesh] of this.nadeMeshes) if (!seen.has(id)) { sc.remove(mesh); this.nadeMeshes.delete(id); }
+    // smoke clouds + burning ground
+    this.fx.syncSmoke(m.smokes);
+    for (const f of m.fires) { this.fx.fireTick(f.x, f.y, f.z, f.r); if (Math.random() < dt * 6) this.app.audio.crackle(f); }
+    // trajectory preview while winding up a throw
+    const show = me.alive && !me.air && me.cur === 4 && me.throwHold && this.state === 'playing';
+    this.arc.visible = this.arcEnd.visible = show;
+    if (show) {
+      const L = throwLaunch(m.eye(me), me.aimYaw, me.aimPitch, this.app.input.ads, me.body.vel);
+      const T = THROWABLES[me.throwType];
+      const pts = predictThrow(this.world, { ...L, stopOnHit: !!(T && T.impact) }, T && !T.impact ? Math.min(3, T.fuse) : 3);
+      const arr = new Float32Array(pts.length * 3);
+      pts.forEach((p, i) => { arr[i * 3] = p.x; arr[i * 3 + 1] = p.y; arr[i * 3 + 2] = p.z; });
+      const g = this.arc.geometry;
+      g.setAttribute('position', new THREE.BufferAttribute(arr, 3));
+      g.setDrawRange(0, pts.length);
+      this.arc.computeLineDistances();
+      const e = pts[pts.length - 1];
+      this.arcEnd.position.set(e.x, e.y + 0.03, e.z);
+    }
   }
 
   airPrompt() {

@@ -7,6 +7,7 @@
 import { clamp, wrapAngle, DEG, anglesFromDir } from './util.js';
 import { WEAPONS } from './weapons.js';
 import { ITEMS, invCount } from './items.js';
+import { solvePitch, THROW_SPEED } from './throwables.js';
 import { eyeHeight } from './movement.js';
 
 export const BOT_DIFF = {
@@ -58,13 +59,14 @@ export class BotBrain {
     if (d > 10 && o.body.moveSpeed < 1.5 && o.body.stance !== 'stand' && m.world.inBush(ox, oz, o.body.pos.y + 0.8)) return false;
     // line of sight to head or chest
     const hy = o.body.pos.y + (o.body.stance === 'stand' ? 1.55 : o.body.stance === 'crouch' ? 1.0 : 0.3);
-    if (m.world.lineClear(ex, ey, ez, ox, hy, oz)) return true;
+    if (m.sightClear(ex, ey, ez, ox, hy, oz)) return true;
     const cy = o.body.pos.y + (o.body.stance === 'prone' ? 0.25 : 0.9);
-    return m.world.lineClear(ex, ey, ez, ox, cy, oz);
+    return m.sightClear(ex, ey, ez, ox, cy, oz);
   }
 
   perceive() {
     const p = this.p, m = this.m;
+    if (p.blindT > 0.4) return;                  // flashed: can't see anything
     let best = null, bestD = Infinity;
     for (const o of m.players) {
       if (o === p || !o.alive || o.air === 'plane') continue;
@@ -145,6 +147,7 @@ export class BotBrain {
       return 0;
     }
     if (def.kind === 'heal') return invCount(p.inv, it.key) < (it.key === 'medkit' ? 1 : 5) ? 1.5 : 0;
+    if (it.key === 'frag') return invCount(p.inv, 'frag') < 2 ? 1 : 0;
     return 0;
   }
   needsLoot() {
@@ -308,6 +311,8 @@ export class BotBrain {
     const rec = Math.min(1, w.recoil.recover * dt);
     this.recP -= this.recP * rec; this.recY -= this.recY * rec;
 
+    if (this.throwPlan && this.runThrow(dt)) return;
+
     let moveDir = null, wantYaw = this.lookYaw, wantPitch = 0, turnMul = 0.6;
     const tgt = this.target;
     const seeing = tgt && tgt.alive && m.time - this.seenT < 0.35;
@@ -426,6 +431,10 @@ export class BotBrain {
       }
     }
 
+    // ---- get away from live grenades and fire ----
+    const danger = this.dangerNear();
+    if (danger) { moveDir = danger; c.sprint = true; if (p.body.stance !== 'stand') c.crouch = p.body.stance === 'crouch'; }
+
     // ---- turn toward wanted angles (bounded turn rate) ----
     const turn = this.d.turn * turnMul * dt;
     const tyaw = wantYaw + (this.state === 'ENGAGE' ? this.errY : 0);
@@ -450,6 +459,63 @@ export class BotBrain {
       c.right = mx * cy + mz * -sy;
       if (c.fwd < 0.55) c.sprint = false;
     } else { this.progressT = 0; }
+  }
+
+  /** direction away from a nearby frag / fire, or null */
+  dangerNear() {
+    const p = this.p, m = this.m;
+    let ax = 0, az = 0, hit = false;
+    for (const g of m.projectiles) {
+      if (g.type !== 'frag' || g.fuse > 2.6) continue;
+      const dx = p.body.pos.x - g.x, dz = p.body.pos.z - g.z, d = Math.hypot(dx, dz);
+      if (d < 8.5) { ax += dx / (d || 1); az += dz / (d || 1); hit = true; }
+    }
+    for (const f of m.fires) {
+      const dx = p.body.pos.x - f.x, dz = p.body.pos.z - f.z, d = Math.hypot(dx, dz);
+      if (d < f.r + 1.5) { ax += dx / (d || 1); az += dz / (d || 1); hit = true; }
+    }
+    if (!hit) return null;
+    const l = Math.hypot(ax, az) || 1;
+    return { x: ax / l, z: az / l };
+  }
+
+  /** consider lobbing a frag at an enemy hiding behind cover */
+  maybeThrow() {
+    const p = this.p, m = this.m;
+    if (!this.lastKnown || (this.throwCd || 0) > m.time || invCount(p.inv, 'frag') <= 0) return;
+    const d = Math.hypot(this.lastKnown.x - p.body.pos.x, this.lastKnown.z - p.body.pos.z);
+    if (d < 8 || d > 32) return;
+    const hidden = m.time - this.seenT > 0.8;
+    if (Math.random() > (hidden ? 0.5 : 0.12) * (0.4 + this.d.strafe * 0.6)) return;
+    this.throwPlan = { x: this.lastKnown.x, y: this.lastKnown.y, z: this.lastKnown.z, t: 0, phase: 'select' };
+    this.throwCd = m.time + 9 + Math.random() * 6;
+  }
+
+  /** drives the throw through the normal command path; returns true while busy */
+  runThrow(dt) {
+    const p = this.p, m = this.m, c = p.cmd, T = this.throwPlan;
+    T.t += dt;
+    if (T.t > 3.5 || invCount(p.inv, 'frag') <= 0 && T.phase !== 'release') { this.throwPlan = null; return false; }
+    const e = m.eye(p);
+    const dx = T.x - e.x, dz = T.z - e.z, hd = Math.hypot(dx, dz);
+    const yaw = Math.atan2(-dx, -dz);
+    const pitch = solvePitch(hd, T.y + 0.3 - e.y, THROW_SPEED.far) ?? 0.6;
+    c.yaw = c.aimYaw = yaw; c.pitch = c.aimPitch = Math.min(1.2, pitch - 0.04);
+    this.aimYaw = yaw; this.aimPitch = c.pitch;
+    c.fwd = 0; c.right = 0; c.sprint = false; c.ads = false;
+    if (T.phase === 'select') {
+      if (p.cur !== 4 || p.throwType !== 'frag') { c.slot = 4; c.throwType = 'frag'; }
+      else if (p.switchT <= 0) { T.phase = 'wind'; T.w = 0; }
+      c.fire = false;
+    } else if (T.phase === 'wind') {
+      c.fire = true; T.w += dt;
+      if (T.w > 0.25) T.phase = 'release';
+    } else {
+      c.fire = false;
+      this.throwPlan = null;
+      this.lastShots = p.shots;
+    }
+    return true;
   }
 
   unstick(dt, moving) {
@@ -514,6 +580,7 @@ export class BotBrain {
       if (m.time - this.seenT > 5 && ready) this.state = 'ROAM';
       return;
     }
+    if ((this.state === 'ENGAGE' || this.state === 'CHASE') && !this.throwPlan) this.maybeThrow();
     if (seeing) {
       const dist = Math.hypot(tgt.body.pos.x - p.body.pos.x, tgt.body.pos.z - p.body.pos.z);
       const shotAt = m.time - this.awareT < 3;
