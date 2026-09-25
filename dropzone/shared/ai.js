@@ -161,6 +161,9 @@ export class BotBrain {
       if (this.ignoreItems.has(it.id)) continue;
       const d = Math.hypot(it.x - p.body.pos.x, it.z - p.body.pos.z);
       if (d > maxD || Math.abs(it.y - p.body.pos.y) > 2.5) continue;    // bots stay on their level
+      // the nav grid is ground floor only: skip items on steps, crates, upper floors
+      const k = this.m.nav.index(it.x, it.z);
+      if (k < 0 || Math.abs(it.y - this.m.nav.floorY[k]) > 0.3) continue;
       const v = this.itemValue(it);
       if (v <= 0) continue;
       if (!this.m.zone.isInside(it.x, it.z, -5) && this.m.zone.stage === 'shrink') continue;
@@ -263,6 +266,7 @@ export class BotBrain {
     const h = p.body.pos.y - m.world.groundAt(p.body.pos.x, p.body.pos.z);
     if (p.air === 'fall') {
       c.fwd = d > 6 ? 1 : 0;
+      if (d > 150) c.jump = true;                  // far target: open the chute early and glide
       c.pitch = d < h * 0.45 ? -1.2 : 0;           // close enough: dive, otherwise glide
     } else {
       c.fwd = d > 3 ? 1 : 0;

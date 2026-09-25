@@ -3,12 +3,12 @@
    ========================================================================= */
 
 export const ZONE_PHASES = [
-  { wait: 70, shrink: 45, r: 92, dps: 1 },
-  { wait: 50, shrink: 35, r: 55, dps: 2 },
-  { wait: 40, shrink: 30, r: 30, dps: 4 },
-  { wait: 30, shrink: 25, r: 14, dps: 7 },
-  { wait: 22, shrink: 20, r: 5, dps: 11 },
-  { wait: 15, shrink: 18, r: 0, dps: 18 }
+  { wait: 90, shrink: 60, r: 180, dps: 1 },
+  { wait: 60, shrink: 45, r: 105, dps: 2 },
+  { wait: 50, shrink: 40, r: 56, dps: 4 },
+  { wait: 40, shrink: 30, r: 27, dps: 7 },
+  { wait: 30, shrink: 25, r: 10, dps: 11 },
+  { wait: 20, shrink: 20, r: 0, dps: 18 }
 ];
 
 export class Zone {

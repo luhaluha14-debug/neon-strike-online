@@ -81,7 +81,7 @@ export class World {
     // sample terrain at the footprint corners too so we don't sink on slopes
     const lim = feetY + maxStep;
     this.forBoxesIn(x - r, z - r, x + r, z + r, (b) => {
-      if (b.passable) return;
+      if (b.passable || b.noStand) return;          // e.g. tree trunks: nobody stands on those
       if (b.maxY <= lim && b.maxY > best) best = b.maxY;
     });
     return best;

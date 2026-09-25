@@ -9,15 +9,15 @@ import { clamp } from './util.js';
 import { MOVE } from './movement.js';
 
 export const PLANE = {
-  speed: 15,            // m/s  (a pass over the island takes ~25 s)
-  alt: 175,             // flight altitude (m)
-  fallGlide: 19,        // max horizontal speed in free fall, level body
-  fallDiveGlide: 11,    // ... when diving straight down
+  speed: 22,            // m/s  (a pass over the island takes ~40 s)
+  alt: 190,             // flight altitude (m)
+  fallGlide: 26,        // max horizontal speed in free fall, level body
+  fallDiveGlide: 14,    // ... when diving straight down
   fallVy: 30,           // sink speed, level body
   fallDiveVy: 56,       // sink speed, full dive
   chuteAuto: 55,        // parachute opens automatically this high above the ground
   chuteMinManual: 20,   // can't open it lower than this by hand (it's already open by then)
-  chuteGlide: 9.5,
+  chuteGlide: 12,
   chuteVy: 5.5, chuteVyFast: 7.5, chuteVySlow: 4.2
 };
 
@@ -98,6 +98,16 @@ export function stepAir(world, b, input, dt, mode) {
   if (ny <= ground) {
     ev.landed = -b.vel.y;
     b.pos.y = ground;
+    // touched down against a tree / wall: slide out to the nearest free spot
+    if (world.overlaps(b.pos.x, b.pos.z, R, ground + 0.05, ground + H)) {
+      search: for (let rr = 0.3; rr <= 2.4; rr += 0.3) {
+        for (let k = 0; k < 12; k++) {
+          const a = (k / 12) * Math.PI * 2, x = b.pos.x + Math.cos(a) * rr, z = b.pos.z + Math.sin(a) * rr;
+          const g2 = world.supportHeight(x, z, R * 0.8, ground + 0.5, 0);
+          if (!world.overlaps(x, z, R, g2 + 0.05, g2 + H)) { b.pos.x = x; b.pos.z = z; b.pos.y = g2; break search; }
+        }
+      }
+    }
     b.vel.y = 0; b.vel.x *= 0.4; b.vel.z *= 0.4;
     b.onGround = true;
     b.stance = 'stand'; b.stanceLock = 0; b.airTime = 0;

@@ -372,6 +372,8 @@ test('transport plane: everyone boards, jumps, parachutes and lands; human steer
       const dx = target.x - me.body.pos.x, dz = target.z - me.body.pos.z;
       c.yaw = Math.atan2(-dx, -dz);
       c.fwd = Math.hypot(dx, dz) > 3 ? 1 : 0;
+      // far away: open the parachute high up and glide (long-range drop technique)
+      if (me.air === 'fall' && Math.hypot(dx, dz) > 150) c.jump = true;
       if (me.air === 'chute') sawChute = true;
     }
     tick(m, c);

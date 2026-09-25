@@ -189,7 +189,7 @@ export class HUD {
   drawMinimap(g) {
     const cv = this.el.minimap, ctx = this.mm;
     const S = cv.width, p = g.me, m = g.match;
-    const range = 70;                                  // metres from centre to edge
+    const range = 90;                                  // metres from centre to edge
     const k = (S / 2) / range;
     const cx = p.body.pos.x, cz = p.body.pos.z;
     const heading = g.rig.yaw + g.rig.freeYaw;

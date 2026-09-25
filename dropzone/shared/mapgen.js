@@ -9,7 +9,7 @@ import { World } from './world.js';
 import { makeRng } from './util.js';
 
 export const MAP_SEED = 20260925;
-export const MAP_SIZE = 320;
+export const MAP_SIZE = 640;
 
 /* colour palette (original, muted military / rural tones) */
 export const PAL = {
@@ -302,7 +302,9 @@ function fenceLine(B, world, ax, az, bx, bz, h = 1.05, gapEvery = 0) {
 }
 
 function ruins(B, world, x, z, rng) {
-  const g = world.groundAt(x, z);
+  // sit on the lowest point of the footprint so the slab never floats on a slope
+  let g = Infinity;
+  for (let a = -5; a <= 5; a += 2.5) for (let b = -4; b <= 4; b += 2) g = Math.min(g, world.groundAt(x + a, z + b));
   const xf = makeXf(x, z, rng.int(0, 3), g);
   const w = 9, d = 7;
   B.box(xf, -w / 2, -0.5, -d / 2, w / 2, 0.1, d / 2, PAL.stone, 'floor');
@@ -353,17 +355,24 @@ export function roadDist(world, x, z) {
 /* ======================================================================= */
 export function buildMap() {
   const sites = {
-    town: { x: -55, z: -40, r: 40 },
-    depot: { x: 68, z: -58, r: 36 },
-    yard: { x: 62, z: 58, r: 34 },
-    ridge: { x: -70, z: 72, r: 15 },
-    farm: { x: 4, z: 98, r: 28 },
-    cross: { x: 2, z: 2, r: 16 }
+    town: { x: -110, z: -80, r: 40 },
+    ashford: { x: 150, z: 140, r: 56 },
+    depot: { x: 140, z: -120, r: 36 },
+    yard: { x: 200, z: 20, r: 34 },
+    ridge: { x: -140, z: 140, r: 15 },
+    farm: { x: 0, z: 200, r: 28 },
+    cross: { x: 0, z: 0, r: 16 },
+    base: { x: -195, z: 30, r: 42 },
+    quarry: { x: -30, z: -200, r: 36 },
+    hamlet: { x: -205, z: -195, r: 26 }
   };
-  const flats = Object.values(sites).map((s) => ({ x: s.x, z: s.z, r: s.r, blend: 16 }));
+  const flats = Object.values(sites).map((s) => ({ x: s.x, z: s.z, r: s.r, blend: 18 }));
   const terrain = new Terrain({
     size: MAP_SIZE, cell: 2, seed: MAP_SEED, flats,
-    hills: [{ x: -70, z: 72, r: 46, h: 13 }, { x: 90, z: 5, r: 40, h: 9 }, { x: -110, z: -100, r: 40, h: 8 }, { x: -20, z: 50, r: 22, h: 4 }]
+    hills: [
+      { x: -140, z: 140, r: 80, h: 18 }, { x: 70, z: 50, r: 60, h: 10 }, { x: -70, z: -140, r: 60, h: 9 },
+      { x: 220, z: -210, r: 70, h: 14 }, { x: -40, z: 100, r: 40, h: 6 }, { x: 90, z: -250, r: 50, h: 8 }, { x: -250, z: 200, r: 60, h: 12 }
+    ]
   });
   const world = new World(terrain);
   const B = new Builder(world);
@@ -371,42 +380,57 @@ export function buildMap() {
 
   world.locations = [
     { name: 'MILLBROOK', x: sites.town.x, z: sites.town.z, kind: 'town' },
+    { name: 'ASHFORD', x: sites.ashford.x, z: sites.ashford.z, kind: 'town' },
     { name: 'IRONWORKS', x: sites.depot.x, z: sites.depot.z, kind: 'industry' },
     { name: 'SALT YARD', x: sites.yard.x, z: sites.yard.z, kind: 'port' },
     { name: 'WATCH RIDGE', x: sites.ridge.x, z: sites.ridge.z, kind: 'military' },
     { name: 'HOLLOW FARM', x: sites.farm.x, z: sites.farm.z, kind: 'farm' },
-    { name: 'CROSSROADS', x: sites.cross.x, z: sites.cross.z, kind: 'road' }
+    { name: 'CROSSROADS', x: sites.cross.x, z: sites.cross.z, kind: 'road' },
+    { name: 'CAMP VARGA', x: sites.base.x, z: sites.base.z, kind: 'military' },
+    { name: 'GREYSTONE QUARRY', x: sites.quarry.x, z: sites.quarry.z, kind: 'industry' },
+    { name: 'PINECREST', x: sites.hamlet.x, z: sites.hamlet.z, kind: 'town' }
   ];
 
-  world.roads = [
-    { ax: -55, az: -40, bx: 2, bz: 2, w: 7 },
-    { ax: 2, az: 2, bx: 68, bz: -58, w: 7 },
-    { ax: 2, az: 2, bx: 62, bz: 58, w: 7 },
-    { ax: 2, az: 2, bx: 4, bz: 98, w: 6 },
-    { ax: -55, az: -40, bx: -62, bz: 30, w: 5 },
-    { ax: -62, az: 30, bx: -70, bz: 62, w: 5 },
-    { ax: -55, az: -40, bx: -55, bz: -110, w: 6 },
-    { ax: 68, az: -58, bx: 120, bz: -70, w: 6 }
-  ];
+  const S = sites;
+  const road = (a, b, w = 7) => world.roads.push({ ax: a.x, az: a.z, bx: b.x, bz: b.z, w });
+  road(S.cross, S.town); road(S.cross, S.depot); road(S.cross, S.yard); road(S.cross, S.farm, 6);
+  road(S.cross, S.ashford); road(S.cross, S.base, 6); road(S.cross, S.quarry, 6);
+  road(S.town, S.hamlet, 6); road(S.town, S.quarry, 6); road(S.depot, S.yard, 6); road(S.yard, S.ashford, 6);
+  road(S.farm, S.ashford, 6); road(S.base, { x: -150, z: 110 }, 5); road({ x: -150, z: 110 }, S.ridge, 5); road(S.base, S.town, 6);
+
+  const cols = [PAL.plaster, PAL.brick, PAL.plaster2];
 
   /* ---- MILLBROOK: small town grid ---- */
-  const T = sites.town;
+  const T = S.town;
   const houses = [
     [-22, -22, 10, 8, 2, 0], [0, -24, 8, 7, 1, 0], [22, -22, 11, 9, 2, 2],
     [-24, 0, 8, 7, 1, 1], [24, 1, 9, 8, 1, 3],
     [-22, 22, 9, 9, 2, 0], [1, 24, 12, 8, 2, 2], [23, 22, 8, 7, 1, 2]
   ];
-  for (const [du, dv, w, d, fl, rot] of houses) {
-    const cols = [PAL.plaster, PAL.brick, PAL.plaster2];
-    building(B, world, { x: T.x + du, z: T.z + dv, w, d, rot, floors: fl, color: cols[(Math.abs(du + dv) / 2 | 0) % 3], tier: 1 });
-  }
-  // town square: fountain block + benches
+  for (const [du, dv, w, d, fl, rot] of houses) building(B, world, { x: T.x + du, z: T.z + dv, w, d, rot, floors: fl, color: cols[(Math.abs(du + dv) / 2 | 0) % 3], tier: 1 });
   { const g = world.groundAt(T.x, T.z); world.addBox(T.x - 1.6, g - 0.2, T.z - 1.6, T.x + 1.6, g + 0.8, T.z + 1.6, PAL.stone, 'fountain'); }
   carWreck(B, world, T.x + 8, T.z - 9, 0, 0x55606a);
   carWreck(B, world, T.x - 10, T.z + 8, 1, 0x7a3d33);
 
+  /* ---- ASHFORD: bigger town, apartment blocks = close quarters ---- */
+  const A = S.ashford;
+  for (let i = 0; i < 4; i++) {
+    for (let j = 0; j < 3; j++) {
+      const du = -42 + i * 28, dv = -30 + j * 30;
+      if (i === 1 && j === 1) continue;                     // main square
+      const big = (i + j) % 3 === 0;
+      building(B, world, {
+        x: A.x + du + rng.range(-2, 2), z: A.z + dv + rng.range(-2, 2), w: big ? 14 : rng.int(8, 11), d: big ? 10 : rng.int(7, 9),
+        rot: rng.int(0, 3), floors: big ? 3 : rng.int(1, 2), roofAccess: big, color: cols[(i * 3 + j) % 3], tier: big ? 2 : 1
+      });
+    }
+  }
+  { const g = world.groundAt(A.x - 14, A.z); world.addBox(A.x - 16, g - 0.2, A.z - 2, A.x - 12, g + 0.9, A.z + 2, PAL.stone, 'fountain'); }
+  carWreck(B, world, A.x, A.z + 12, 0, 0x4f5f7a);
+  carWreck(B, world, A.x + 30, A.z - 14, 1, 0x7a6a3d);
+
   /* ---- IRONWORKS depot ---- */
-  const D = sites.depot;
+  const D = S.depot;
   warehouse(B, world, { x: D.x - 8, z: D.z - 12, rot: 0 });
   warehouse(B, world, { x: D.x + 14, z: D.z + 14, w: 22, d: 14, rot: 1, H: 6.5, color: PAL.metal2, mezz: true });
   for (let i = 0; i < 6; i++) {
@@ -419,19 +443,51 @@ export function buildMap() {
   fenceLine(B, world, D.x + 34, D.z - 34, D.x + 34, D.z + 30, 2.4, 4);
 
   /* ---- SALT YARD containers ---- */
-  containerYard(B, world, sites.yard);
+  containerYard(B, world, S.yard);
 
-  /* ---- WATCH RIDGE: tower + ruins ---- */
-  const R = sites.ridge;
+  /* ---- WATCH RIDGE: tower + ruins on the big hill = long range fights ---- */
+  const R = S.ridge;
   building(B, world, { x: R.x, z: R.z, w: 7, d: 7, floors: 2, roofAccess: true, color: PAL.concrete, roofColor: PAL.concrete2, tier: 2 });
   sandbags(B, world, R.x + 8, R.z + 2, 1, 3.5);
   sandbags(B, world, R.x - 7, R.z - 7, 0, 3.5);
   sandbags(B, world, R.x + 3, R.z - 9, 0, 3);
-  ruins(B, world, R.x + 28, R.z - 18, rng);
-  ruins(B, world, R.x - 30, R.z + 10, rng);
+  ruins(B, world, R.x + 19, R.z - 11, rng);
+  ruins(B, world, R.x - 17, R.z + 12, rng);
+
+  /* ---- CAMP VARGA: walled military base, best loot ---- */
+  const V = S.base;
+  const gv = world.groundAt(V.x, V.z);
+  const wall = (x0, z0, x1, z1) => world.addBox(Math.min(x0, x1) - 0.3, gv - 0.5, Math.min(z0, z1) - 0.3, Math.max(x0, x1) + 0.3, gv + 3, Math.max(z0, z1) + 0.3, PAL.concrete2, 'wall');
+  // perimeter with gates on every side
+  wall(V.x - 36, V.z - 36, V.x - 5, V.z - 36); wall(V.x + 5, V.z - 36, V.x + 36, V.z - 36);
+  wall(V.x - 36, V.z + 36, V.x - 5, V.z + 36); wall(V.x + 5, V.z + 36, V.x + 36, V.z + 36);
+  wall(V.x - 36, V.z - 36, V.x - 36, V.z - 5); wall(V.x - 36, V.z + 5, V.x - 36, V.z + 36);
+  wall(V.x + 36, V.z - 36, V.x + 36, V.z - 5); wall(V.x + 36, V.z + 5, V.x + 36, V.z + 36);
+  warehouse(B, world, { x: V.x - 14, z: V.z - 18, w: 20, d: 9, rot: 0, H: 4.5, color: 0x5a6450, mezz: false, tier: 2 });
+  warehouse(B, world, { x: V.x - 14, z: V.z + 18, w: 20, d: 9, rot: 0, H: 4.5, color: 0x5a6450, mezz: false, tier: 2 });
+  building(B, world, { x: V.x + 18, z: V.z - 16, w: 6, d: 6, floors: 3, roofAccess: true, color: PAL.concrete, roofColor: PAL.concrete2, tier: 3 });
+  building(B, world, { x: V.x + 18, z: V.z + 14, w: 11, d: 8, floors: 1, color: PAL.concrete, roofColor: PAL.roof2, tier: 2 });
+  for (const [dx, dz, r] of [[4, -4, 0], [-4, 6, 1], [10, 2, 0], [26, 0, 1], [-26, 0, 1]]) sandbags(B, world, V.x + dx, V.z + dz, r, 3.5);
+  { const xf = makeXf(V.x + 2, V.z, 0, gv); container(B, xf, 0, -26, true, 0, PAL.containers[2]); container(B, xf, 0, -26, true, 1, PAL.containers[4]); container(B, xf, 8, 27, true, 0, PAL.containers[2]); }
+
+  /* ---- GREYSTONE QUARRY: open pit, big rock blocks, machinery ---- */
+  const Q = S.quarry;
+  const gq = world.groundAt(Q.x, Q.z);
+  for (let i = 0; i < 14; i++) {
+    const a = rng.range(0, 6.28), r = rng.range(8, 30), sz = rng.range(2, 5);
+    const x = Q.x + Math.cos(a) * r, z = Q.z + Math.sin(a) * r;
+    world.addBox(x - sz / 2, gq - 0.5, z - sz / 2, x + sz / 2, gq + sz * rng.range(0.5, 1.1), z + sz / 2, PAL.stone, 'rock');
+  }
+  warehouse(B, world, { x: Q.x + 18, z: Q.z - 18, w: 16, d: 10, rot: 1, H: 6, color: PAL.metal, mezz: false, tier: 1 });
+  { const xf = makeXf(Q.x - 14, Q.z + 16, 0, gq); container(B, xf, 0, 0, true, 0, PAL.containers[3]); container(B, xf, 0, 3, true, 0, PAL.containers[0]); container(B, xf, 0, 1.5, true, 1, PAL.containers[1]); }
+  for (let i = 0; i < 6; i++) world.lootSpots.push({ x: Q.x + rng.range(-24, 24), y: gq + 0.1, z: Q.z + rng.range(-24, 24), tier: 1 });
+
+  /* ---- PINECREST: forest hamlet ---- */
+  const P = S.hamlet;
+  for (const [du, dv, rot] of [[-12, -10, 0], [12, -9, 1], [-11, 12, 2], [13, 11, 3]]) building(B, world, { x: P.x + du, z: P.z + dv, w: 8, d: 7, rot, floors: 1 + (du > 0 ? 1 : 0), color: PAL.plaster2, tier: 1 });
 
   /* ---- HOLLOW FARM ---- */
-  const F = sites.farm;
+  const F = S.farm;
   warehouse(B, world, { x: F.x - 8, z: F.z + 4, w: 16, d: 12, rot: 1, H: 6, color: 0x7e3b2c, mezz: false, tier: 1 });
   building(B, world, { x: F.x + 14, z: F.z - 6, w: 9, d: 8, floors: 2, color: PAL.plaster, tier: 1 });
   for (let i = 0; i < 7; i++) {
@@ -443,17 +499,23 @@ export function buildMap() {
   fenceLine(B, world, F.x - 26, F.z - 28, F.x - 26, F.z + 22, 1.05, 5);
 
   /* ---- CROSSROADS: roadside shop + wrecks ---- */
-  const C = sites.cross;
+  const C = S.cross;
   building(B, world, { x: C.x + 9, z: C.z - 9, w: 10, d: 7, rot: 0, floors: 1, color: PAL.concrete, roofColor: PAL.roof2, tier: 1 });
   carWreck(B, world, C.x - 5, C.z + 6, 1, 0x3e5a44);
   carWreck(B, world, C.x + 12, C.z + 8, 0, 0x8f8a7a);
   sandbags(B, world, C.x - 8, C.z - 6, 0);
 
   /* ---- scattered field cover / loot ---- */
-  for (let i = 0; i < 18; i++) {
-    const x = rng.range(-120, 120), z = rng.range(-120, 120);
+  for (let i = 0; i < 60; i++) {
+    const x = rng.range(-250, 250), z = rng.range(-250, 250);
     if (nearSite(sites, x, z, 10) || roadDist(world, x, z) < 3) continue;
-    if (rng.chance(0.5)) ruins(B, world, x, z, rng);
+    // only on level ground: on a slope the floor slab would float like a wall
+    let lo = Infinity, hi = -Infinity;
+    for (let a = -6; a <= 6; a += 3) for (let b = -6; b <= 6; b += 3) { const h = world.groundAt(x + a, z + b); lo = Math.min(lo, h); hi = Math.max(hi, h); }
+    if (hi - lo > 0.9) continue;
+    const k = rng.next();
+    if (k < 0.4) ruins(B, world, x, z, rng);
+    else if (k < 0.55) building(B, world, { x, z, w: 7, d: 6, rot: rng.int(0, 3), floors: 1, color: cols[i % 3], tier: 0 });
     else { sandbags(B, world, x, z, rng.int(0, 1)); world.lootSpots.push({ x: x + 1.2, y: world.groundAt(x + 1.2, z + 1.2) + 0.1, z: z + 1.2, tier: 0 }); }
   }
 
@@ -463,34 +525,33 @@ export function buildMap() {
     world.forBoxesIn(x - pad, z - pad, x + pad, z + pad, () => { hit = true; return true; });
     return hit;
   };
-  // forest density: denser in the south west and east hills
+  // forests: west woods, east hills, south, around Pinecrest = ambush country
+  const forests = [[-180, 20, 110, 0.9], [210, -30, 80, 0.8], [-40, -200, 90, 0.5], [-205, -195, 80, 1], [60, 250, 80, 0.8], [-60, 150, 70, 0.7], [80, 60, 60, 0.6]];
   const density = (x, z) => {
-    let d = 0.25;
-    d += Math.max(0, 1 - Math.hypot(x + 90, z - 10) / 60) * 0.9;
-    d += Math.max(0, 1 - Math.hypot(x - 105, z - 5) / 45) * 0.8;
-    d += Math.max(0, 1 - Math.hypot(x + 20, z + 100) / 50) * 0.7;
+    let d = 0.18;
+    for (const [fx, fz, fr, k] of forests) d += Math.max(0, 1 - Math.hypot(x - fx, z - fz) / fr) * k;
     return d;
   };
   let trees = 0;
-  for (let tries = 0; tries < 6000 && trees < 520; tries++) {
-    const x = rng.range(-150, 150), z = rng.range(-150, 150);
+  for (let tries = 0; tries < 30000 && trees < 1700; tries++) {
+    const x = rng.range(-300, 300), z = rng.range(-300, 300);
     if (rng.next() > density(x, z)) continue;
     if (nearSite(sites, x, z, 3) || roadDist(world, x, z) < 2.5 || occupied(x, z, 2.5)) continue;
     const g = world.groundAt(x, z);
     const h = rng.range(7, 13), kind = rng.chance(0.65) ? 'pine' : 'oak';
     world.props.push({ type: 'tree', kind, x, y: g, z, h, s: rng.range(0.8, 1.25) });
-    world.addBox(x - 0.28, g - 0.5, z - 0.28, x + 0.28, g + h * 0.7, z + 0.28, 0x4a3726, 'trunk', { hidden: true });
+    world.addBox(x - 0.28, g - 0.5, z - 0.28, x + 0.28, g + h * 0.7, z + 0.28, 0x4a3726, 'trunk', { hidden: true, noStand: true });
     trees++;
   }
-  for (let i = 0; i < 260; i++) {
-    const x = rng.range(-140, 140), z = rng.range(-140, 140);
+  for (let i = 0; i < 900; i++) {
+    const x = rng.range(-280, 280), z = rng.range(-280, 280);
     if (roadDist(world, x, z) < 1.5 || occupied(x, z, 1.8)) continue;
     const g = world.groundAt(x, z), r = rng.range(1.0, 1.8);
     world.props.push({ type: 'bush', x, y: g, z, r });
     world.bushes.push({ x, z, r, top: g + 1.15 });
   }
-  for (let i = 0; i < 70; i++) {
-    const x = rng.range(-140, 140), z = rng.range(-140, 140);
+  for (let i = 0; i < 240; i++) {
+    const x = rng.range(-280, 280), z = rng.range(-280, 280);
     if (nearSite(sites, x, z, 4) || roadDist(world, x, z) < 3 || occupied(x, z, 3)) continue;
     const g = world.groundAt(x, z), s = rng.range(1.0, 2.6);
     world.props.push({ type: 'rock', x, y: g, z, s, rot: rng.range(0, 6.28) });
@@ -498,19 +559,37 @@ export function buildMap() {
   }
 
   /* ---- invisible map boundary ---- */
-  const H = world.half, lim = 138;
-  world.addBox(-H, -50, -H, -lim, 200, H, 0, 'bound', { hidden: true });
-  world.addBox(lim, -50, -H, H, 200, H, 0, 'bound', { hidden: true });
-  world.addBox(-lim, -50, -H, lim, 200, -lim, 0, 'bound', { hidden: true });
-  world.addBox(-lim, -50, lim, lim, 200, H, 0, 'bound', { hidden: true });
+  const H = world.half, lim = 276;
+  world.addBox(-H, -50, -H, -lim, 300, H, 0, 'bound', { hidden: true });
+  world.addBox(lim, -50, -H, H, 300, H, 0, 'bound', { hidden: true });
+  world.addBox(-lim, -50, -H, lim, 300, -lim, 0, 'bound', { hidden: true });
+  world.addBox(-lim, -50, lim, lim, 300, H, 0, 'bound', { hidden: true });
   world.playLimit = lim;
 
   /* ---- spawn spots: clear outdoor points on a grid ---- */
-  for (let x = -125; x <= 125; x += 9) {
-    for (let z = -125; z <= 125; z += 9) {
+  for (let x = -255; x <= 255; x += 10) {
+    for (let z = -255; z <= 255; z += 10) {
       if (occupied(x, z, 1.5)) continue;
       if (world.terrain.slopeAt(x, z) < 0.8) continue;
       world.spawnSpots.push({ x, z });
+    }
+  }
+
+  /* ---- vehicle parking spots: road sides + settlements ---- */
+  world.vehicleSpots = [];
+  const clearFor = (x, z) => !occupied(x, z, 3.2) && world.terrain.slopeAt(x, z) > 0.9 && Math.abs(x) < lim - 10 && Math.abs(z) < lim - 10;
+  for (const r of world.roads) {
+    const L = Math.hypot(r.bx - r.ax, r.bz - r.az), dx = (r.bx - r.ax) / L, dz = (r.bz - r.az) / L;
+    for (let d = 30; d < L - 20; d += 70) {
+      const side = (Math.round(d / 70) % 2) ? 1 : -1;
+      const x = r.ax + dx * d - dz * side * (r.w / 2 + 2.5), z = r.az + dz * d + dx * side * (r.w / 2 + 2.5);
+      if (clearFor(x, z)) world.vehicleSpots.push({ x, z, yaw: Math.atan2(-dx, -dz) });
+    }
+  }
+  for (const Lc of world.locations) {
+    for (let k = 0; k < 8; k++) {
+      const a = rng.range(0, 6.28), rr = rng.range(10, 30), x = Lc.x + Math.cos(a) * rr, z = Lc.z + Math.sin(a) * rr;
+      if (clearFor(x, z)) { world.vehicleSpots.push({ x, z, yaw: rng.range(-3.1, 3.1) }); break; }
     }
   }
   return world;

@@ -375,7 +375,9 @@ class App {
     // slow fly-over of the island behind the menu
     this.menuT = (this.menuT || 0) + dt * 0.04;
     const c = this.camera;
-    c.position.set(Math.cos(this.menuT) * 150, 70, Math.sin(this.menuT) * 150);
+    c.position.set(Math.cos(this.menuT) * 230, 90, Math.sin(this.menuT) * 230);
+    c.far = this.q.viewDist + 60; this.scene.fog.far = this.q.viewDist; this.scene.fog.near = this.q.viewDist * 0.35;
+    this.worldView.sky.scale.setScalar((c.far * 0.92) / 900);
     c.lookAt(0, 5, 0);
     c.fov = 60; c.updateProjectionMatrix();
     this.worldView.update(dt, c.position, null);
@@ -958,7 +960,12 @@ class Session {
     if (m.time - me.lastHitT < 1 || m.time - me.lastShotT < 1) this.lastFightT = this.time;
 
     // ---- draw ----
-    this.camera.far = q.viewDist + 300;
+    // in the air you look down from ~190 m: see further than on foot
+    const vd = focus.air ? Math.max(q.viewDist, 480) : q.viewDist;
+    this.camera.far = vd + 60;
+    this.camera.updateProjectionMatrix();
+    app.scene.fog.near = vd * 0.35; app.scene.fog.far = vd;
+    app.worldView.sky.scale.setScalar((this.camera.far * 0.92) / 900);
     app.renderer.render(app.scene, this.camera);
     if (this.rig.mode === 'fps' && focus === me && me.alive) {
       const sl = m.slotOf(me);
@@ -1024,7 +1031,7 @@ function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&a
 
 /* ---------------- top-down map picture (minimap + full map) ---------------- */
 function makeMapImage(world) {
-  const S = 640, c = document.createElement('canvas');
+  const S = 800, c = document.createElement('canvas');
   c.width = c.height = S;
   const g = c.getContext('2d');
   const T = world.terrain, half = world.half, k = S / (half * 2);

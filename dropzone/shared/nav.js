@@ -20,9 +20,21 @@ export class NavGrid {
         const g = T.heightAt(x, z);
         const s = world.supportHeight(x, z, 0.2, g + 0.4, 0);
         this.floorY[j * this.n + i] = s;
-        let ok = !world.overlaps(x, z, 0.27, s + 0.4, s + 1.7);
+        // test the whole 1 m cell: a thin wall between two cell centres must still block
+        let ok = !world.overlaps(x, z, 0.5, s + 0.4, s + 1.7);
         if (ok && T.slopeAt(x, z) < 0.62 && s - g < 0.05) ok = false;
         this.walk[j * this.n + i] = ok ? 1 : 0;
+      }
+    }
+    // keep bots out of stairwells: the grid only knows the ground floor, and a bot
+    // that wanders up a flight cannot follow a ground path back down
+    for (const b of world.boxes) {
+      if (b.kind !== 'stair') continue;
+      for (let x = b.minX - 0.6; x <= b.maxX + 0.6; x += 0.5) {
+        for (let z = b.minZ - 0.6; z <= b.maxZ + 0.6; z += 0.5) {
+          const k = this.index(x, z);
+          if (k >= 0) this.walk[k] = 0;
+        }
       }
     }
     // stamp doors: a straight corridor through each doorway
@@ -32,8 +44,11 @@ export class NavGrid {
         const x = d.x + d.nx * k * CELL, z = d.z + d.nz * k * CELL;
         const idx = this.index(x, z);
         if (idx < 0) continue;
+        // only open the corridor where it is really free (a crate may block a doorway)
+        const fs = world.supportHeight(x, z, 0.2, T.heightAt(x, z) + 0.4, 0);
+        if (world.overlaps(x, z, 0.3, fs + 0.4, fs + 1.7)) continue;
         this.walk[idx] = 1;
-        this.override.set(idx, { x, z });
+        this.override.set(idx, { x, z, door: d });
       }
     }
     // scratch buffers for A*
@@ -98,7 +113,11 @@ export class NavGrid {
       // keep a margin: side samples
       const px = -dz / L * 0.3, pz = dx / L * 0.3;
       if (!this.isWalk(x + px, z + pz) || !this.isWalk(x - px, z - pz)) {
-        if (!this.override.has(k)) return false;
+        // a doorway cell only counts when the line really passes through the opening
+        const o = this.override.get(k);
+        if (!o) return false;
+        const d = o.door;
+        if (Math.abs((x - d.x) * -d.nz + (z - d.z) * d.nx) > 0.35) return false;
       }
     }
     return true;
