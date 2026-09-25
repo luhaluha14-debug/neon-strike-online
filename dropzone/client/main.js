@@ -6,7 +6,7 @@
            proxy that feeds the same render/HUD code.
    ========================================================================= */
 import * as THREE from 'three';
-import { BUILD } from '/build-config.js';
+import { BUILD } from '../build-config.js';
 import { buildMap } from '../shared/mapgen.js';
 import { NavGrid } from '../shared/nav.js';
 import { Match, TICK, rayHitPlayer, emptyCommand } from '../shared/game.js';
