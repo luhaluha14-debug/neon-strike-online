@@ -281,7 +281,7 @@ function sanitize(c) {
   const out = emptyCommand();
   out.fwd = n(c.fwd, -1, 1); out.right = n(c.right, -1, 1);
   out.yaw = n(c.yaw, -10, 10); out.pitch = n(c.pitch, -1.6, 1.6);
-  out.aimYaw = n(c.aimYaw, -10, 10); out.aimPitch = n(c.aimPitch, -1.6, 1.6);
+  if (typeof c.aimYaw === 'number') { out.aimYaw = n(c.aimYaw, -10, 10); out.aimPitch = n(c.aimPitch, -1.6, 1.6); }
   for (const k of ['fire', 'ads', 'sprint', 'walk', 'brake', ...EDGE_KEYS]) out[k] = !!c[k];
   out.slot = Number.isInteger(c.slot) && c.slot >= -1 && c.slot <= 4 ? c.slot : -1;
   out.cycle = c.cycle === 1 || c.cycle === -1 ? c.cycle : 0;

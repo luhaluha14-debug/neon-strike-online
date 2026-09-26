@@ -36,7 +36,8 @@ export class DevTools {
   }
 
   get session() { return this.app.session; }
-  run(what, arg) { const s = this.session; if (s) s.match.cheat(s.me.id, what, arg); }
+  // cheats only touch a local match: online, the server is the authority
+  run(what, arg) { const s = this.session; if (s && !s.online) s.match.cheat(s.me.id, what, arg); }
   cheat(what) { this.flags[what] = !this.flags[what]; this.run(what); }
   toggleBoxes() { this.flags.boxes = !this.flags.boxes; this.app.worldView.toggleDebugBoxes(this.flags.boxes); }
   teleport() { const s = this.session; if (!s || !s.lastAimPoint) return; const a = s.lastAimPoint; this.run('tp', { x: a.x, y: a.y + 0.5, z: a.z }); }
@@ -66,10 +67,11 @@ export class DevTools {
     const info = r.info;
     const bots = m.players.filter((o) => o.isBot);
     const states = {};
-    for (const b of bots) if (b.alive) states[b.brain.state] = (states[b.brain.state] || 0) + 1;
+    for (const b of bots) if (b.alive && b.brain) states[b.brain.state] = (states[b.brain.state] || 0) + 1;
     this.txt.textContent = [
       `FPS ${this.fps.toFixed(0)}  worst ${(this.worstShown * 1000).toFixed(1)}ms  sim ${(s.simMs).toFixed(2)}ms/tick`,
-      `PING — (offline)   TICK ${Math.round(1 / (1 / 60))} Hz  #${m.tick}   NET: OFFLINE (local authority)`,
+      s.online ? `PING ${Math.round(s.net.ping)} ms   TICK 60 Hz  #${m.tick}   NET: ONLINE (server authority)  snaps ${s.snaps.length}  unacked ${s.history.length}  corr ${(s.predErr || 0).toFixed(3)}m`
+        : `PING — (offline)   TICK 60 Hz  #${m.tick}   NET: OFFLINE (local authority)`,
       `draw ${info.render.calls}  tris ${(info.render.triangles / 1000).toFixed(1)}k  geo ${info.memory.geometries}  tex ${info.memory.textures}`,
       `pos ${p.body.pos.x.toFixed(1)}, ${p.body.pos.y.toFixed(1)}, ${p.body.pos.z.toFixed(1)}  ${p.body.stance}${p.body.onGround ? '' : ' AIR'}  v ${p.body.moveSpeed.toFixed(2)}`,
       `yaw ${(s.rig.yaw * 57.3).toFixed(1)}  pitch ${(s.rig.pitch * 57.3).toFixed(1)}  spread ${m.spreadDeg(p, m.weaponOf(p)).toFixed(2)}°`,

@@ -1,20 +1,24 @@
 /* =========================================================================
    DROPZONE client entry.
    App   : renderer, menus, settings, input, audio (lives for the page)
-   Match : one offline match vs bots (fixed 60 Hz simulation + interpolated
-           rendering).  Online play will swap the local Match for a network
-           proxy that feeds the same render/HUD code.
+   Session: one match (fixed 60 Hz ticks + interpolated rendering).
+           offline: the browser runs the Match itself (vs bots)
+           online : the server runs it; the browser keeps a mirror Match fed by
+                    snapshots, predicts its own movement and replays unacked
+                    input on every snapshot, and draws others ~100 ms behind
    ========================================================================= */
 import * as THREE from 'three';
 import { BUILD } from '../build-config.js';
 import { buildMap } from '../shared/mapgen.js';
 import { NavGrid } from '../shared/nav.js';
-import { Match, TICK, CRATE_H, rayHitPlayer, emptyCommand } from '../shared/game.js';
+import { Match, TICK, CRATE_H, rayHitPlayer, emptyCommand, moveInput } from '../shared/game.js';
+import { INTERP_DELAY, unpackPlayer, unpackMe, applyBody, unpackVehicle, applyWorld, applyItemEvent } from '../shared/net.js';
+import { Lobby } from './net.js';
 import { WEAPONS } from '../shared/weapons.js';
 import { ITEMS, invCount } from '../shared/items.js';
 import { THROWABLES, throwLaunch, predictThrow } from '../shared/throwables.js';
-import { eyeHeight } from '../shared/movement.js';
-import { anglesFromDir, lerp, wrapAngle } from '../shared/util.js';
+import { eyeHeight, stepBody } from '../shared/movement.js';
+import { anglesFromDir, lerp, wrapAngle, clamp } from '../shared/util.js';
 import { loadSettings, saveSettings, defaults, gfx, ACTIONS, DEFAULT_KEYS, keyLabel } from './settings.js';
 import { Input } from './input.js';
 import { TouchControls, isTouchDevice } from './touch.js';
@@ -134,14 +138,18 @@ class App {
     segment($('pView'), () => S.view, (v) => { S.view = v; saveSettings(S); });
     segment($('pMode'), () => String(S.mode || 1), (v) => { S.mode = +v; saveSettings(S); });
     $('bPlay').onclick = () => { this.audio.init(); this.startMatch(); };
+    this.lobby = new Lobby(this);
+    // the online server is the one serving this page; a static copy has no server to talk to
+    if (!BUILD.online) { $('bOnline').disabled = true; $('bOnline').textContent = '온라인 대전 · 게임 서버로 접속하면 가능'; }
+    $('bOnline').onclick = () => { this.audio.init(); this.lobby.open(); };
     $('bSettings').onclick = () => { this.settingsBack = 'menu'; this.openSettings(); };
     $('bHelp').onclick = () => { this.buildHelp(); this.screen('help'); };
     for (const b of document.querySelectorAll('[data-back]')) b.onclick = () => this.back();
     $('bResume').onclick = () => this.pause(false);
     $('bPSettings').onclick = () => { this.settingsBack = 'pause'; this.openSettings(); };
     $('bQuit').onclick = () => this.endSession();
-    $('bAgain').onclick = () => { this.endSession(); this.startMatch(); };
-    $('bLobby').onclick = () => this.endSession();
+    $('bAgain').onclick = () => { const on = this.session && this.session.online; this.endSession(); if (on) this.lobby.open(); else this.startMatch(); };
+    $('bLobby').onclick = () => { const on = this.session && this.session.online; this.endSession(); if (on) this.lobby.open(); };
     $('bSpectate').onclick = () => { $('result').classList.add('hide'); if (this.session) this.session.startSpectate(); };
     $('invClose').onclick = () => this.session && this.session.toggleInventory(false);
     $('mapClose').onclick = () => this.session && this.session.toggleMap(false);
@@ -308,11 +316,14 @@ class App {
   }
 
   /* ---------------- match lifecycle ---------------- */
-  startMatch() {
+  /** the server said go: same Session, fed by the network */
+  startOnline(net, start) { if (this.session) this.endSession(true); this.startMatch({ net, start }); }
+
+  startMatch(online = null) {
     if (JSON.stringify(gfx(this.settings)) !== this.gfxKey) this.initRenderer();
     this.screen(null);
     $('result').classList.add('hide');
-    this.session = new Session(this);
+    this.session = new Session(this, online);
     this.hud.show(true);
     this.touchUI.setVisible(this.touch);
     this.touchUI.visible = this.touch;
@@ -322,7 +333,9 @@ class App {
     if (this.touch) tryFullscreen();
   }
 
-  endSession() {
+  endSession(keepNet = false) {
+    // leaving an online match: tell the server (a bot takes the player over)
+    if (this.session && this.session.online && !keepNet && this.lobby.net) this.lobby.net.send({ t: 'leave' });
     if (this.session) this.session.dispose();
     this.session = null;
     this.hud.show(false);
@@ -413,13 +426,33 @@ function showFatal(err) {
 
 /* ======================================================================= */
 class Session {
-  constructor(app) {
+  constructor(app, online = null) {
     this.app = app;
     const S = app.settings;
     this.world = app.world;
-    this.seed = (Math.random() * 1e9) >>> 0;
-    this.match = new Match({ world: app.world, nav: app.nav, seed: this.seed, bots: S.bots, difficulty: S.difficulty, teamSize: S.mode || 1, humans: [{ id: LOCAL_ID, name: S.name }] });
-    this.me = this.match.byId.get(LOCAL_ID);
+    if (online) {
+      // mirror of the server's match: same options -> same loot, cars, ids
+      const st = online.start;
+      this.online = true;
+      this.net = online.net;
+      this.seed = st.seed;
+      this.match = new Match({ world: app.world, nav: app.nav, seed: st.seed, bots: st.bots, difficulty: st.difficulty, teamSize: st.teamSize, humans: st.humans, mirror: true });
+      for (const p of this.match.players) p.brain = null;
+      this.me = this.match.byId.get(st.you);
+      this.netQueue = [];
+      this.snaps = [];
+      this.history = [];
+      this.seq = 0;
+      this.clockOff = null;
+      this.pendingCmd = {};
+      this.net.on('e', (m) => this.netQueue.push(m));
+      this.net.on('s', (m) => this.netQueue.push(m));
+    } else {
+      this.online = false;
+      this.seed = (Math.random() * 1e9) >>> 0;
+      this.match = new Match({ world: app.world, nav: app.nav, seed: this.seed, bots: S.bots, difficulty: S.difficulty, teamSize: S.mode || 1, humans: [{ id: LOCAL_ID, name: S.name }] });
+      this.me = this.match.byId.get(LOCAL_ID);
+    }
     this.initSquad();
     this.me.autoPickup = S.autoPickup;
     this.state = 'playing';
@@ -489,6 +522,7 @@ class Session {
     const S = this.app.settings;
     this.me.autoPickup = S.autoPickup;
     this.me.autoReload = S.autoReload;
+    if (this.online) this.net.send({ t: 'act', a: 'opts', autoPickup: S.autoPickup, autoReload: S.autoReload });
     if (S.gyro && !this.gyroHandler) {
       this.gyroHandler = (e) => this.onGyro(e);
       try {
@@ -524,6 +558,8 @@ class Session {
     this.app.audio.setFlightSounds(1e9, false, 0);
     this.fx.reset();
     if (this.gyroHandler) removeEventListener('deviceorientation', this.gyroHandler);
+    if (this.net) { this.net.on('e', null); this.net.on('s', null); }
+    $('netInfo').textContent = '';
   }
 
   get uiOpen() { return this.invOpen || this.mapOpen; }
@@ -553,8 +589,8 @@ class Session {
     }
     if (input.lastDevice === 'touch' && S.aimAssist && me.alive) this.aimAssistPull(dt);
 
-    // ---- simulation ----
-    if (!this.paused) {
+    // ---- simulation (online never stops: the server keeps going) ----
+    if (!this.paused || this.online) {
       this.acc = Math.min(this.acc + dt, 0.25);
       while (this.acc >= TICK) {
         this.acc -= TICK;
@@ -580,6 +616,7 @@ class Session {
   }
 
   tick() {
+    if (this.online) { this.tickOnline(); return; }
     const m = this.match, me = this.me;
     for (const p of m.players) {
       const pr = this.prev.get(p.id);
@@ -597,6 +634,148 @@ class Session {
     m.step(TICK);
     this.simMs = this.simMs * 0.95 + (performance.now() - t0) * 0.05;
     for (const e of m.drainEvents()) this.onEvent(e);
+  }
+
+  /* ---------------- player requests (local match or server) ---------------- */
+  actPick(it) { if (this.online) this.net.send({ t: 'act', a: 'pick', id: it.id }); else this.match.pickup(this.me, it); }
+  actDrop(key, n) { if (this.online) this.net.send({ t: 'act', a: 'drop', key, n }); else this.match.requestDrop(this.me.id, key, n); }
+  /** one-off command fields (slot, throwable type, item use) for the next tick */
+  actCmd(fields) {
+    if (this.online) Object.assign(this.pendingCmd, fields);
+    else this.match.setCommand(this.me.id, Object.assign(emptyCommand(), fields, { yaw: this.rig.yaw, pitch: this.rig.pitch }));
+  }
+
+  /* ---------------- online ---------------- */
+  /** own movement is predicted only on foot; planes, cars and crawling follow the server */
+  predictable() { const me = this.me; return me.alive && !me.air && !me.veh && !me.downed && this.state === 'playing'; }
+
+  tickOnline() {
+    const m = this.match, me = this.me;
+    for (const p of m.players) {
+      const pr = this.prev.get(p.id);
+      pr.x = p.body.pos.x; pr.y = p.body.pos.y; pr.z = p.body.pos.z; pr.yaw = p.yaw;
+    }
+    if (m.plane) { this.planePrev.x = m.plane.x; this.planePrev.z = m.plane.z; }
+    for (const v of m.vehicles) {
+      let pv = this.vehPrev.get(v.id);
+      if (!pv) { pv = {}; this.vehPrev.set(v.id, pv); }
+      pv.x = v.x; pv.y = v.y; pv.z = v.z; pv.yaw = v.yaw;
+    }
+    m.time += TICK;
+    // ---- network: events first (items, hits), then state ----
+    const q = this.netQueue;
+    this.netQueue = [];
+    for (const msg of q) {
+      if (msg.t === 's') this.applySnapshot(msg);
+      else for (const e of msg.ev) this.applyNetEvent(e);
+    }
+    m.rebuildObstacles();
+    // ---- input -> server (and our own prediction) ----
+    let c;
+    if (me.alive && this.state === 'playing' && !this.paused) c = this.buildCommand();
+    else { c = emptyCommand(); c.yaw = this.rig.yaw; c.pitch = this.rig.pitch; c.aimYaw = c.yaw; c.aimPitch = c.pitch; }
+    Object.assign(c, this.pendingCmd);
+    this.pendingCmd = {};
+    this.seq++;
+    this.net.send({ t: 'in', s: this.seq, c });
+    this.history.push({ s: this.seq, c });
+    if (this.history.length > 180) this.history.shift();
+    if (this.predictable()) this.predictStep(c);
+    else me.yaw = c.yaw;
+    // ---- everybody else: ~100 ms in the past, between two snapshots ----
+    this.interpolate();
+    m.stepBullets(TICK);
+    for (const g of m.projectiles) if (g.tx !== undefined) { g.x += (g.tx - g.x) * 0.4; g.y += (g.ty - g.y) * 0.4; g.z += (g.tz - g.z) * 0.4; }
+    if ((this.netInfoT = (this.netInfoT || 0) - TICK) <= 0) {
+      this.netInfoT = 0.5;
+      $('netInfo').textContent = this.net.open ? `ONLINE · ${Math.round(this.net.ping)} ms` : 'OFFLINE';
+    }
+  }
+
+  applyNetEvent(e) {
+    const m = this.match;
+    applyItemEvent(m, e);
+    if (e.t === 'shot') m.spawnShotVisual(e);
+    else if (e.t === 'kill') { const v = m.byId.get(e.id); if (v) { v.alive = false; v.downed = false; v.place = e.place; v.deathT = m.time; } }
+    else if (e.t === 'down') { const v = m.byId.get(e.id); if (v) { v.downed = true; v.dhp = 100; v.hp = 0; } }
+    else if (e.t === 'end') { m.state = 'ended'; m.winner = e.winner; m.winnerTeam = e.team; for (const p of m.players) if (p.team === e.team) p.place = 1; }
+    else if (e.t === 'takeover') { const p = m.byId.get(e.id); if (p) { p.name = e.name; p.isBot = true; } }
+    this.onEvent(e);
+  }
+
+  applySnapshot(s) {
+    const m = this.match, me = this.me;
+    // server clock: the earliest-arriving snapshot tells us the offset best
+    const now = performance.now() / 1000, off = s.time - now;
+    if (this.clockOff === null || off > this.clockOff || off < this.clockOff - 0.5) this.clockOff = off;
+    else this.clockOff -= 0.0004;
+    applyWorld(m, s);
+    const snap = { t: s.time, p: new Map(), v: new Map(), pd: s.plane ? s.plane[0] : null };
+    for (const a of s.p) { const p = m.byId.get(a[0]); if (!p) continue; unpackPlayer(p, a); snap.p.set(a[0], a); }
+    for (const a of s.v) { const v = m.vehById.get(a[0]); if (!v) continue; unpackVehicle(v, a); snap.v.set(a[0], a); }
+    this.snaps.push(snap);
+    while (this.snaps.length > 40) this.snaps.shift();
+    // own private state + reconciliation: server body at the last input it used, then replay the rest
+    unpackMe(me, s.me);
+    this.history = this.history.filter((h) => h.s > s.me.ack);
+    if (this.predictable()) {
+      const ox = me.body.pos.x, oy = me.body.pos.y, oz = me.body.pos.z;
+      applyBody(me.body, s.me.b);
+      for (const h of this.history) this.predictStep(h.c);
+      const ex = ox - me.body.pos.x, ey = oy - me.body.pos.y, ez = oz - me.body.pos.z;
+      this.predErr = Math.hypot(ex, ez);
+      const C = this.corr || (this.corr = { x: 0, y: 0, z: 0 });
+      // small errors are smoothed, big ones (teleport, knockback) snap
+      if (this.predErr < 2 && Math.abs(ey) < 1) { C.x += ex; C.y += ey; C.z += ez; } else { C.x = C.y = C.z = 0; }
+    } else applyBody(me.body, s.me.b);
+  }
+
+  predictStep(c) {
+    const m = this.match, p = this.me, b = p.body;
+    p.yaw = wrapAngle(c.yaw || 0);
+    p.pitch = clamp(c.pitch || 0, -1.45, 1.45);
+    if (p.reviving) { stepBody(m.world, b, { yaw: p.yaw }, TICK); return; }
+    const B = p.buf;
+    if (c.jump) B.jump = 0.15;
+    p.ads = !!c.ads && !b.sprinting && p.switchT <= 0;
+    const ev = stepBody(m.world, b, moveInput(p, c, m.weaponOf(p)), TICK);
+    if (ev.jumpUsed) B.jump = 0;
+    if (B.jump > 0) B.jump -= TICK;
+  }
+
+  interpolate() {
+    const S = this.snaps, m = this.match;
+    if (!S.length || this.clockOff === null) return;
+    const rt = performance.now() / 1000 + this.clockOff - INTERP_DELAY;
+    let a = S[0], b = S[0];
+    for (let i = S.length - 1; i >= 0; i--) if (S[i].t <= rt) { a = S[i]; b = S[i + 1] || S[i]; break; }
+    const k = b.t > a.t ? clamp((rt - a.t) / (b.t - a.t), 0, 1) : 0;
+    const pred = this.predictable();
+    for (const [id, A] of a.p) {
+      const p = m.byId.get(id);
+      if (!p || (p === this.me && pred)) continue;
+      const B = b.p.get(id) || A;
+      p.body.pos.x = lerp(A[1], B[1], k); p.body.pos.y = lerp(A[2], B[2], k); p.body.pos.z = lerp(A[3], B[3], k);
+      if (p !== this.me) { p.yaw = A[4] + wrapAngle(B[4] - A[4]) * k; p.pitch = lerp(A[5], B[5], k); }
+    }
+    for (const [id, A] of a.v) {
+      const v = m.vehById.get(id);
+      if (!v) continue;
+      const B = b.v.get(id) || A;
+      v.x = lerp(A[1], B[1], k); v.y = lerp(A[2], B[2], k); v.z = lerp(A[3], B[3], k); v.yaw = A[4] + wrapAngle(B[4] - A[4]) * k;
+    }
+    const pl = m.plane;
+    if (pl && a.pd !== null) {
+      pl.d = lerp(a.pd, b.pd ?? a.pd, k);
+      pl.x = pl.ax + pl.dx * pl.d; pl.z = pl.az + pl.dz * pl.d;
+    }
+  }
+
+  onDisconnect() {
+    if (this.state !== 'playing') return;
+    this.state = 'ended';
+    this.hud.banner('서버와 연결이 끊어졌습니다', '', 4);
+    setTimeout(() => { if (this.app.session === this) this.showResult(false); }, 1500);
   }
 
   buildCommand() {
@@ -761,6 +940,7 @@ class Session {
         break;
       case 'itemAdd': case 'itemRemove': case 'itemUpdate': this.itemsDirty = true; break;
       case 'end': this.onEnd(e); break;
+      case 'takeover': hud.feed(`<b>${escapeHtml(e.name)}</b><span class="w">연결 끊김 · 봇이 대신합니다</span>`); break;
       case 'down': {
         const v = m.byId.get(e.id), k = e.by !== null ? m.byId.get(e.by) : null;
         const nm = (p) => `<b class="${p === me ? 'me' : ''}">${escapeHtml(p.name)}</b>`;
@@ -962,17 +1142,17 @@ class Session {
     const m = this.match, me = this.me;
     if (el.dataset.g) {
       const it = m.itemById.get(+el.dataset.g);
-      if (it) m.pickup(me, it);
+      if (it) this.actPick(it);
     } else if (el.dataset.b) {
       const key = el.dataset.b;
-      if (!alt && ITEMS[key].kind === 'throw') { m.setCommand(me.id, Object.assign(emptyCommand(), { slot: 4, throwType: key, yaw: this.rig.yaw, pitch: this.rig.pitch })); this.toggleInventory(false); }
-      else if (alt || (ITEMS[key].kind !== 'heal' && ITEMS[key].kind !== 'fuel')) m.requestDrop(me.id, key, alt ? me.inv.items[key] : Math.min(me.inv.items[key], ITEMS[key].stack || 1));
-      else { m.setCommand(me.id, Object.assign(emptyCommand(), { use: key, yaw: this.rig.yaw, pitch: this.rig.pitch })); this.toggleInventory(false); }
+      if (!alt && ITEMS[key].kind === 'throw') { this.actCmd({ slot: 4, throwType: key }); this.toggleInventory(false); }
+      else if (alt || (ITEMS[key].kind !== 'heal' && ITEMS[key].kind !== 'fuel')) this.actDrop(key, alt ? me.inv.items[key] : Math.min(me.inv.items[key], ITEMS[key].stack || 1));
+      else { this.actCmd({ use: key }); this.toggleInventory(false); }
     } else if (el.dataset.s !== undefined) {
-      if (alt) m.requestDrop(me.id, 'slot' + el.dataset.s, 1);
-      else m.setCommand(me.id, Object.assign(emptyCommand(), { slot: +el.dataset.s, yaw: this.rig.yaw, pitch: this.rig.pitch }));
+      if (alt) this.actDrop('slot' + el.dataset.s, 1);
+      else this.actCmd({ slot: +el.dataset.s });
     }
-    for (const ev of m.drainEvents()) this.onEvent(ev);
+    if (!this.online) for (const ev of m.drainEvents()) this.onEvent(ev);
     this.syncItems();
     this.hud.renderInventory(this);
   }
@@ -1007,7 +1187,11 @@ class Session {
     const w = m.weaponOf(focus);
     this.adsBlend += ((focus.ads ? 1 : 0) - this.adsBlend) * Math.min(1, dt / Math.max(0.05, w.adsTime * 0.6));
     const pr = this.prev.get(focus.id);
-    const pos = { x: lerp(pr.x, focus.body.pos.x, alpha), y: lerp(pr.y, focus.body.pos.y, alpha), z: lerp(pr.z, focus.body.pos.z, alpha) };
+    // online: a server correction of our own position is blended out over ~0.15 s instead of snapping
+    const C = this.corr;
+    if (C) { const k = Math.exp(-dt * 14); C.x *= k; C.y *= k; C.z *= k; }
+    const cx = C && focus === me ? C.x : 0, cy = C && focus === me ? C.y : 0, cz = C && focus === me ? C.z : 0;
+    const pos = { x: lerp(pr.x, focus.body.pos.x, alpha) + cx, y: lerp(pr.y, focus.body.pos.y, alpha) + cy, z: lerp(pr.z, focus.body.pos.z, alpha) + cz };
     if (focus !== me) {
       this.rig.yaw = focus.yaw; this.rig.pitch = focus.pitch * 0.5;
       this.rig.mode = 'tps';
@@ -1056,7 +1240,8 @@ class Session {
     for (const p of m.players) {
       const s = this.soldiers.get(p.id);
       const pp = this.prev.get(p.id);
-      const x = lerp(pp.x, p.body.pos.x, alpha), y = lerp(pp.y, p.body.pos.y, alpha), z = lerp(pp.z, p.body.pos.z, alpha);
+      let x = lerp(pp.x, p.body.pos.x, alpha), y = lerp(pp.y, p.body.pos.y, alpha), z = lerp(pp.z, p.body.pos.z, alpha);
+      if (p === me && this.corr) { x += this.corr.x; y += this.corr.y; z += this.corr.z; }
       const dx = x - cp.x, dz = z - cp.z;
       const far = dx * dx + dz * dz > vd2;
       const hideSelf = p === focus && this.rig.mode === 'fps';
