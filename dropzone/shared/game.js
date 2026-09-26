@@ -128,6 +128,7 @@ export class Match {
     this.nextId = 1;
     this.difficulty = o.difficulty || 'normal';
     this.teamSize = o.teamSize || 1;           // 1 solo, 2 duo, 4 squad
+    this.mirror = !!o.mirror;                  // online client copy: never stepped, only displayed
     this.teamPlace = new Map();
     this.zone = new Zone(makeRng(this.seed ^ 0x9e3779b9), this.world.playLimit || this.world.half, o.zonePhases);
     this.cheats = { god: new Set(), infAmmo: new Set() };
@@ -502,12 +503,7 @@ export class Match {
     p.adsT = clamp(p.adsT + (p.ads ? dt / w.adsTime : -dt / (w.adsTime * 0.8)), 0, 1);
 
     // ---- move ----
-    const firing = c.fire && !p.using;
-    const ev = stepBody(this.world, b, {
-      fwd: c.fwd, right: c.right, yaw: p.yaw,
-      sprint: c.sprint && !firing && !p.reloading, walk: c.walk, jump: B.jump > 0,
-      ads: p.ads, usingItem: !!p.using, moveMul: w.moveMul * (p.reloading ? 0.92 : 1)
-    }, dt);
+    const ev = stepBody(this.world, b, moveInput(p, c, w), dt);
     if (ev.jumpUsed) B.jump = 0;
     if (ev.jumped) this.emit({ t: 'jump', id: p.id });
     if (ev.landed !== undefined && ev.landed > 3) this.emit({ t: 'land', id: p.id, v: ev.landed });
@@ -948,6 +944,19 @@ export class Match {
     // advance the new bullets by one tick immediately so point blank shots register this tick
   }
 
+  /** online client: rebuild the bullets of a 'shot' event for tracers */
+  spawnShotVisual(e) {
+    const w = WEAPONS[e.w];
+    if (!w || w.cat === 'melee' || !e.dirs) return;
+    for (const [dx, dy, dz] of e.dirs) {
+      this.bullets.push({
+        owner: e.id, w: e.w, x: e.x, y: e.y, z: e.z,
+        vx: dx * w.bulletSpeed, vy: dy * w.bulletSpeed, vz: dz * w.bulletSpeed,
+        dist: 0, life: w.range / w.bulletSpeed + 0.3, alive: true, pellet: w.pellets > 1
+      });
+    }
+  }
+
   melee(p, w, e, dir) {
     this.emit({ t: 'shot', id: p.id, w: 'fists', x: e.x, y: e.y, z: e.z, dirs: [[dir.x, dir.y, dir.z]], n: p.shots });
     const wallHit = this.world.raycast(e.x, e.y, e.z, dir.x, dir.y, dir.z, w.meleeRange, { bullets: true });
@@ -998,6 +1007,11 @@ export class Match {
       }
       const hx = bl.x + dx * maxT, hy = bl.y + dy * maxT, hz = bl.z + dz * maxT;
       bl.dist += maxT;
+      if (this.mirror) {
+        // online client: tracers only, the server decides what was hit
+        if (hitV || hitP || wh) bl.alive = false; else { bl.x = hx; bl.y = hy; bl.z = hz; }
+        continue;
+      }
       if (hitV) {
         const w = WEAPONS[bl.w];
         this.damageVehicle(hitV, w.damage * 0.35 * falloffMul(w, bl.dist), owner);
@@ -1392,6 +1406,16 @@ export class Match {
 }
 
 export const EDGE_KEYS = ['jump', 'crouch', 'prone', 'reload', 'interact'];
+
+/** what the movement code gets from a command (shared with client prediction) */
+export function moveInput(p, c, w) {
+  const firing = c.fire && !p.using;
+  return {
+    fwd: c.fwd, right: c.right, yaw: p.yaw,
+    sprint: c.sprint && !firing && !p.reloading, walk: c.walk, jump: p.buf.jump > 0,
+    ads: p.ads, usingItem: !!p.using, moveMul: w.moveMul * (p.reloading ? 0.92 : 1)
+  };
+}
 
 export function emptyCommand() {
   return {
