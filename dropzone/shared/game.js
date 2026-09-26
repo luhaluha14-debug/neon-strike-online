@@ -21,6 +21,7 @@ export const CRATE_H = 1.05;          // supply crate height (items rest on top)
 export const LOOT_CHANCE = [0.8, 0.95, 1, 1];
 export const LOOT_EXTRA = [[0.3], [0.5, 0.2], [0.6, 0.3], [0.7, 0.4]];
 export const MAX_HP = 100;
+export const REVIVE_TIME = 6;
 
 const BOT_NAMES = ['Rook', 'Vesper', 'Kite', 'Mako', 'Halden', 'Juno', 'Brask', 'Tamsin', 'Oriel', 'Pike', 'Sable', 'Wren',
   'Doss', 'Lyle', 'Marrow', 'Quill', 'Nadir', 'Corvin', 'Isko', 'Tarn', 'Ember', 'Fenn', 'Garnet', 'Hollis', 'Ivo', 'Jett',
@@ -126,6 +127,8 @@ export class Match {
     this.world.dyn = [];
     this.nextId = 1;
     this.difficulty = o.difficulty || 'normal';
+    this.teamSize = o.teamSize || 1;           // 1 solo, 2 duo, 4 squad
+    this.teamPlace = new Map();
     this.zone = new Zone(makeRng(this.seed ^ 0x9e3779b9), this.world.playLimit || this.world.half, o.zonePhases);
     this.cheats = { god: new Set(), infAmmo: new Set() };
     this.deaths = 0;
@@ -134,13 +137,14 @@ export class Match {
     if (o.vehicles !== false) this.spawnVehicles();
     const spots = this.pickSpawns((o.humans ? o.humans.length : 0) + (o.bots || 0));
     let si = 0;
-    for (const h of o.humans || []) this.addPlayer({ id: h.id, name: h.name, isBot: false, spot: spots[si++] });
+    for (const h of o.humans || []) { const hp = this.addPlayer({ id: h.id, name: h.name, isBot: false, spot: spots[si++] }); hp.wantTeam = h.team; }
     const names = BOT_NAMES.slice();
     for (let i = 0; i < (o.bots || 0); i++) {
       const nm = names.splice(this.rng.int(0, names.length - 1), 1)[0] || ('Bot' + i);
       const p = this.addPlayer({ name: nm, isBot: true, spot: spots[si++] });
       p.brain = new BotBrain(this, p, o.difficulty || 'normal', this.rng.next());
     }
+    this.assignTeams();
     // battle royale start: everyone boards the transport plane (drop:false = spawn on the ground)
     this.plane = null;
     if (o.drop !== false) {
@@ -154,6 +158,36 @@ export class Match {
       }
     }
   }
+
+  /**
+   * teams: humans keep a requested team (party) or get one in join order; bots
+   * first fill the free seats of human teams, then form their own teams.
+   */
+  assignTeams() {
+    const size = this.teamSize;
+    if (size <= 1) { for (const p of this.players) p.team = p.id; return; }
+    const members = new Map();
+    const put = (p, t) => { p.team = t; if (!members.has(t)) members.set(t, []); members.get(t).push(p); };
+    let next = 1;
+    const humans = this.players.filter((p) => !p.isBot), bots = this.players.filter((p) => p.isBot);
+    for (const h of humans) if (h.wantTeam) { put(h, 1000 + h.wantTeam); }
+    for (const h of humans) {
+      if (h.wantTeam) continue;
+      const open = [...members.entries()].find(([t, l]) => t >= 1000 === false && l.length < size && l.every((x) => !x.isBot));
+      if (open) put(h, open[0]); else put(h, next++);
+    }
+    for (const b of bots) {
+      const open = [...members.entries()].find(([, l]) => l.length < size);
+      if (open) put(b, open[0]); else put(b, next++);
+    }
+    // renumber 1..n so HUD / clients can use small team numbers
+    const map = new Map(); let k = 1;
+    for (const p of this.players) { if (!map.has(p.team)) map.set(p.team, k++); p.team = map.get(p.team); }
+  }
+  teammates(p) { return this.players.filter((o) => o !== p && o.team === p.team); }
+  /** a team is in the fight while at least one member is alive and not knocked down */
+  teamStanding(team) { return this.players.some((o) => o.team === team && o.alive && !o.downed); }
+  aliveTeams() { const t = new Set(); for (const p of this.players) if (p.alive) t.add(p.team); return t.size; }
 
   /** number of players still on board */
   onBoard() { let n = 0; for (const p of this.players) if (p.alive && p.air === 'plane') n++; return n; }
@@ -185,7 +219,7 @@ export class Match {
       id: pid, name, isBot, team: pid, skin: SKINS[this.rng.int(0, SKINS.length - 1)],
       body: newBody(spot.x, g, spot.z),
       yaw: this.rng.range(-Math.PI, Math.PI), pitch: 0, aimYaw: 0, aimPitch: 0,
-      hp: MAX_HP, alive: true, deathT: 0, air: null,
+      hp: MAX_HP, alive: true, deathT: 0, air: null, downed: false, dhp: 0, downCount: 0, downBy: null, reviving: null, revivedBy: null,
       slots: [null, null, null, { id: 'fists', mag: 0 }], cur: 3, switchT: 0,
       inv: newInventory(),
       fireCd: 0, bloom: 0, shots: 0, triggerHeld: false,
@@ -319,6 +353,7 @@ export class Match {
       if (p.brain) p.brain.think(dt);
       if (p.air) this.stepAirPlayer(p, dt);
       else if (p.veh) this.stepOccupant(p, dt);
+      else if (p.downed) this.stepDowned(p, dt);
       else this.stepPlayer(p, dt);
     }
     this.stepVehicles(dt);
@@ -402,6 +437,24 @@ export class Match {
     p.aimYaw = wrapAngle(c.aimYaw !== undefined ? c.aimYaw : p.yaw);
     p.aimPitch = clamp(c.aimPitch !== undefined ? c.aimPitch : p.pitch, -1.5, 1.5);
 
+    // ---- reviving a teammate: hold still; moving, shooting or getting hurt cancels ----
+    if (p.reviving) {
+      const t = this.byId.get(p.reviving.id);
+      const moved = Math.abs(c.fwd || 0) > 0.2 || Math.abs(c.right || 0) > 0.2 || c.fire || c.jump;
+      if (!t || !t.alive || !t.downed || moved || Math.hypot(t.body.pos.x - b.pos.x, t.body.pos.z - b.pos.z) > 2.6) this.cancelRevive(p);
+      else {
+        p.reviving.t += dt;
+        stepBody(this.world, b, { yaw: p.yaw }, dt);
+        if (p.reviving.t >= REVIVE_TIME) {
+          t.downed = false; t.hp = 25; t.dhp = 0; t.revivedBy = null; t.body.stance = 'crouch';
+          this.emit({ t: 'revived', id: t.id, by: p.id });
+          p.reviving = null;
+        }
+        for (const k of EDGE_KEYS) c[k] = false;
+        c.slot = -1; c.use = null; c.cycle = 0; c.throwType = null;
+        return;
+      }
+    }
     // ---- input buffering: a press that arrives during a short lock (weapon swap,
     // stance transition, landing) is retried for a moment instead of being lost ----
     const B = p.buf;
@@ -481,8 +534,10 @@ export class Match {
 
     // ---- interact / pickup ----
     if (c.interact) {
-      const v = this.findVehicle(p);
-      if (v) this.enterVehicle(p, v);
+      const mate = this.teamSize > 1 ? this.findDowned(p) : null;
+      const v = mate ? null : this.findVehicle(p);
+      if (mate) this.startRevive(p, mate);
+      else if (v) this.enterVehicle(p, v);
       else {
         const it = this.findPickup(p);
         if (it) this.pickup(p, it);
@@ -969,6 +1024,16 @@ export class Match {
   damage(v, amount, attacker, cause, dir, part = 'torso', at = null) {
     if (this.cheats.god.has(v.id) || v.air === 'plane') return;
     if (!v.alive || amount <= 0) return;
+    // no friendly fire between teammates
+    if (attacker && attacker !== v && this.teamSize > 1 && attacker.team === v.team) return;
+    if (v.downed) {
+      // knocked down: damage eats the bleed-out bar; zero finishes the player off
+      v.dhp = Math.max(0, v.dhp - amount);
+      if (attacker && attacker !== v) { v.lastHitBy = attacker.id; v.lastHitT = this.time; }
+      this.emit({ t: 'hit', id: v.id, by: attacker ? attacker.id : null, dmg: amount, part, cause, x: v.body.pos.x, y: v.body.pos.y + 0.3, z: v.body.pos.z, dx: dir ? dir.x : 0, dz: dir ? dir.z : 0, kill: v.dhp <= 0, downed: true });
+      if (v.dhp <= 0) this.kill(v, attacker || (v.downBy ? this.byId.get(v.downBy) : null), cause, part === 'head');
+      return;
+    }
     const before = v.hp;
     v.hp = Math.max(0, v.hp - amount);
     const dealt = before - v.hp;
@@ -982,15 +1047,77 @@ export class Match {
       });
     }
     if (v.brain) v.brain.onDamaged(attacker, dealt);
-    if (v.hp <= 0) this.kill(v, attacker, cause, part === 'head');
+    if (v.hp <= 0) {
+      // duo / squad: go down instead of dying while a teammate is still standing
+      if (this.teamSize > 1 && this.teammates(v).some((o) => o.alive && !o.downed) && cause !== 'dev') this.knockDown(v, attacker, cause);
+      else this.kill(v, attacker, cause, part === 'head');
+    }
+  }
+
+  knockDown(v, attacker, cause) {
+    if (v.veh) this.exitVehicle(v);
+    v.downed = true; v.hp = 0; v.dhp = 100; v.downCount++;
+    v.downBy = attacker && attacker !== v ? attacker.id : (v.lastHitBy ?? null);
+    v.reloading = false; v.using = null; v.ads = false; v.throwHold = false; v.reviving = null; v.revivedBy = null;
+    v.body.stance = 'prone'; v.body.stanceLock = 0;
+    this.emit({ t: 'down', id: v.id, by: v.downBy, cause });
+    this.checkTeamWipe(v.team);
+  }
+  /** everybody on the team is down or dead: the downed ones die too */
+  checkTeamWipe(team) {
+    if (this.teamSize <= 1 || this.teamStanding(team)) return;
+    for (const o of this.players) if (o.team === team && o.alive && o.downed) this.kill(o, o.downBy ? this.byId.get(o.downBy) : null, 'bleed', false);
+  }
+  /** start reviving a knocked-down teammate (hold still for 6 s) */
+  startRevive(p, target) {
+    if (!target || !target.downed || target.team !== p.team || p.downed || target.revivedBy) return false;
+    p.reviving = { id: target.id, t: 0 };
+    target.revivedBy = p.id;
+    p.reloading = false; p.using = null;
+    this.emit({ t: 'reviveStart', id: p.id, target: target.id });
+    return true;
+  }
+  cancelRevive(p) {
+    const t = p.reviving && this.byId.get(p.reviving.id);
+    if (t && t.revivedBy === p.id) t.revivedBy = null;
+    p.reviving = null;
+    this.emit({ t: 'reviveCancel', id: p.id });
+  }
+  /** a downed teammate within reach */
+  findDowned(p) {
+    let best = null, bd = 2.2;
+    for (const o of this.players) {
+      if (o === p || !o.alive || !o.downed || o.team !== p.team) continue;
+      const d = Math.hypot(o.body.pos.x - p.body.pos.x, o.body.pos.z - p.body.pos.z);
+      if (d < bd && Math.abs(o.body.pos.y - p.body.pos.y) < 1.5) { bd = d; best = o; }
+    }
+    return best;
+  }
+  /** knocked down: crawl slowly and bleed out; nothing else */
+  stepDowned(p, dt) {
+    const c = p.cmd, b = p.body;
+    p.yaw = wrapAngle(c.yaw || 0); p.pitch = clamp(c.pitch || 0, -1.45, 1.45);
+    p.aimYaw = p.yaw; p.aimPitch = p.pitch;
+    b.stance = 'prone';
+    stepBody(this.world, b, { fwd: p.revivedBy ? 0 : c.fwd, right: p.revivedBy ? 0 : c.right, yaw: p.yaw, moveMul: 0.6 }, dt);
+    if (!p.revivedBy) {
+      p.dhp -= (3 + p.downCount * 1.5) * dt;
+      if (p.dhp <= 0) { p.dhp = 0; this.kill(p, p.downBy ? this.byId.get(p.downBy) : null, 'bleed', false); }
+    }
+    for (const k of EDGE_KEYS) c[k] = false;
+    c.slot = -1; c.use = null; c.cycle = 0; c.throwType = null;
   }
 
   kill(v, attacker, cause, head) {
+    if (!v.alive) return;
     if (v.veh) { const car = this.vehById.get(v.veh.id); if (car) car.seats[v.veh.seat] = null; v.veh = null; v.body.stance = 'stand'; }
+    if (v.reviving) this.cancelRevive(v);
+    if (v.revivedBy) { const r = this.byId.get(v.revivedBy); if (r) r.reviving = null; v.revivedBy = null; }
     v.alive = false;
+    v.downed = false;
     v.hp = 0;
     v.deathT = this.time;
-    v.place = this.aliveCount() + 1;
+    v.place = this.aliveTeams() + 1;
     v.using = null; v.reloading = false;
     this.deaths++;
     // zone / fall kill credit goes to whoever hit last within 10s
@@ -998,6 +1125,10 @@ export class Match {
     if (!killer && v.lastHitBy !== null && this.time - v.lastHitT < 10) killer = this.byId.get(v.lastHitBy) || null;
     if (killer && killer !== v) killer.kills++;
     this.emit({ t: 'kill', id: v.id, by: killer ? killer.id : null, cause, head, place: v.place, x: v.body.pos.x, y: v.body.pos.y, z: v.body.pos.z });
+    // team placement: everyone on an eliminated team shares the place
+    if (this.teamSize > 1 && !this.players.some((o) => o.team === v.team && o.alive)) {
+      for (const o of this.players) if (o.team === v.team) o.place = v.place;
+    }
     // drop everything
     const drops = [];
     for (let s = 0; s < 3; s++) if (v.slots[s]) drops.push([v.slots[s].id, 1, v.slots[s].mag]);
@@ -1010,6 +1141,7 @@ export class Match {
     v.slots = [null, null, null, { id: 'fists', mag: 0 }];
     v.inv.items = {};
     v.cur = 3; v.throwType = null; v.throwHold = false;
+    this.checkTeamWipe(v.team);
   }
 
   zoneDamage(dt) {
@@ -1026,16 +1158,18 @@ export class Match {
   checkWin() {
     if (this.state !== 'playing') return;
     const alive = this.players.filter((p) => p.alive);
-    if (alive.length <= 1) {
+    const teams = new Set(alive.map((p) => p.team));
+    if (teams.size <= 1) {
       this.state = 'ended';
-      let w = alive[0];
+      let w = alive.find((p) => !p.downed) || alive[0];
       if (!w) {
         // everyone died on the same tick: the last one processed already holds place 1
         w = this.players.find((p) => p.place === 1) || this.players.slice().sort((a, b) => b.deathT - a.deathT)[0];
       }
-      w.place = 1;
+      for (const p of this.players) if (p.team === w.team) p.place = 1;
       this.winner = w.id;
-      this.emit({ t: 'end', winner: w.id });
+      this.winnerTeam = w.team;
+      this.emit({ t: 'end', winner: w.id, team: w.team });
     }
   }
 

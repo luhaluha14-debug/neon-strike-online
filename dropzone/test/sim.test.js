@@ -592,3 +592,99 @@ test('supply sniper: one body shot leaves 8 hp, a headshot kills', () => {
   tick(m, { fire: true, ads: true, ...aim(1.62) }); run(m, 0.3, { ads: true, ...aim(1.62) });
   assert.equal(bot.alive, false);
 });
+
+/* ---------- teams: duo / squad ---------- */
+/** 2 humans (ids 1, 2) on one team vs frozen bots, flat world */
+function squadDuel(teamSize = 2, bots = 2) {
+  const world = flatWorld();
+  world.spawnSpots = [{ x: 0, z: 0 }, { x: 3, z: 0 }, { x: 0, z: -20 }, { x: 10, z: -20 }, { x: 20, z: -20 }, { x: 30, z: -20 }];
+  const nav = new NavGrid(world);
+  const m = new Match({ world, nav, seed: 5, bots, teamSize, humans: [{ id: 1, name: 'me' }, { id: 2, name: 'mate' }], drop: false });
+  for (const o of m.players) if (o.isBot) o.brain = null;
+  const me = m.byId.get(1), mate = m.byId.get(2);
+  me.body.pos.x = 0; me.body.pos.z = 0; mate.body.pos.x = 1.2; mate.body.pos.z = 0;
+  return { m, me, mate, bots: m.players.filter((p) => p.isBot) };
+}
+function tick2(m, c1 = {}, c2 = {}) { m.setCommand(1, Object.assign(emptyCommand(), c1)); m.setCommand(2, Object.assign(emptyCommand(), c2)); m.step(TICK); }
+
+test('teams: humans share a team, bots fill the rest, no friendly fire', () => {
+  const { m, me, mate, bots } = squadDuel(2, 2);
+  assert.equal(me.team, mate.team);
+  assert.notEqual(bots[0].team, me.team);
+  assert.equal(bots[0].team, bots[1].team, 'the two bots form the second duo');
+  m.damage(mate, 50, me, 'gun', null);
+  assert.equal(mate.hp, 100, 'teammate shots do nothing');
+  // squad: 2 humans + 7 bots = 3 teams of up to 4
+  const s = squadDuel(4, 7).m;
+  const sizes = {};
+  for (const p of s.players) sizes[p.team] = (sizes[p.team] || 0) + 1;
+  assert.deepEqual(Object.values(sizes).sort(), [1, 4, 4]);
+});
+
+test('teams: lethal damage knocks down, a teammate revives in 6 s', () => {
+  const { m, me, mate, bots } = squadDuel();
+  m.damage(me, 150, bots[0], 'gun', null);
+  assert.ok(me.alive && me.downed, 'knocked, not dead');
+  assert.equal(me.body.stance, 'prone');
+  const evs = m.drainEvents();
+  assert.ok(evs.some((e) => e.t === 'down' && e.id === 1));
+  // the mate walks up and holds F
+  tick2(m, {}, { interact: true });
+  assert.ok(mate.reviving, 'revive started');
+  for (let i = 0; i < 60 * 5; i++) tick2(m);
+  assert.ok(me.downed, 'not yet');
+  for (let i = 0; i < 60 * 1.2; i++) tick2(m);
+  assert.ok(!me.downed && me.alive && me.hp === 25, 'revived with 25 hp');
+  // moving cancels a revive
+  m.damage(me, 150, bots[0], 'gun', null);
+  tick2(m, {}, { interact: true });
+  for (let i = 0; i < 30; i++) tick2(m, {}, { fwd: 1 });
+  assert.equal(mate.reviving, null);
+  assert.ok(me.downed);
+});
+
+test('teams: downed players bleed out, get finished, and a team wipe kills the downed', () => {
+  const { m, me, mate, bots } = squadDuel();
+  m.damage(me, 150, bots[0], 'gun', null);
+  let t = 0;
+  while (me.alive && t < 60) { tick2(m); t += TICK; }
+  assert.ok(!me.alive, 'bled out');
+  assert.ok(t > 20 && t < 40, `bleed-out takes ~30 s (${t.toFixed(1)})`);
+  assert.equal(bots[0].kills, 1, 'knocker gets the kill');
+  // finishing shots on a downed player
+  const s = squadDuel();
+  s.m.damage(s.me, 150, s.bots[0], 'gun', null);
+  s.m.damage(s.me, 120, s.bots[1], 'gun', null);
+  assert.ok(!s.me.alive);
+  // last standing member goes down -> the whole team is out, second team wins
+  const w = squadDuel();
+  w.m.damage(w.me, 150, w.bots[0], 'gun', null);
+  assert.ok(w.me.downed);
+  w.m.damage(w.mate, 150, w.bots[0], 'gun', null);
+  assert.ok(!w.me.alive && !w.mate.alive, 'no standing teammate: nobody gets knocked, downed die');
+  tick2(w.m);
+  assert.equal(w.m.state, 'ended');
+  assert.equal(w.m.winnerTeam, w.bots[0].team);
+  assert.equal(w.me.place, 2); assert.equal(w.mate.place, 2);
+  assert.equal(w.bots[0].place, 1); assert.equal(w.bots[1].place, 1);
+});
+
+for (const size of [2, 4]) {
+  test(`bot-only ${size === 2 ? 'duo' : 'squad'} match ends with one team standing`, () => {
+    const { world, nav } = map();
+    const m = new Match({ world, nav, seed: 21, bots: 24, difficulty: 'normal', teamSize: size });
+    let downs = 0, revives = 0;
+    while (m.state === 'playing' && m.time < 900) {
+      m.step(TICK);
+      for (const e of m.drainEvents()) { if (e.t === 'down') downs++; if (e.t === 'revived') revives++; }
+    }
+    assert.equal(m.state, 'ended');
+    const alive = m.players.filter((p) => p.alive);
+    assert.ok(alive.length >= 1 && alive.every((p) => p.team === m.winnerTeam));
+    assert.ok(downs > 0, 'somebody got knocked');
+    const teams = new Set(m.players.map((p) => p.team)).size;
+    assert.equal(teams, 24 / size);
+    for (const p of m.players) assert.ok(p.place >= 1 && p.place <= teams, 'team placement');
+    console.log(`  ${size}: ${m.time.toFixed(0)}s downs ${downs} revives ${revives}`);
+  });
+}

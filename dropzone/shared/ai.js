@@ -2,7 +2,7 @@
    Bot brain.  Produces the same command objects a human produces, so bots
    obey exactly the same movement / weapon rules (and can later run on the
    server unchanged).
-   States: LOOT, ROAM, ZONE, ENGAGE, CHASE, COVER, HEAL
+   States: LOOT, ROAM, ZONE, ENGAGE, CHASE, COVER, HEAL, REVIVE, FOLLOW
    ========================================================================= */
 import { clamp, wrapAngle, DEG, anglesFromDir } from './util.js';
 import { WEAPONS } from './weapons.js';
@@ -69,14 +69,15 @@ export class BotBrain {
     if (p.blindT > 0.4) return;                  // flashed: can't see anything
     let best = null, bestD = Infinity;
     for (const o of m.players) {
-      if (o === p || !o.alive || o.air === 'plane') continue;
+      if (o === p || !o.alive || o.air === 'plane' || (m.teamSize > 1 && o.team === p.team)) continue;
       const d = Math.hypot(o.body.pos.x - p.body.pos.x, o.body.pos.z - p.body.pos.z);
       if (d > this.d.sight + 5) continue;
       // hearing gunfire: become aware of the shooter
       if (m.time - o.lastShotT < 0.3 && d < 85 && (!this.target || this.target === o)) {
         if (!this.lastKnown || m.time - this.seenT > 1.5) { this.lastKnown = { x: o.body.pos.x, y: o.body.pos.y, z: o.body.pos.z }; this.heardT = m.time; this.heardId = o.id; }
       }
-      const pref = this.target === o ? d * 0.6 : d;          // stick to current target
+      // stick to the current target; finish knocked-down enemies only when nobody else is up
+      const pref = (this.target === o ? d * 0.6 : d) * (o.downed ? 2.5 : 1);
       if (pref < bestD && this.canSee(o)) { best = o; bestD = pref; }
     }
     if (best) {
@@ -96,7 +97,7 @@ export class BotBrain {
   }
 
   onDamaged(attacker) {
-    if (!attacker || attacker === this.p) return;
+    if (!attacker || attacker === this.p || (this.m.teamSize > 1 && attacker.team === this.p.team)) return;
     this.awareT = this.m.time;
     if (!this.target || !this.target.alive || this.m.time - this.seenT > 1) {
       this.lastKnown = { x: attacker.body.pos.x, y: attacker.body.pos.y, z: attacker.body.pos.z };
@@ -161,10 +162,12 @@ export class BotBrain {
     return !p.slots[0] || ammo < 60 || invCount(p.inv, 'bandage') < 2;
   }
   findLoot(maxD) {
-    const p = this.p;
+    const p = this.p, L = this.leader();
     let best = null, bestS = -Infinity;
     for (const it of this.m.items) {
       if (this.ignoreItems.has(it.id)) continue;
+      // squad bots stay on a leash around their leader
+      if (L && !it.supply && Math.hypot(it.x - L.body.pos.x, it.z - L.body.pos.z) > 38) continue;
       const d = Math.hypot(it.x - p.body.pos.x, it.z - p.body.pos.z);
       // supply crates are worth a long run
       if (d > (it.supply ? Math.max(maxD, 150) : maxD) || Math.abs(it.y - p.body.pos.y) > 2.5) continue;
@@ -239,6 +242,32 @@ export class BotBrain {
     return best;
   }
 
+  /* ---------------- team ---------------- */
+  /** who this bot sticks with: a human teammate first, otherwise the lowest-id bot */
+  leader() {
+    const m = this.m, p = this.p;
+    if (m.teamSize <= 1) return null;
+    let best = null;
+    for (const o of m.players) {
+      if (o.team !== p.team || !o.alive || o.downed) continue;
+      if (!best || (!o.isBot && best.isBot) || (o.isBot === best.isBot && o.id < best.id)) best = o;
+    }
+    return best === p ? null : best;
+  }
+  /** nearest knocked-down teammate nobody else is reviving yet */
+  downedMate(maxD) {
+    const m = this.m, p = this.p;
+    if (m.teamSize <= 1) return null;
+    let best = null, bd = maxD;
+    for (const o of m.players) {
+      if (o === p || o.team !== p.team || !o.alive || !o.downed || o.air) continue;
+      if (o.revivedBy && o.revivedBy !== p.id) continue;
+      const d = Math.hypot(o.body.pos.x - p.body.pos.x, o.body.pos.z - p.body.pos.z);
+      if (d < bd) { bd = d; best = o; }
+    }
+    return best;
+  }
+
   /* ---------------- skydive ---------------- */
   /** pick where to land and when to jump (called once at match start) */
   planDrop(plane) {
@@ -258,15 +287,31 @@ export class BotBrain {
     // jump a little before the closest point of the route so we can glide the rest
     this.jumpAt = plane.project(this.dropTarget.x, this.dropTarget.z) - 20 - Math.random() * 35;
     this.wasAir = true;
+    // squads land together: copy the leader's plan (a human leader is followed live in thinkAir)
+    const L = this.leader();
+    if (L && L.brain && L.brain.dropTarget) {
+      const a = Math.random() * Math.PI * 2;
+      this.dropTarget = { x: L.brain.dropTarget.x + Math.cos(a) * 6, z: L.brain.dropTarget.z + Math.sin(a) * 6 };
+      this.jumpAt = L.brain.jumpAt + Math.random() * 3;
+    }
   }
 
   thinkAir() {
     const p = this.p, m = this.m, c = p.cmd;
     c.fwd = 0; c.right = 0; c.fire = false; c.ads = false; c.sprint = false;
+    const L = this.leader();
+    const human = L && !L.isBot ? L : null;
     if (p.air === 'plane') {
       c.yaw = m.plane.yaw; c.pitch = 0;
-      if (m.plane.inside && m.plane.d >= this.jumpAt) c.jump = true;
+      // with a human in the squad: jump right after them (or when the plane is about to leave)
+      if (human ? (human.air !== 'plane' && m.time - (this.leaderJumpT ??= m.time) > 0.4 + (p.id % 4) * 0.3) || m.plane.d > m.plane.len - 30
+        : m.plane.inside && m.plane.d >= this.jumpAt) c.jump = true;
       return;
+    }
+    if (human) {
+      // follow the human down, a few metres to the side
+      const a = (p.id % 4) * 1.57;
+      this.dropTarget = { x: human.body.pos.x + Math.cos(a) * 5, z: human.body.pos.z + Math.sin(a) * 5 };
     }
     const T = this.dropTarget || { x: p.body.pos.x, z: p.body.pos.z };
     const dx = T.x - p.body.pos.x, dz = T.z - p.body.pos.z, d = Math.hypot(dx, dz);
@@ -287,6 +332,7 @@ export class BotBrain {
   think(dt) {
     const p = this.p, m = this.m, c = p.cmd;
     if (p.air) { this.thinkAir(); return; }
+    if (p.downed) { this.thinkDowned(dt); return; }
     if (this.wasAir) {
       // just landed: start looting right here
       this.wasAir = false;
@@ -368,6 +414,36 @@ export class BotBrain {
         if (!this.wantCrouch && p.body.stance === 'crouch' && Math.random() < 0.02) c.crouch = true;
         moveDir = { x: mx, z: mz };
         if (p.hp < 30 && tgt.hp > p.hp + 20 && this.personality < 0.7) { this.state = 'COVER'; this.coverPt = this.findCover(tgt.body.pos); }
+        break;
+      }
+      case 'REVIVE': {
+        const mate = this.reviveMate;
+        if (!mate || !mate.alive || !mate.downed || (mate.revivedBy && mate.revivedBy !== p.id)) { this.reviveMate = null; this.state = 'ROAM'; this.path = null; break; }
+        if (p.reviving) { this.scan(dt); wantYaw = this.lookYaw; break; }       // hold still until done
+        const d = Math.hypot(mate.body.pos.x - p.body.pos.x, mate.body.pos.z - p.body.pos.z);
+        if (d < 1.6) { c.interact = true; this.path = null; break; }
+        this.goTo(mate.body.pos.x, mate.body.pos.z);
+        moveDir = this.follow(dt);
+        if (!moveDir && !this.pendingPath) moveDir = { x: (mate.body.pos.x - p.body.pos.x) / d, z: (mate.body.pos.z - p.body.pos.z) / d, d };
+        if (moveDir && moveDir.waiting) moveDir = null;
+        if (moveDir) { wantYaw = Math.atan2(-moveDir.x, -moveDir.z); c.sprint = d > 6; }
+        if (p.body.stance !== 'stand' && !c.crouch) c[p.body.stance === 'crouch' ? 'crouch' : 'prone'] = true;
+        break;
+      }
+      case 'FOLLOW': {
+        const L = this.leader();
+        if (!L) { this.state = 'ROAM'; break; }
+        const d = Math.hypot(L.body.pos.x - p.body.pos.x, L.body.pos.z - p.body.pos.z);
+        if (d < 12) { this.state = 'ROAM'; this.path = null; this.holdT = 1 + Math.random() * 2; break; }
+        // re-plan when the leader moved away from the old goal
+        if (!this.goal || Math.hypot(this.goal.x - L.body.pos.x, this.goal.z - L.body.pos.z) > 8) this.goTo(L.body.pos.x, L.body.pos.z, true);
+        moveDir = this.follow(dt);
+        if (moveDir && moveDir.waiting) { moveDir = null; this.scan(dt); wantYaw = this.lookYaw; }
+        else if (moveDir) { wantYaw = Math.atan2(-moveDir.x, -moveDir.z); c.sprint = d > 20; }
+        else { this.goal = null; }
+        if (p.body.stance !== 'stand' && !c.crouch) c[p.body.stance === 'crouch' ? 'crouch' : 'prone'] = true;
+        const want = this.bestWeaponSlot(40);
+        if (want !== p.cur) c.slot = want;
         break;
       }
       case 'COVER': {
@@ -466,6 +542,28 @@ export class BotBrain {
     } else { this.progressT = 0; }
   }
 
+  /** knocked down: crawl toward the nearest standing teammate, away from the enemy */
+  thinkDowned(dt) {
+    const p = this.p, m = this.m, c = p.cmd;
+    c.fwd = 0; c.right = 0; c.fire = false; c.ads = false; c.sprint = false;
+    this.state = 'LOOT'; this.path = null; this.pendingPath = false; this.lootTarget = null; this.reviveMate = null; this.throwPlan = null;
+    if (p.revivedBy) return;                       // lie still while being revived
+    let tx = 0, tz = 0, has = false, best = Infinity;
+    for (const o of m.players) {
+      if (o === p || o.team !== p.team || !o.alive || o.downed) continue;
+      const d = Math.hypot(o.body.pos.x - p.body.pos.x, o.body.pos.z - p.body.pos.z);
+      if (d < best && d > 1.2) { best = d; tx = o.body.pos.x - p.body.pos.x; tz = o.body.pos.z - p.body.pos.z; has = true; }
+    }
+    if (!has && this.lastKnown) { tx = p.body.pos.x - this.lastKnown.x; tz = p.body.pos.z - this.lastKnown.z; has = true; }
+    if (!has) return;
+    const yaw = Math.atan2(-tx, -tz);
+    this.aimYaw = this.lookYaw = yaw;
+    c.yaw = c.aimYaw = yaw; c.pitch = c.aimPitch = 0;
+    c.fwd = 1;
+    this.unstick(dt, true);
+    if (this.sidestep > 0) { c.fwd = 0; c.right = this.sideSign; this.sidestep -= dt; }
+  }
+
   /** direction away from a nearby frag / fire, or null */
   dangerNear() {
     const p = this.p, m = this.m;
@@ -562,8 +660,11 @@ export class BotBrain {
 
   pickRoam() {
     const p = this.p, m = this.m, z = m.zone;
-    const tgtC = z.stage === 'shrink' || z.timer < 25 ? z.next : z.cur;
-    const r = Math.max(4, tgtC.r * 0.7);
+    let tgtC = z.stage === 'shrink' || z.timer < 25 ? z.next : z.cur;
+    let r = Math.max(4, tgtC.r * 0.7);
+    // squad bots mill around their leader while it is inside the safe area
+    const L = this.leader();
+    if (L && z.isInside(L.body.pos.x, L.body.pos.z, 4)) { tgtC = { x: L.body.pos.x, z: L.body.pos.z }; r = 14; }
     for (let i = 0; i < 10; i++) {
       const a = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random()) * r;
       let x = tgtC.x + Math.cos(a) * d, zz = tgtC.z + Math.sin(a) * d;
@@ -608,6 +709,17 @@ export class BotBrain {
       return;
     }
     if (this.state === 'ZONE' && (this.path || this.pendingPath)) return;
+    // squad: pick up a knocked-down teammate once nobody is shooting at us
+    if (m.teamSize > 1) {
+      if (this.state === 'REVIVE' && this.reviveMate && this.reviveMate.downed) return;
+      const mate = m.time - this.seenT > 1.5 && m.time - this.awareT > 1.5 ? this.downedMate(60) : null;
+      if (mate) { this.state = 'REVIVE'; this.reviveMate = mate; this.path = null; this.goal = null; return; }
+      const L = this.leader();
+      if (L && !(tgt && tgt.alive && m.time - this.seenT < 3)) {
+        const d = Math.hypot(L.body.pos.x - p.body.pos.x, L.body.pos.z - p.body.pos.z);
+        if (d > (this.state === 'FOLLOW' ? 12 : 40)) { if (this.state !== 'FOLLOW') { this.state = 'FOLLOW'; this.goal = null; } return; }
+      }
+    }
     if (this.lastKnown && tgt && tgt.alive && m.time - this.seenT < 6 && p.hp > 40 && this.hasGun()) { this.state = 'CHASE'; return; }
     if (this.heardT && m.time - this.heardT < 4 && this.lastKnown && this.hasGun() && this.personality > 0.35 && p.hp > 50) { this.state = 'CHASE'; return; }
     const healable = (p.hp < 60 && (invCount(p.inv, 'bandage') > 0 || invCount(p.inv, 'medkit') > 0)) || (p.hp < 75 && invCount(p.inv, 'bandage') > 0 && p.hp < 70);
