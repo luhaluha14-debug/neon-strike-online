@@ -24,7 +24,11 @@ export class NetServer {
     this.world = world; this.nav = nav; this.log = log;
     this.rooms = new Map();
     this.nextConn = 1;
-    this.wss = new WebSocketServer({ server: httpServer, path: '/ws', maxPayload: 16 * 1024 });
+    // snapshots are repetitive JSON: permessage-deflate cuts the traffic to roughly a quarter
+    this.wss = new WebSocketServer({
+      server: httpServer, path: '/ws', maxPayload: 16 * 1024,
+      perMessageDeflate: { threshold: 512, zlibDeflateOptions: { level: 3 }, serverNoContextTakeover: false, clientNoContextTakeover: true }
+    });
     this.wss.on('connection', (ws) => this.onConnect(ws));
     this.timer = setInterval(() => this.lobbyTick(), 250);
   }
