@@ -30,7 +30,7 @@ export const QUALITY = {
 
 export function defaults(touch) {
   return {
-    name: 'PLAYER', bots: 24, difficulty: 'normal', view: 'tps',
+    name: 'PLAYER', bots: 24, difficulty: 'normal', view: 'tps', mode: 1,
     // controls
     sens: 1.0, adsSens: 0.8, invertY: false, adsHold: true, crouchHold: false, fov: 80,
     keys: JSON.parse(JSON.stringify(DEFAULT_KEYS)),

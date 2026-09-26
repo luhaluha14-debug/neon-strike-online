@@ -33,7 +33,10 @@
     <div id="zoneInfo"><span id="zoneTxt"></span></div>
   </div>
 
+  <div id="tags"></div>
   <div id="feed"></div>
+  <div id="team"></div>
+  <div id="downed" class="hide"><b>기절</b><span>팀원이 소생해 줄 때까지 버티세요 · 천천히 기어갈 수 있습니다</span><div class="bar"><i id="downedFill"></i></div></div>
   <div id="banner"></div>
   <div id="prompt"></div>
   <div id="useBar"><div id="useFill"></div><span id="useTxt"></span></div>
@@ -78,11 +81,12 @@
     <div class="tag">NEON STRIKE · BATTLE ROYALE PROTOTYPE</div>
     <div class="card">
       <div class="row"><label>이름</label><input id="pName" maxlength="12" value="PLAYER"></div>
+      <div class="row"><label>모드</label><div class="seg" id="pMode"><button data-v="1">솔로</button><button data-v="2">듀오</button><button data-v="4">스쿼드</button></div></div>
       <div class="row"><label>봇 수</label><input id="pBots" type="range" min="4" max="49" value="24"><span id="pBotsV">24</span></div>
       <div class="row"><label>난이도</label><div class="seg" id="pDiff"><button data-v="easy">EASY</button><button data-v="normal">NORMAL</button><button data-v="hard">HARD</button></div></div>
       <div class="row"><label>시점</label><div class="seg" id="pView"><button data-v="tps">3인칭</button><button data-v="fps">1인칭</button></div></div>
     </div>
-    <button class="btn p" id="bPlay">솔로 플레이 (봇)</button>
+    <button class="btn p" id="bPlay">플레이 (봇과 대전)</button>
     <button class="btn" id="bOnline" disabled>온라인 매칭 · 준비 중</button>
     <button class="btn sm" id="bSettings">설정</button>
     <button class="btn sm" id="bHelp">조작법</button>

@@ -7,7 +7,7 @@ import { WEAPONS, AMMO } from '../shared/weapons.js';
 import { ITEMS, invWeight } from '../shared/items.js';
 import { THROWABLES, THROW_ORDER } from '../shared/throwables.js';
 import { VEHICLES } from '../shared/vehicles.js';
-import { MAX_HP } from '../shared/game.js';
+import { MAX_HP, REVIVE_TIME } from '../shared/game.js';
 import { DEG } from '../shared/util.js';
 
 const $ = (id) => document.getElementById(id);
@@ -17,7 +17,7 @@ export class HUD {
     this.el = {};
     for (const id of ['hud', 'crosshair', 'hitmark', 'dmgDirs', 'stormTint', 'hurtTint', 'flashTint', 'scope', 'compassStrip', 'aliveN', 'killN', 'minimap', 'zoneTxt', 'feed', 'banner', 'prompt',
       'useBar', 'useFill', 'useTxt', 'stance', 'hpFill', 'hpLag', 'hpNum', 'magN', 'resN', 'wName', 'slots', 'reloadRing', 'debug', 'inv', 'invGround', 'invBag', 'invSlots',
-      'invWeight', 'invWFill', 'bigmap', 'bigmapCv', 'vehBox', 'vehName', 'vehSpeed', 'vehFuel', 'vehHp']) this.el[id] = $(id);
+      'invWeight', 'invWFill', 'bigmap', 'bigmapCv', 'vehBox', 'vehName', 'vehSpeed', 'vehFuel', 'vehHp', 'team', 'downed', 'downedFill']) this.el[id] = $(id);
     this.cache = {};
     this.mm = this.el.minimap.getContext('2d');
     this.hitT = 0; this.hurtA = 0; this.bannerT = 0; this.hpLag = 100;
@@ -89,8 +89,14 @@ export class HUD {
       this.el.reloadRing.style.opacity = 1;
       this.ring.style.strokeDashoffset = (100.5 * (1 - t)).toFixed(1);
     } else if (this.el.reloadRing.style.opacity !== '0') this.el.reloadRing.style.opacity = 0;
-    // item use bar
-    if (p.using) {
+    // item use / revive bar
+    const rv = p.reviving || (p.revivedBy ? m.byId.get(p.revivedBy)?.reviving : null);
+    if (rv) {
+      const who = m.byId.get(p.reviving ? rv.id : p.revivedBy);
+      this.set('use', this.el.useBar, 'opacity', '1');
+      this.el.useFill.style.width = (rv.t / REVIVE_TIME * 100).toFixed(1) + '%';
+      this.set('useTxt', this.el.useTxt, 'text', (p.reviving ? `${who ? who.name : ''} 소생 중… ` : `${who ? who.name : '팀원'}이(가) 소생 중… `) + Math.max(0, REVIVE_TIME - rv.t).toFixed(1) + 's');
+    } else if (p.using) {
       this.set('use', this.el.useBar, 'opacity', '1');
       this.el.useFill.style.width = (p.using.t / p.using.dur * 100).toFixed(1) + '%';
       this.set('useTxt', this.el.useTxt, 'text', ITEMS[p.using.key].name + ' 사용 중… ' + Math.max(0, p.using.dur - p.using.t).toFixed(1) + 's');
@@ -105,6 +111,18 @@ export class HUD {
       this.set('vf', this.el.vehFuel, 'width', Math.round(car.fuel) + '%');
       this.set('vh', this.el.vehHp, 'width', Math.max(0, Math.round(car.hp / D.hp * 100)) + '%');
     }
+    // squad panel + knocked-down overlay
+    if (g.teamSize > 1) {
+      const html = g.squad.map((o) => {
+        const cls = !o.alive ? 'dead' : o.downed ? 'down' : '';
+        const v = !o.alive ? 0 : o.downed ? o.dhp : Math.max(0, o.hp);
+        return `<div class="tm ${cls}"><i style="background:${g.squadColor.get(o.id)}">${g.squadNum.get(o.id)}</i><span>${escapeHtml(o.name)}</span><em><u style="width:${Math.round(v)}%"></u></em></div>`;
+      }).join('');
+      this.set('team', this.el.team, 'html', html);
+    } else this.set('team', this.el.team, 'html', '');
+    const dn = !!(p.alive && p.downed);
+    if (this.cache.dn !== dn) { this.cache.dn = dn; this.el.downed.classList.toggle('hide', !dn); }
+    if (dn) this.set('dnf', this.el.downedFill, 'width', Math.max(0, p.dhp).toFixed(0) + '%');
     // counters
     this.set('alive', this.el.aliveN, 'text', String(m.aliveCount()));
     this.set('kills', this.el.killN, 'text', String(p.kills));
@@ -137,7 +155,7 @@ export class HUD {
     }
     const adsCls = g.adsBlend > 0.6 && w.cat !== 'shotgun';
     if (this.cache.ads !== adsCls) { this.cache.ads = adsCls; ch.classList.toggle('ads', adsCls); }
-    const hideCh = !p.alive || (p.body.sprinting && g.view === 'fps');
+    const hideCh = !p.alive || p.downed || (p.body.sprinting && g.view === 'fps');
     if (this.cache.hideCh !== hideCh) { this.cache.hideCh = hideCh; ch.classList.toggle('hideAll', hideCh); }
     // hit marker
     if (this.hitT > 0) { this.hitT -= dt; this.el.hitmark.style.opacity = Math.max(0, this.hitT / 0.25).toFixed(2); }
@@ -246,6 +264,7 @@ export class HUD {
       ctx.fillStyle = `rgba(255,120,60,${a.toFixed(2)})`;
       ctx.beginPath(); ctx.arc((e.x - cx) * k, (e.z - cz) * k, 4, 0, 6.28); ctx.fill();
     }
+    this.drawSquad(ctx, g, (x, z) => [(x - cx) * k, (z - cz) * k], -heading);
     ctx.restore();
     // player arrow (always pointing up)
     ctx.save();
@@ -257,6 +276,22 @@ export class HUD {
     ctx.save(); ctx.translate(S / 2, S / 2); ctx.rotate(heading);
     ctx.fillStyle = '#fff'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'center';
     ctx.fillText('N', 0, -S / 2 + 14); ctx.restore();
+  }
+
+  /** teammates: coloured numbered dots (a cross when knocked down) */
+  drawSquad(ctx, g, tp, rot, big = false) {
+    if (g.teamSize <= 1) return;
+    const r = big ? 7 : 6;
+    for (const o of g.squad) {
+      if (o === g.me || !o.alive || o.air === 'plane') continue;
+      const [x, y] = tp(o.body.pos.x, o.body.pos.z);
+      ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
+      ctx.fillStyle = o.downed ? '#ff4a3a' : g.squadColor.get(o.id); ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(0, 0, r, 0, 6.28); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#111'; ctx.font = `bold ${r + 3}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(o.downed ? '✚' : String(g.squadNum.get(o.id)), 0, 0.5);
+      ctx.restore();
+    }
   }
 
   drawZone(ctx, z, tp, k) {
@@ -345,6 +380,7 @@ export class HUD {
       ctx.font = 'bold 14px sans-serif'; ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillText(L.name, x + 1, y + 1);
       ctx.fillStyle = '#fff'; ctx.fillText(L.name, x, y);
     }
+    this.drawSquad(ctx, g, tp, 0, true);
     const p = g.me;
     const [px, py] = tp(p.body.pos.x, p.body.pos.z);
     ctx.save(); ctx.translate(px, py); ctx.rotate(-g.rig.yaw);
@@ -383,3 +419,5 @@ export class HUD {
     this.el.invWFill.style.width = Math.min(100, wt / p.inv.capacity * 100) + '%';
   }
 }
+
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }

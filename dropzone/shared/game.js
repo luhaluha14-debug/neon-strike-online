@@ -1056,6 +1056,7 @@ export class Match {
 
   knockDown(v, attacker, cause) {
     if (v.veh) this.exitVehicle(v);
+    if (v.reviving) this.cancelRevive(v);      // frees the mate we were reviving
     v.downed = true; v.hp = 0; v.dhp = 100; v.downCount++;
     v.downBy = attacker && attacker !== v ? attacker.id : (v.lastHitBy ?? null);
     v.reloading = false; v.using = null; v.ads = false; v.throwHold = false; v.reviving = null; v.revivedBy = null;

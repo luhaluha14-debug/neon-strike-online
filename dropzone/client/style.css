@@ -106,6 +106,25 @@ h2{font-size:26px;letter-spacing:.2em;margin-bottom:16px}
 #minimap{width:calc(180px*var(--ui));height:calc(180px*var(--ui));border-radius:6px;background:#1c2530;border:1px solid rgba(255,255,255,.2)}
 #zoneInfo{font-size:12px;background:rgba(12,17,23,.62);padding:4px 8px;border-radius:5px;color:#cfe1ff}
 #feed{top:10px;left:10px;display:flex;flex-direction:column;gap:3px;font-size:12px}
+#team{top:120px;left:10px;display:flex;flex-direction:column;gap:4px;font-size:12px;min-width:150px}
+#team:empty{display:none}
+#team .tm{display:flex;align-items:center;gap:6px;background:rgba(12,17,23,.6);padding:3px 7px;border-radius:4px}
+#team .tm i{font-style:normal;font-weight:700;width:16px;height:16px;border-radius:3px;display:inline-flex;align-items:center;justify-content:center;color:#111;font-size:11px}
+#team .tm span{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:90px}
+#team .tm em{width:56px;height:5px;background:rgba(255,255,255,.15);border-radius:3px;overflow:hidden;display:block}
+#team .tm em u{display:block;height:100%;background:#e8eef4}
+#team .tm.down em u{background:#ff4a3a}
+#team .tm.dead{opacity:.45}
+#team .tm.dead span{text-decoration:line-through}
+#tags{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+#tags div{position:absolute;transform:translate(-50%,-100%);font-size:11px;font-weight:700;text-shadow:0 1px 2px #000;white-space:nowrap;text-align:center}
+#tags div.down{color:#ff5a4a}
+#downed{position:absolute;left:50%;top:30%;transform:translateX(-50%);text-align:center;background:rgba(40,6,6,.55);padding:10px 18px;border-radius:8px;border:1px solid rgba(255,80,60,.5)}
+#downed b{display:block;font-size:22px;letter-spacing:.2em;color:#ff5a4a}
+#downed span{font-size:12px;color:#e8d0cc}
+#downed .bar{margin-top:8px;height:6px;background:rgba(255,255,255,.15);border-radius:3px;overflow:hidden}
+#downed .bar i{display:block;height:100%;background:#ff4a3a;width:100%}
+body.touch #team{top:auto;bottom:calc(8px + 40px);left:8px;font-size:10px;min-width:120px}
 #feed div{background:rgba(12,17,23,.6);padding:3px 8px;border-radius:4px;animation:feedIn .2s}
 #feed div b.me{color:var(--acc)}
 #feed div .w{color:#9fb0c2;margin:0 5px}

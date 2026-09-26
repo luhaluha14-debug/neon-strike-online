@@ -34,6 +34,7 @@ const MODEL = { kestrel: 'rifle', wasp: 'smg', breaker: 'shotgun', hornet: 'pist
 /** model shown in hand for a slot (throwables use their own grenade model) */
 function modelFor(sl) { return !sl ? null : sl.id === 'throw' ? (sl.type ? 'g_' + sl.type : 'none') : MODEL[sl.id]; }
 const LOCAL_ID = 1;
+const SQUAD_COLORS = ['#f2a33a', '#4ad0ff', '#7dff6a', '#ff7ad9'];
 
 /* ======================================================================= */
 class App {
@@ -131,6 +132,7 @@ class App {
     $('pName').onchange = () => { S.name = $('pName').value.trim().slice(0, 12) || 'PLAYER'; saveSettings(S); };
     segment($('pDiff'), () => S.difficulty, (v) => { S.difficulty = v; saveSettings(S); });
     segment($('pView'), () => S.view, (v) => { S.view = v; saveSettings(S); });
+    segment($('pMode'), () => String(S.mode || 1), (v) => { S.mode = +v; saveSettings(S); });
     $('bPlay').onclick = () => { this.audio.init(); this.startMatch(); };
     $('bSettings').onclick = () => { this.settingsBack = 'menu'; this.openSettings(); };
     $('bHelp').onclick = () => { this.buildHelp(); this.screen('help'); };
@@ -416,8 +418,9 @@ class Session {
     const S = app.settings;
     this.world = app.world;
     this.seed = (Math.random() * 1e9) >>> 0;
-    this.match = new Match({ world: app.world, nav: app.nav, seed: this.seed, bots: S.bots, difficulty: S.difficulty, humans: [{ id: LOCAL_ID, name: S.name }] });
+    this.match = new Match({ world: app.world, nav: app.nav, seed: this.seed, bots: S.bots, difficulty: S.difficulty, teamSize: S.mode || 1, humans: [{ id: LOCAL_ID, name: S.name }] });
     this.me = this.match.byId.get(LOCAL_ID);
+    this.initSquad();
     this.me.autoPickup = S.autoPickup;
     this.state = 'playing';
     this.paused = false;
@@ -509,6 +512,7 @@ class Session {
 
   dispose() {
     const sc = this.app.scene;
+    $('tags').innerHTML = '';
     for (const s of this.soldiers.values()) sc.remove(s.root);
     sc.remove(this.itemGroup);
     if (this.planeMesh) sc.remove(this.planeMesh);
@@ -731,6 +735,9 @@ class Session {
         hud.feed(k && k !== v ? `${nm(k)}<span class="w">${how}${e.head ? ' ✦' : ''}</span>${nm(v)}` : `${nm(v)}<span class="w">${how}</span>`);
         if (k === me && v !== me) hud.banner(`${v.name} 처치${e.head ? ' · 헤드샷' : ''}`, '', 1.8);
         if (isMe) this.onDeath(k);
+        else if (!me.alive && this.teamSize > 1 && v.team === me.team && !this.teamAlive()) {
+          setTimeout(() => { if (this.app.session === this && this.state === 'playing') this.showResult(false); }, 1500);
+        }
         break;
       }
       case 'reload': if (isMe || this.near(e.id, 25)) A.reload(this.posOf(e.id), isMe, 0); break;
@@ -753,7 +760,22 @@ class Session {
         else if (e.ev === 'final') hud.banner('최종 구역', 'zone', 3);
         break;
       case 'itemAdd': case 'itemRemove': case 'itemUpdate': this.itemsDirty = true; break;
-      case 'end': this.onEnd(e.winner); break;
+      case 'end': this.onEnd(e); break;
+      case 'down': {
+        const v = m.byId.get(e.id), k = e.by !== null ? m.byId.get(e.by) : null;
+        const nm = (p) => `<b class="${p === me ? 'me' : ''}">${escapeHtml(p.name)}</b>`;
+        hud.feed(k && k !== v ? `${nm(k)}<span class="w">기절시킴</span>${nm(v)}` : `${nm(v)}<span class="w">기절</span>`);
+        if (isMe) { hud.banner('기절했습니다!', '', 2.2); A.hurt(); }
+        else if (k === me) hud.banner(`${v.name} 기절`, '', 1.6);
+        else if (v.team === me.team) hud.banner(`팀원 ${v.name} 기절! 소생해 주세요`, 'zone', 2.5);
+        break;
+      }
+      case 'revived': {
+        const v = m.byId.get(e.id);
+        if (isMe) hud.banner('소생했습니다', '', 2);
+        else if (v && v.team === me.team) this.toast(`${v.name} 소생 완료`);
+        break;
+      }
       case 'plane':
         if (e.ev === 'enter' && me.air === 'plane') hud.banner('섬 상공입니다 · 원하는 곳에서 뛰어내리세요', 'zone', 3);
         if (e.ev === 'leave') hud.banner('수송기가 섬을 벗어났습니다 · 자기장 시간이 흐르기 시작합니다', 'zone', 3);
@@ -822,26 +844,75 @@ class Session {
     this.deathT = this.time;
     this.specId = killer && killer.alive ? killer.id : null;
     this.hud.banner(killer ? `${killer.name}에게 처치당했습니다` : '사망했습니다', '', 3);
+    if (this.teamSize > 1 && this.teamAlive()) {
+      // the squad fights on: watch a teammate instead of ending
+      this.specId = null;
+      setTimeout(() => { if (this.app.session === this && this.state === 'playing' && !this.spectating) { this.startSpectate(); this.hud.banner('팀원 관전 중 · 클릭(터치)으로 다음 팀원', '', 3); } }, 2200);
+      return;
+    }
     setTimeout(() => { if (this.app.session === this && this.state === 'playing') this.showResult(false); }, 2200);
   }
 
-  onEnd(winnerId) {
+  /* ---------------- squad ---------------- */
+  initSquad() {
+    const m = this.match, me = this.me;
+    this.teamSize = m.teamSize;
+    // me first, then teammates in join order; each gets a fixed colour and number
+    this.squad = [me, ...m.players.filter((o) => o !== me && o.team === me.team)];
+    this.squadColor = new Map(this.squad.map((o, i) => [o.id, SQUAD_COLORS[i % SQUAD_COLORS.length]]));
+    this.squadNum = new Map(this.squad.map((o, i) => [o.id, i + 1]));
+    this.tagEls = new Map();
+    const tags = $('tags'); tags.innerHTML = '';
+    if (this.teamSize > 1) for (const o of this.squad) if (o !== me) {
+      const d = document.createElement('div');
+      d.style.color = this.squadColor.get(o.id);
+      tags.appendChild(d);
+      this.tagEls.set(o.id, d);
+    }
+  }
+  teamAlive() { return this.squad.some((o) => o.alive); }
+  /** teammate name tags above heads */
+  updateTags() {
+    if (!this.tagEls.size) return;
+    const v = this.tagV || (this.tagV = new THREE.Vector3());
+    const W = innerWidth, H = innerHeight, cp = this.camera.position;
+    for (const [id, el] of this.tagEls) {
+      const o = this.match.byId.get(id);
+      let show = o && o.alive && !(o.air === 'plane');
+      if (show) {
+        v.set(o.body.pos.x, o.body.pos.y + (o.downed ? 0.9 : 2.15), o.body.pos.z).project(this.camera);
+        show = v.z < 1 && Math.abs(v.x) < 1.05 && Math.abs(v.y) < 1.05;
+      }
+      if (!show) { if (el.style.display !== 'none') el.style.display = 'none'; continue; }
+      el.style.display = '';
+      el.style.left = ((v.x * 0.5 + 0.5) * W).toFixed(0) + 'px';
+      el.style.top = ((-v.y * 0.5 + 0.5) * H).toFixed(0) + 'px';
+      const d = Math.round(Math.hypot(o.body.pos.x - cp.x, o.body.pos.z - cp.z));
+      const txt = `${this.squadNum.get(id)} ${o.name}${o.downed ? ' ✚ 기절' : ''}${d > 15 ? ' · ' + d + 'm' : ''}`;
+      if (el.textContent !== txt) el.textContent = txt;
+      el.classList.toggle('down', !!o.downed);
+    }
+  }
+
+  onEnd(e) {
     if (this.state === 'ended') return;
     this.state = 'ended';
-    const won = winnerId === this.me.id;
-    if (won) { this.app.audio.win(); this.hud.banner('최후의 생존자!', '', 5); }
+    const won = this.teamSize > 1 ? e.team === this.me.team : e.winner === this.me.id;
+    if (won) { this.app.audio.win(); this.hud.banner(this.teamSize > 1 ? '우리 팀 우승!' : '최후의 생존자!', '', 5); }
     setTimeout(() => { if (this.app.session === this) this.showResult(won); }, won ? 2500 : 300);
   }
 
   showResult(won) {
     const me = this.me, m = this.match;
-    const place = won ? 1 : (me.place || m.aliveCount() + 1);
-    $('resTitle').textContent = won ? '최후의 생존자' : place <= 5 ? '아깝습니다!' : '다음엔 더 잘할 수 있어요';
-    $('resPlace').innerHTML = `#${place} <span>/ ${m.players.length}</span>`;
+    const team = this.teamSize > 1;
+    const place = won ? 1 : (me.place || (team ? m.aliveTeams() + 1 : m.aliveCount() + 1));
+    const total = team ? new Set(m.players.map((o) => o.team)).size : m.players.length;
+    $('resTitle').textContent = won ? (team ? '우리 팀 우승!' : '최후의 생존자') : place <= 5 ? '아깝습니다!' : '다음엔 더 잘할 수 있어요';
+    $('resPlace').innerHTML = `#${place} <span>/ ${total}${team ? ' 팀' : ''}</span>`;
     const alive = me.alive ? m.time : me.deathT;
     $('resStats').innerHTML = [
       [me.kills, '처치'], [Math.round(me.dmgDealt), '피해량'], [`${Math.floor(alive / 60)}:${String(Math.floor(alive % 60)).padStart(2, '0')}`, '생존 시간']
-    ].map(([v, l]) => `<div><b>${v}</b><i>${l}</i></div>`).join('');
+    ].concat(team ? [[this.squad.reduce((a, o) => a + o.kills, 0), '팀 처치']] : []).map(([v, l]) => `<div><b>${v}</b><i>${l}</i></div>`).join('');
     $('bSpectate').classList.toggle('hide', this.state === 'ended' || m.aliveCount() === 0);
     $('result').classList.remove('hide');
     this.app.curScreen = 'result';
@@ -861,7 +932,9 @@ class Session {
     this.hud.banner('관전 중 · 클릭(터치)으로 다음 플레이어', '', 3);
   }
   nextSpectate() {
-    const alive = this.match.players.filter((p) => p.alive && p !== this.me);
+    // squads watch their own team first
+    const mates = this.teamSize > 1 ? this.squad.filter((p) => p.alive && p !== this.me) : [];
+    const alive = mates.length ? mates : this.match.players.filter((p) => p.alive && p !== this.me);
     if (!alive.length) return;
     const i = alive.findIndex((p) => p.id === this.specId);
     this.specId = alive[(i + 1) % alive.length].id;
@@ -1019,7 +1092,10 @@ class Session {
       if (mesh.scale.x !== sc) { mesh.scale.setScalar(sc); mesh.updateMatrix(); }
     }
     const vp = me.alive && !me.air && this.state === 'playing' ? this.vehiclePrompt(me) : null;
+    const mate = this.teamSize > 1 && me.alive && !me.downed && !me.air && !me.veh && !me.reviving ? m.findDowned(me) : null;
     if (me.alive && me.air) this.hud.prompt(this.airPrompt());
+    else if (me.downed || me.reviving) this.hud.prompt(null);
+    else if (mate && !this.uiOpen) this.hud.prompt(`<kbd>${app.touch ? '소생' : keyLabel(app.settings.keys.interact[0])}</kbd>${escapeHtml(mate.name)} 소생 (6초 동안 가만히)`);
     else if (vp && !this.uiOpen) this.hud.prompt(vp);
     else if (me.alive && me.cur === 4 && !target && !(this.toastT > 0)) this.hud.prompt(me.throwHold ? '놓으면 던지기 · 조준 버튼을 누르면 짧게 던지기' : `<kbd>${app.touch ? '발사' : keyLabel(app.settings.keys.fire[0])}</kbd>누르고 조준 → 놓으면 던지기 · 5번: 종류 바꾸기`);
     else if (this.toastT > 0) this.toastT -= dt;
@@ -1031,8 +1107,8 @@ class Session {
     } else this.hud.prompt(null);
     if (app.touch) {
       const canCar = me.veh || m.findVehicle(me);
-      app.touchUI.setEnabled('interact', !!target || !!canCar);
-      app.touchUI.setLabel('interact', me.veh ? '하차' : canCar ? '탑승' : '줍기');
+      app.touchUI.setEnabled('interact', !!target || !!canCar || !!mate);
+      app.touchUI.setLabel('interact', mate ? '소생' : me.veh ? '하차' : canCar ? '탑승' : '줍기');
       app.touchUI.setMode(me.veh ? 'veh' : 'foot');
       app.touchUI.setLabel('jump', me.veh ? '브레이크' : '점프');
       app.touchUI.setState('ads', app.input.adsToggled);
@@ -1064,6 +1140,7 @@ class Session {
     }
     // ---- HUD ----
     this.hud.update(dt, this);
+    this.updateTags();
     if (this.mapOpen) { this.showAllOnMap = app.dev && app.dev.flags.map; this.hud.drawBigMap(this); }
   }
 
