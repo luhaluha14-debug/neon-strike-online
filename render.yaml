@@ -1,0 +1,16 @@
+# Render blueprint for NEON STRIKE: DROPZONE (online battle royale server).
+# The older neon_strike_online game keeps its own config in its folder.
+services:
+  - type: web
+    name: dropzone
+    runtime: node
+    plan: free
+    rootDir: dropzone
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
