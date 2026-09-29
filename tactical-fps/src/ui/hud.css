@@ -1,0 +1,221 @@
+:root {
+  --hud-fg: rgba(240, 240, 236, 0.92);
+  --hud-dim: rgba(240, 240, 236, 0.55);
+  --hud-bg: rgba(12, 13, 15, 0.55);
+  --hud-accent: #d9d3c3;
+  --hud-danger: #c8553d;
+  --hud-font: 'Inter', 'Pretendard', 'Segoe UI', system-ui, -apple-system, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #0b0c0e;
+  color: var(--hud-fg);
+  font-family: var(--hud-font);
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: none;
+}
+
+#app,
+#app canvas {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* Crosshair: four thin lines with a dark outline so it reads on any surface. */
+.crosshair {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.hud.playing .crosshair {
+  opacity: 1;
+}
+.ch-line {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55);
+}
+.ch-top,
+.ch-bottom {
+  width: 2px;
+  height: 6px;
+  left: -1px;
+}
+.ch-top {
+  top: -10px;
+}
+.ch-bottom {
+  top: 4px;
+}
+.ch-left,
+.ch-right {
+  width: 6px;
+  height: 2px;
+  top: -1px;
+}
+.ch-left {
+  left: -10px;
+}
+.ch-right {
+  left: 4px;
+}
+
+/* Health */
+.vitals {
+  position: absolute;
+  left: max(24px, env(safe-area-inset-left));
+  bottom: max(24px, env(safe-area-inset-bottom));
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 10px 14px 12px;
+  background: var(--hud-bg);
+  border-left: 2px solid var(--hud-accent);
+  font-variant-numeric: tabular-nums;
+}
+.vitals-label {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--hud-dim);
+  padding-bottom: 4px;
+}
+.vitals-main {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.health-value {
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1;
+}
+.health-track {
+  width: 140px;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.15);
+}
+.health-bar {
+  height: 100%;
+  background: var(--hud-fg);
+  transform-origin: left center;
+  transition: transform 0.2s ease-out;
+}
+.hud.low-health .health-value {
+  color: var(--hud-danger);
+}
+.hud.low-health .health-bar {
+  background: var(--hud-danger);
+}
+
+/* Perf / debug */
+.stats {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  display: none;
+  padding: 6px 8px;
+  background: var(--hud-bg);
+  font: 11px/1.45 ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  white-space: pre;
+  color: var(--hud-dim);
+}
+.stats.visible {
+  display: block;
+}
+
+/* Start / pause overlay */
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(8, 9, 11, 0.62);
+  pointer-events: auto;
+}
+.overlay.hidden {
+  display: none;
+}
+.panel {
+  width: min(380px, calc(100vw - 32px));
+  padding: 28px 28px 22px;
+  background: rgba(18, 19, 22, 0.92);
+  border-top: 2px solid var(--hud-accent);
+}
+.panel h1 {
+  margin: 0 0 6px;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.panel h1 span {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  color: var(--hud-dim);
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.status {
+  margin: 0 0 18px;
+  font-size: 13px;
+  color: var(--hud-dim);
+  min-height: 1.4em;
+}
+.status.error {
+  color: var(--hud-danger);
+}
+.panel button {
+  width: 100%;
+  padding: 12px;
+  border: 0;
+  background: var(--hud-accent);
+  color: #111;
+  font: 600 14px var(--hud-font);
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+.panel button:hover:not(:disabled) {
+  background: #fff;
+}
+.panel button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.controls {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 16px;
+  margin: 20px 0 0;
+  font-size: 12px;
+}
+.controls dt {
+  color: var(--hud-fg);
+  font-weight: 600;
+}
+.controls dd {
+  margin: 0;
+  color: var(--hud-dim);
+}
