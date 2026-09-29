@@ -67,3 +67,14 @@ tactical-fps/
 - 충돌은 약 10만 삼각형을 하나의 BVH(three-mesh-bvh)로 처리
 - 저사양(`low`): 픽셀 비율 1, 그림자·안티앨리어싱 끔
 - HUD는 값이 바뀔 때만 DOM을 갱신
+
+## 배포 (Render 정적 사이트, 무료)
+
+저장소 루트의 `render.yaml` 에 `tactical-fps` 정적 사이트가 정의되어 있습니다
+(`npm ci && npm run build` → `dist/` 공개).
+
+1. [Render](https://render.com)에서 **New → Blueprint** 를 누르고 이 저장소를 고릅니다.
+   이미 Blueprint를 연결해 두었다면 기본 브랜치에 병합되는 순간 자동으로 추가됩니다.
+2. 배포가 끝나면 `https://tactical-fps-xxxx.onrender.com` 주소로 접속합니다.
+
+정적 사이트라 서버처럼 잠들지 않고, 바로 열립니다.
