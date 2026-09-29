@@ -47,6 +47,12 @@ export class PlayerController {
     input.lookPitch = 0;
   }
 
+  /** Adds view rotation from outside sources (weapon recoil). */
+  addViewKick(pitch: number, yaw: number): void {
+    this.yaw += yaw;
+    this.pitch = THREE.MathUtils.clamp(this.pitch + pitch, -CAMERA_CONFIG.maxPitch, CAMERA_CONFIG.maxPitch);
+  }
+
   get eyeHeight(): number {
     return this.height - PLAYER_CONFIG.eyeOffsetFromTop;
   }

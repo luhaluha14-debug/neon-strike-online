@@ -1,9 +1,15 @@
 import * as THREE from 'three';
-import { CAMERA_CONFIG, MAP_CONFIG, QUALITY_PRESETS, SIM_CONFIG, type QualityLevel } from '../config';
+import { HitscanSystem } from '../combat/HitscanSystem';
+import { CAMERA_CONFIG, MAP_CONFIG, PLAYER_CONFIG, QUALITY_PRESETS, SIM_CONFIG, type QualityLevel } from '../config';
+import { ImpactEffects } from '../fx/ImpactEffects';
 import { createInputState } from '../input/InputState';
 import { KeyboardMouseInput } from '../input/KeyboardMouseInput';
 import { PlayerController } from '../player/PlayerController';
 import { Hud } from '../ui/Hud';
+import { createWeaponView } from '../weapons/view/WeaponView';
+import { ViewModelLayer } from '../weapons/view/ViewModelLayer';
+import { AR_01 } from '../weapons/weapons';
+import { WeaponSystem } from '../weapons/WeaponSystem';
 import { loadMap, type LoadedMap } from '../world/MapLoader';
 
 export class Game {
@@ -15,6 +21,10 @@ export class Game {
 
   map: LoadedMap | null = null;
   player: PlayerController | null = null;
+  hitscan: HitscanSystem | null = null;
+  weapons: WeaponSystem | null = null;
+  readonly impacts = new ImpactEffects();
+  readonly viewModel: ViewModelLayer;
 
   private readonly input: KeyboardMouseInput;
   private readonly inputState = createInputState();
@@ -41,6 +51,8 @@ export class Game {
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     // The map is static: shadows are rendered once after load, not every frame.
     this.renderer.shadowMap.autoUpdate = false;
+    // World + view-model are drawn in two passes; clear manually once per frame.
+    this.renderer.autoClear = false;
     container.appendChild(this.renderer.domElement);
 
     this.camera = new THREE.PerspectiveCamera(
@@ -50,6 +62,9 @@ export class Game {
       CAMERA_CONFIG.far,
     );
     this.camera.rotation.order = 'YXZ';
+    this.viewModel = new ViewModelLayer(window.innerWidth / window.innerHeight);
+    this.viewModel.setView(createWeaponView(AR_01.view));
+    this.scene.add(this.impacts.group);
 
     // Overcast late-afternoon look: soft sky fill + one warm key light.
     const skyColor = new THREE.Color(0x9fb0bf);
@@ -78,7 +93,8 @@ export class Game {
         const show = !this.hud.statsVisible;
         this.hud.setStatsVisible(show);
         if (this.map) this.map.zoneMarkers.visible = show;
-      } else if (e.code === 'KeyR' && this.input.active) {
+      } else if (e.code === 'F4' && this.input.active) {
+        e.preventDefault();
         this.respawn();
       }
     });
@@ -97,10 +113,20 @@ export class Game {
     this.fitShadowToMap(this.map.bounds);
 
     this.player = new PlayerController(this.map.collision);
+    this.hitscan = new HitscanSystem(this.map.collision);
+    this.weapons = new WeaponSystem(AR_01, this.player, this.hitscan);
+    this.weapons.events = {
+      onShot: (result) => {
+        this.viewModel.onShot();
+        if (result.kind !== 'miss') this.impacts.spawn(result.point, result.normal);
+        if (import.meta.env.DEV && this.debugShots) console.debug('[shot]', result.kind, 'distance' in result ? result.distance.toFixed(2) : '');
+      },
+    };
     this.respawn();
 
     // Compile shaders and bake the static shadow map before the first frame.
     this.renderer.compile(this.scene, this.camera);
+    this.renderer.compile(this.viewModel.scene, this.viewModel.camera);
     this.renderer.shadowMap.needsUpdate = true;
 
     const s = this.map.stats;
@@ -110,6 +136,7 @@ export class Game {
     );
     this.hud.setReady();
     this.hud.setHealth(this.player.health);
+    this.updateWeaponHud();
 
     this.timer.connect(document);
     this.renderer.setAnimationLoop(this.frame);
@@ -123,6 +150,8 @@ export class Game {
     // Spawn empties sit slightly above the floor; drop onto it from a little higher.
     pos.y += 0.1;
     this.player.teleport(pos, spawn?.yaw ?? 0);
+    this.weapons?.resetForRespawn();
+    this.impacts.clear();
     this.prevPos.copy(this.player.position);
     this.prevEyeHeight = this.player.eyeHeight;
   }
@@ -133,17 +162,24 @@ export class Game {
     const frameTime = Math.min(this.timer.getDelta(), SIM_CONFIG.maxFrameTime);
 
     this.input.poll(this.inputState);
+    const lookYaw = this.inputState.lookYaw;
+    const lookPitch = this.inputState.lookPitch;
+    this.weapons?.onLookInput(lookPitch);
     player.applyLook(this.inputState);
 
     if (this.input.active) {
       const tick = 1 / SIM_CONFIG.tickRate;
       this.accumulator += frameTime;
+      let ticks = 0;
       while (this.accumulator >= tick) {
+        ticks++;
         this.prevPos.copy(player.position);
         this.prevEyeHeight = player.eyeHeight;
         player.step(this.inputState, tick);
+        this.weapons?.step(this.inputState, tick);
         this.accumulator -= tick;
       }
+      if (ticks > 0) this.input.clearLatches();
       if (player.position.y < MAP_CONFIG.killPlaneY) this.respawn();
     }
 
@@ -154,10 +190,33 @@ export class Game {
     this.camera.position.y += eye;
     this.camera.rotation.set(player.pitch, player.yaw, 0);
 
+    const w = this.weapons?.weapon;
+    this.impacts.update(frameTime);
+    this.viewModel.update(frameTime, {
+      lookYaw,
+      lookPitch,
+      speed01: Math.hypot(player.velocity.x, player.velocity.z) / PLAYER_CONFIG.runSpeed,
+      grounded: player.grounded,
+      crouching: player.crouching,
+      reloadProgress: w && w.status === 'reloading' ? w.reloadProgress : null,
+    });
+
+    this.renderer.clear();
     this.renderer.render(this.scene, this.camera);
+    this.viewModel.render(this.renderer);
     this.hud.setHealth(player.health);
+    this.updateWeaponHud();
     this.updateStats(frameTime);
   };
+
+  /** Dev aid: `game.debugShots = true` in the console logs every shot result. */
+  debugShots = false;
+
+  private updateWeaponHud(): void {
+    const w = this.weapons?.weapon;
+    if (!w) return;
+    this.hud.setWeapon(w.def.displayName, w.magazine, w.def.magazineSize, w.reserve, w.status === 'reloading' ? w.reloadProgress : null);
+  }
 
   private updateStats(dt: number): void {
     this.fpsFrames++;
@@ -207,5 +266,6 @@ export class Game {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.viewModel.setAspect(this.camera.aspect);
   };
 }
