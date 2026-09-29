@@ -13,7 +13,14 @@ export class Hud {
   private readonly overlay: HTMLDivElement;
   private readonly overlayStatus: HTMLParagraphElement;
   private readonly overlayButton: HTMLButtonElement;
+  private readonly weaponName: HTMLDivElement;
+  private readonly ammoMag: HTMLSpanElement;
+  private readonly ammoReserve: HTMLSpanElement;
+  private readonly weaponStatus: HTMLDivElement;
+  private readonly reloadBar: HTMLDivElement;
   private lastHealth = -1;
+  private lastAmmoKey = '';
+  private lastReload = -1;
 
   constructor(parent: HTMLElement) {
     this.root = el('div', 'hud');
@@ -29,6 +36,12 @@ export class Hud {
           <div class="health-track"><div class="health-bar"></div></div>
         </div>
       </div>
+      <div class="weapon">
+        <div class="weapon-name">AR-01</div>
+        <div class="ammo"><span class="ammo-mag">30</span><span class="ammo-sep">/</span><span class="ammo-reserve">90</span></div>
+        <div class="weapon-status"></div>
+        <div class="reload-track"><div class="reload-bar"></div></div>
+      </div>
       <div class="stats"></div>
       <div class="overlay">
         <div class="panel">
@@ -41,7 +54,9 @@ export class Hud {
             <dt>Space</dt><dd>점프</dd>
             <dt>Shift</dt><dd>걷기 (조용히)</dd>
             <dt>C / Ctrl</dt><dd>앉기</dd>
-            <dt>R</dt><dd>스폰으로 복귀</dd>
+            <dt>좌클릭</dt><dd>사격 (자동)</dd>
+            <dt>R</dt><dd>재장전</dd>
+            <dt>F4</dt><dd>스폰으로 복귀</dd>
             <dt>F3</dt><dd>성능 정보</dd>
             <dt>Esc</dt><dd>일시정지</dd>
           </dl>
@@ -55,6 +70,11 @@ export class Hud {
     this.overlay = this.root.querySelector('.overlay')!;
     this.overlayStatus = this.root.querySelector('.status')!;
     this.overlayButton = this.root.querySelector('button')!;
+    this.weaponName = this.root.querySelector('.weapon-name')!;
+    this.ammoMag = this.root.querySelector('.ammo-mag')!;
+    this.ammoReserve = this.root.querySelector('.ammo-reserve')!;
+    this.weaponStatus = this.root.querySelector('.weapon-status')!;
+    this.reloadBar = this.root.querySelector('.reload-bar')!;
   }
 
   onStart(handler: () => void): void {
@@ -89,6 +109,36 @@ export class Hud {
     this.healthValue.textContent = String(hp);
     this.healthBar.style.transform = `scaleX(${hp / PLAYER_CONFIG.maxHealth})`;
     this.root.classList.toggle('low-health', hp <= 25);
+  }
+
+  /** `reloadProgress` is 0..1 while reloading, null otherwise. */
+  setWeapon(name: string, magazine: number, magazineSize: number, reserve: number, reloadProgress: number | null): void {
+    const key = `${name}|${magazine}|${reserve}|${reloadProgress === null ? 0 : 1}`;
+    if (key !== this.lastAmmoKey) {
+      this.lastAmmoKey = key;
+      this.weaponName.textContent = name;
+      this.ammoMag.textContent = String(magazine);
+      this.ammoReserve.textContent = String(reserve);
+      const reloading = reloadProgress !== null;
+      const empty = magazine === 0;
+      const low = magazine > 0 && magazine <= Math.ceil(magazineSize * 0.2);
+      this.root.classList.toggle('ammo-low', low && !reloading);
+      this.root.classList.toggle('ammo-empty', empty && !reloading);
+      this.root.classList.toggle('reloading', reloading);
+      this.weaponStatus.textContent = reloading
+        ? '재장전 중'
+        : empty
+          ? reserve > 0
+            ? 'R 재장전'
+            : '탄약 없음'
+          : '';
+    }
+    // Progress bar: quantize so the DOM is touched at most ~50 times per reload.
+    const q = reloadProgress === null ? -1 : Math.round(reloadProgress * 50);
+    if (q !== this.lastReload) {
+      this.lastReload = q;
+      this.reloadBar.style.transform = `scaleX(${q < 0 ? 0 : q / 50})`;
+    }
   }
 
   setStatsVisible(visible: boolean): void {

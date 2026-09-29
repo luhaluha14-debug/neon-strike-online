@@ -13,15 +13,24 @@ export interface InputState {
   jump: boolean;
   crouch: boolean;
   walk: boolean;
+  /** Primary fire held. */
+  fire: boolean;
+  /** Reload key held (weapon code reacts to the press edge). */
+  reload: boolean;
 }
 
 export function createInputState(): InputState {
-  return { moveX: 0, moveY: 0, lookYaw: 0, lookPitch: 0, jump: false, crouch: false, walk: false };
+  return { moveX: 0, moveY: 0, lookYaw: 0, lookPitch: 0, jump: false, crouch: false, walk: false, fire: false, reload: false };
 }
 
 export interface InputSource {
   /** Writes the current state into `out`, consuming accumulated look deltas. */
   poll(out: InputState): void;
+  /**
+   * Presses shorter than a frame are latched so they are never lost; the game
+   * calls this after at least one simulation tick has seen them.
+   */
+  clearLatches(): void;
   /** True while the source is capturing (pointer lock on PC). */
   readonly active: boolean;
   dispose(): void;

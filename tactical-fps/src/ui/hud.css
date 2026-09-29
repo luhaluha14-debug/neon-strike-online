@@ -219,3 +219,70 @@ body {
   margin: 0;
   color: var(--hud-dim);
 }
+
+/* Weapon / ammo (bottom right, mirrors the health block) */
+.weapon {
+  position: absolute;
+  right: max(24px, env(safe-area-inset-right));
+  bottom: max(24px, env(safe-area-inset-bottom));
+  min-width: 150px;
+  padding: 10px 14px 12px;
+  background: var(--hud-bg);
+  border-right: 2px solid var(--hud-accent);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.weapon-name {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--hud-dim);
+  margin-bottom: 4px;
+}
+.ammo {
+  line-height: 1;
+}
+.ammo-mag {
+  font-size: 30px;
+  font-weight: 600;
+}
+.ammo-sep {
+  margin: 0 6px;
+  font-size: 18px;
+  color: var(--hud-dim);
+}
+.ammo-reserve {
+  font-size: 18px;
+  color: var(--hud-dim);
+}
+.weapon-status {
+  min-height: 14px;
+  margin-top: 6px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--hud-dim);
+}
+.reload-track {
+  height: 3px;
+  margin-top: 4px;
+  background: rgba(255, 255, 255, 0.12);
+  visibility: hidden;
+}
+.reload-bar {
+  height: 100%;
+  background: var(--hud-fg);
+  transform: scaleX(0);
+  transform-origin: left center;
+}
+.hud.reloading .reload-track {
+  visibility: visible;
+}
+.hud.ammo-low .ammo-mag {
+  color: #d8b35a;
+}
+.hud.ammo-empty .ammo-mag,
+.hud.ammo-empty .weapon-status {
+  color: var(--hud-danger);
+}
+.hud.reloading .ammo-mag {
+  color: var(--hud-dim);
+}
