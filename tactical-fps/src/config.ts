@@ -1,46 +1,7 @@
 // Central tunables. Gameplay feel lives here so it can be tweaked without
 // touching systems code (and later shared with an authoritative server).
 
-export const MAP_CONFIG = {
-  /** Path is relative to the Vite `public/` folder. */
-  url: '/maps/Untitled.glb',
-
-  /**
-   * Nodes whose name starts with one of these prefixes are template/helper
-   * objects left in the Blender scene (instancing sources, the default cube).
-   * They sit at the world origin, so they are hidden and never collide.
-   */
-  hiddenPrefixes: ['Tpl_', 'Cube'],
-
-  /**
-   * Visible but non-solid geometry: decals, ground scatter, overhead cables,
-   * signage and gameplay zone markers. Keeping them out of the collider
-   * avoids snagging on tiny bumps and keeps the BVH small.
-   */
-  nonCollidingPrefixes: [
-    'Ground_Pebble_',
-    'Ground_Dirt_',
-    'Ground_Joints_',
-    'Ground_WallBase_',
-    'Deco_Cables_',
-    'Deco_Manholes',
-    'Sign_Letter_',
-    'Bldg_Site_Sign_Boards',
-  ],
-
-  /**
-   * Gameplay volume markers (spawn / plant areas). Loaded into their own
-   * group, hidden by default and shown with the F3 debug overlay.
-   */
-  zoneMarkerPrefix: 'Zone_',
-
-  /** Empties exported from Blender that mark team spawn positions. */
-  attackSpawnPrefix: 'ATK_SpawnPoint_',
-  defenseSpawnPrefix: 'DEF_SpawnPoint_',
-
-  /** Anything that falls below this height is respawned. */
-  killPlaneY: -20,
-} as const;
+// Map-specific settings (node naming rules, fog, view distance) live in maps.ts.
 
 export const PLAYER_CONFIG = {
   radius: 0.35,
@@ -75,7 +36,6 @@ export const PLAYER_CONFIG = {
 export const CAMERA_CONFIG = {
   fov: 78,
   near: 0.05,
-  far: 400,
   /** Radians per pixel at sensitivity 1. */
   mouseSensitivity: 0.0022,
   maxPitch: Math.PI / 2 - 0.01,

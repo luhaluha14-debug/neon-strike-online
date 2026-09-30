@@ -18,17 +18,24 @@ const _dir = new THREE.Vector3();
 const _ray = new THREE.Ray();
 
 /**
- * Static world collision: every solid map triangle baked (in world space) into
- * one BVH. Queries are capsule overlap/resolve and ray casts.
+ * Static world collision, baked in world space into BVHs:
+ * - `solid`: map geometry; blocks players and bullets.
+ * - `clip` (optional): invisible player-clip walls; blocks players only.
  */
 export class CollisionWorld {
-  readonly bvh: MeshBVH;
+  readonly solid: MeshBVH;
+  readonly clip: MeshBVH | null;
   readonly triangleCount: number;
+  /** BVHs that block movement. */
+  private readonly movementBvhs: MeshBVH[];
 
-  constructor(geometry: THREE.BufferGeometry) {
-    this.bvh = new MeshBVH(geometry, { targetLeafSize: 10 });
-    const index = geometry.getIndex();
-    this.triangleCount = (index ? index.count : geometry.getAttribute('position').count) / 3;
+  constructor(solidGeometry: THREE.BufferGeometry, clipGeometry: THREE.BufferGeometry | null = null) {
+    this.solid = new MeshBVH(solidGeometry, { targetLeafSize: 10 });
+    this.clip = clipGeometry ? new MeshBVH(clipGeometry, { targetLeafSize: 10 }) : null;
+    this.movementBvhs = this.clip ? [this.solid, this.clip] : [this.solid];
+    const count = (g: THREE.BufferGeometry | null) =>
+      g ? (g.getIndex()?.count ?? g.getAttribute('position').count) / 3 : 0;
+    this.triangleCount = count(solidGeometry) + count(clipGeometry);
   }
 
   /**
@@ -51,7 +58,8 @@ export class CollisionWorld {
       _box.min.addScalar(-radius);
       _box.max.addScalar(radius);
 
-      this.bvh.shapecast({
+      for (const bvh of this.movementBvhs) {
+        bvh.shapecast({
         intersectsBounds: (box) => box.intersectsBox(_box),
         intersectsTriangle: (tri: ExtendedTriangle) => {
           const dist = tri.closestPointToSegment(segment, _triPoint, _capPoint);
@@ -84,6 +92,7 @@ export class CollisionWorld {
           return false;
         },
       });
+      }
 
       if (!moved) break;
     }
@@ -96,17 +105,32 @@ export class CollisionWorld {
     _box.expandByPoint(segment.end);
     _box.min.addScalar(-radius);
     _box.max.addScalar(radius);
-    return this.bvh.shapecast({
-      intersectsBounds: (box) => box.intersectsBox(_box),
-      intersectsTriangle: (tri: ExtendedTriangle) => tri.closestPointToSegment(segment, _triPoint, _capPoint) < radius,
-    });
+    return this.movementBvhs.some((bvh) =>
+      bvh.shapecast({
+        intersectsBounds: (box) => box.intersectsBox(_box),
+        intersectsTriangle: (tri: ExtendedTriangle) => tri.closestPointToSegment(segment, _triPoint, _capPoint) < radius,
+      }),
+    );
   }
 
-  /** Nearest hit distance along a normalized direction, or null. */
-  raycast(origin: THREE.Vector3, direction: THREE.Vector3, far: number, outNormal?: THREE.Vector3): number | null {
+  /**
+   * Nearest hit distance along a normalized direction, or null.
+   * Bullets use solid geometry only; movement queries pass `includeClip`.
+   */
+  raycast(
+    origin: THREE.Vector3,
+    direction: THREE.Vector3,
+    far: number,
+    outNormal?: THREE.Vector3,
+    includeClip = false,
+  ): number | null {
     _ray.origin.copy(origin);
     _ray.direction.copy(direction);
-    const hit = this.bvh.raycastFirst(_ray, THREE.DoubleSide, 0, far);
+    let hit = this.solid.raycastFirst(_ray, THREE.DoubleSide, 0, far);
+    if (includeClip && this.clip) {
+      const clipHit = this.clip.raycastFirst(_ray, THREE.DoubleSide, 0, hit ? hit.distance : far);
+      if (clipHit) hit = clipHit;
+    }
     if (!hit) return null;
     if (outNormal && hit.face) outNormal.copy(hit.face.normal);
     return hit.distance;

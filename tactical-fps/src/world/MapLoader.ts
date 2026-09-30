@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { MAP_CONFIG } from '../config';
+import type { MapDefinition } from '../maps';
 import { CollisionWorld } from './CollisionWorld';
 
 export interface SpawnPoint {
@@ -16,7 +16,10 @@ export interface LoadedMap {
   /** Gameplay zone markers (child of root, hidden by default). */
   zoneMarkers: THREE.Group;
   collision: CollisionWorld;
+  /** Everything rendered, including distant scenery. */
   bounds: THREE.Box3;
+  /** The playable area (player-clip walls, else the solid collider). Used for shadows and spawn facing. */
+  playBounds: THREE.Box3;
   attackSpawns: SpawnPoint[];
   defenseSpawns: SpawnPoint[];
   stats: { sourceMeshes: number; drawCalls: number; triangles: number; colliderTriangles: number };
@@ -39,8 +42,8 @@ function attributeSignature(g: THREE.BufferGeometry): string {
   return Object.keys(g.attributes).sort().join(',') + (g.index ? '|i' : '|n');
 }
 
-export async function loadMap(url: string, onProgress?: (ratio: number) => void): Promise<LoadedMap> {
-  const gltf = await new GLTFLoader().loadAsync(url, (e) => {
+export async function loadMap(def: MapDefinition, onProgress?: (ratio: number) => void): Promise<LoadedMap> {
+  const gltf = await new GLTFLoader().loadAsync(def.url, (e) => {
     if (onProgress && e.total > 0) onProgress(e.loaded / e.total);
   });
   const scene = gltf.scene;
@@ -50,27 +53,34 @@ export async function loadMap(url: string, onProgress?: (ratio: number) => void)
   const defenseSpawns: SpawnPoint[] = [];
   const renderBatches = new Map<string, { material: THREE.Material; geometries: THREE.BufferGeometry[] }>();
   const colliderGeometries: THREE.BufferGeometry[] = [];
+  const clipGeometries: THREE.BufferGeometry[] = [];
   const zoneMarkers = new THREE.Group();
   zoneMarkers.name = 'ZoneMarkers';
   zoneMarkers.visible = false;
   let sourceMeshes = 0;
 
   scene.traverse((obj) => {
-    if (obj.name.startsWith(MAP_CONFIG.attackSpawnPrefix)) {
+    if (obj.name.startsWith(def.attackSpawnPrefix)) {
       attackSpawns.push({ position: obj.getWorldPosition(new THREE.Vector3()), yaw: 0 });
-    } else if (obj.name.startsWith(MAP_CONFIG.defenseSpawnPrefix)) {
+    } else if (obj.name.startsWith(def.defenseSpawnPrefix)) {
       defenseSpawns.push({ position: obj.getWorldPosition(new THREE.Vector3()), yaw: 0 });
     }
 
     const mesh = obj as THREE.Mesh;
     if (!mesh.isMesh) return;
     const name = ownerName(obj, scene);
-    if (startsWithAny(name, MAP_CONFIG.hiddenPrefixes)) return;
+    if (startsWithAny(name, def.hiddenPrefixes)) return;
     sourceMeshes++;
 
     const worldGeom = mesh.geometry.clone().applyMatrix4(mesh.matrixWorld);
 
-    if (name.startsWith(MAP_CONFIG.zoneMarkerPrefix)) {
+    if (startsWithAny(name, def.playerClipPrefixes)) {
+      clipGeometries.push(positionsOnly(worldGeom));
+      worldGeom.dispose();
+      return;
+    }
+
+    if (name.startsWith(def.zoneMarkerPrefix)) {
       const marker = new THREE.Mesh(worldGeom, mesh.material);
       marker.name = name;
       zoneMarkers.add(marker);
@@ -81,12 +91,7 @@ export async function loadMap(url: string, onProgress?: (ratio: number) => void)
     // GLTFLoader emits one single-material mesh per glTF primitive.
     addToBatch(renderBatches, mesh.material as THREE.Material, worldGeom.clone());
 
-    if (!startsWithAny(name, MAP_CONFIG.nonCollidingPrefixes)) {
-      const posOnly = new THREE.BufferGeometry();
-      posOnly.setAttribute('position', worldGeom.getAttribute('position'));
-      if (worldGeom.index) posOnly.setIndex(worldGeom.index);
-      colliderGeometries.push(posOnly.index ? posOnly.toNonIndexed() : posOnly);
-    }
+    if (!startsWithAny(name, def.nonCollidingPrefixes)) colliderGeometries.push(positionsOnly(worldGeom));
     worldGeom.dispose();
   });
 
@@ -114,10 +119,15 @@ export async function loadMap(url: string, onProgress?: (ratio: number) => void)
   const colliderGeom = mergeGeometries(colliderGeometries, false);
   if (!colliderGeom) throw new Error('Map has no collidable geometry');
   colliderGeometries.forEach((g) => g.dispose());
-  const collision = new CollisionWorld(colliderGeom);
+  const clipGeom = clipGeometries.length ? mergeGeometries(clipGeometries, false) : null;
+  clipGeometries.forEach((g) => g.dispose());
+  const collision = new CollisionWorld(colliderGeom, clipGeom);
 
   const bounds = new THREE.Box3().setFromObject(root, true);
-  const center = bounds.getCenter(new THREE.Vector3());
+  colliderGeom.computeBoundingBox();
+  clipGeom?.computeBoundingBox();
+  const playBounds = (clipGeom?.boundingBox ?? colliderGeom.boundingBox!).clone();
+  const center = playBounds.getCenter(new THREE.Vector3());
   for (const s of [...attackSpawns, ...defenseSpawns]) {
     // Camera looks down -Z at yaw 0; face the map center.
     s.yaw = Math.atan2(-(center.x - s.position.x), -(center.z - s.position.z));
@@ -130,10 +140,19 @@ export async function loadMap(url: string, onProgress?: (ratio: number) => void)
     zoneMarkers,
     collision,
     bounds,
+    playBounds,
     attackSpawns,
     defenseSpawns,
     stats: { sourceMeshes, drawCalls: root.children.length - 1, triangles, colliderTriangles: collision.triangleCount },
   };
+}
+
+/** Non-indexed position-only copy for collision BVHs. */
+function positionsOnly(g: THREE.BufferGeometry): THREE.BufferGeometry {
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', g.getAttribute('position'));
+  if (g.index) out.setIndex(g.index);
+  return out.index ? out.toNonIndexed() : out;
 }
 
 function addToBatch(
