@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { FirstPersonArms } from './FirstPersonArms';
 import type { WeaponView } from './WeaponView';
 
 export interface ViewModelMotion {
@@ -13,8 +15,6 @@ export interface ViewModelMotion {
   reloadProgress: number | null;
 }
 
-/** Hip position of the weapon in camera space. */
-const HIP = new THREE.Vector3(0.13, -0.16, -0.44);
 
 /**
  * Renders the held weapon in its own scene after the world, with the depth
@@ -24,7 +24,12 @@ const HIP = new THREE.Vector3(0.13, -0.16, -0.44);
 export class ViewModelLayer {
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
+  /** Rest pose of the weapon in camera space (hip position + angle). */
+  // Angled across the screen so the rifle's side and both gloved hands show.
+  readonly restPosition = new THREE.Vector3(0.125, -0.115, -0.42);
+  readonly restRotation = new THREE.Euler(0.03, 0.27, -0.1);
   private view: WeaponView | null = null;
+  private arms: FirstPersonArms | null = null;
   /** Motion pivot: position/rotation offsets are applied here. */
   private readonly pivot = new THREE.Group();
   private readonly flash: THREE.Mesh;
@@ -66,10 +71,27 @@ export class ViewModelLayer {
       this.pivot.remove(this.view.object);
       this.view.dispose();
     }
+    if (this.arms) {
+      this.pivot.remove(this.arms.object);
+      this.arms.dispose();
+    }
     this.view = view;
     this.pivot.add(view.object);
+    this.arms = new FirstPersonArms(view.gripAnchor, view.supportAnchor, view.magazine);
+    this.pivot.add(this.arms.object);
     view.muzzle.add(this.flash);
     this.magRestY = view.magazine?.position.y ?? 0;
+  }
+
+  /**
+   * Gives the held weapon soft studio reflections so metal and polymer read
+   * correctly. Generated once; the view-model is tiny so it costs nothing per frame.
+   */
+  initEnvironment(renderer: THREE.WebGLRenderer): void {
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.scene.environmentIntensity = 0.55;
+    pmrem.dispose();
   }
 
   setAspect(aspect: number): void {
@@ -128,13 +150,21 @@ export class ViewModelLayer {
       this.view.magazine.visible = true;
     }
 
+    this.arms?.update(m.reloadProgress);
+
     const crouchOffset = m.crouching ? 0.01 : 0;
+    const rest = this.restPosition;
+    const rr = this.restRotation;
     this.pivot.position.set(
-      HIP.x + this.swayX + bobX,
-      HIP.y + this.swayY + bobY - reloadDip - crouchOffset,
-      HIP.z + this.kick * 0.045,
+      rest.x + this.swayX + bobX,
+      rest.y + this.swayY + bobY - reloadDip - crouchOffset,
+      rest.z + this.kick * 0.045,
     );
-    this.pivot.rotation.set(this.kick * 0.06 + this.swayY * 0.8 - reloadDip * 1.2, this.swayX * 0.8, reloadRoll);
+    this.pivot.rotation.set(
+      rr.x + this.kick * 0.06 + this.swayY * 0.8 - reloadDip * 1.2,
+      rr.y + this.swayX * 0.8,
+      rr.z + reloadRoll,
+    );
 
     if (this.flashTime > 0) {
       this.flashTime -= dt;

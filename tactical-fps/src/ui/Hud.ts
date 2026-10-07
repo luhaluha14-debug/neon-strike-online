@@ -46,8 +46,16 @@ export class Hud {
       <div class="overlay">
         <div class="panel">
           <h1>TACTICAL FPS <span>PROTOTYPE</span></h1>
-          <label class="map-select">
+          <label class="map-select map-choice">
             <span>맵</span>
+            <select></select>
+          </label>
+          <label class="map-select fps-select">
+            <span>프레임 제한</span>
+            <select></select>
+          </label>
+          <label class="map-select quality-select">
+            <span>화질</span>
             <select></select>
           </label>
           <p class="status">맵 불러오는 중…</p>
@@ -82,16 +90,43 @@ export class Hud {
   }
 
   setMapOptions(maps: readonly { id: string; name: string }[], currentId: string, onChange: (id: string) => void): void {
-    const select = this.root.querySelector<HTMLSelectElement>('.map-select select')!;
-    select.innerHTML = '';
-    for (const m of maps) {
-      const opt = document.createElement('option');
-      opt.value = m.id;
-      opt.textContent = m.name;
-      opt.selected = m.id === currentId;
-      select.appendChild(opt);
-    }
+    const select = this.mapSelect;
+    fillSelect(select, maps.map((m) => ({ value: m.id, label: m.name })), currentId);
     select.addEventListener('change', () => onChange(select.value));
+  }
+
+  setMapSelectEnabled(enabled: boolean): void {
+    this.mapSelect.disabled = !enabled;
+  }
+
+  setFrameLimitOptions<T extends string | number>(
+    options: readonly { value: T; label: string }[],
+    current: T,
+    onChange: (value: T) => void,
+  ): void {
+    this.bindSelect('.fps-select select', options, current, onChange);
+  }
+
+  setQualityOptions<T extends string>(options: readonly { value: T; label: string }[], current: T, onChange: (value: T) => void): void {
+    this.bindSelect('.quality-select select', options, current, onChange);
+  }
+
+  private bindSelect<T extends string | number>(
+    selector: string,
+    options: readonly { value: T; label: string }[],
+    current: T,
+    onChange: (value: T) => void,
+  ): void {
+    const select = this.root.querySelector<HTMLSelectElement>(selector)!;
+    fillSelect(select, options.map((o) => ({ value: String(o.value), label: o.label })), String(current));
+    select.addEventListener('change', () => {
+      const picked = options.find((o) => String(o.value) === select.value);
+      if (picked) onChange(picked.value);
+    });
+  }
+
+  private get mapSelect(): HTMLSelectElement {
+    return this.root.querySelector<HTMLSelectElement>('.map-choice select')!;
   }
 
   onStart(handler: () => void): void {
@@ -168,6 +203,17 @@ export class Hud {
 
   setStats(text: string): void {
     this.stats.textContent = text;
+  }
+}
+
+function fillSelect(select: HTMLSelectElement, options: { value: string; label: string }[], current: string): void {
+  select.innerHTML = '';
+  for (const o of options) {
+    const opt = document.createElement('option');
+    opt.value = o.value;
+    opt.textContent = o.label;
+    opt.selected = o.value === current;
+    select.appendChild(opt);
   }
 }
 

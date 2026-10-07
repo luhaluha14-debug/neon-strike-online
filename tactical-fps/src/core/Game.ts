@@ -10,8 +10,16 @@ import { createWeaponView } from '../weapons/view/WeaponView';
 import { ViewModelLayer } from '../weapons/view/ViewModelLayer';
 import { AR_01 } from '../weapons/weapons';
 import { WeaponSystem } from '../weapons/WeaponSystem';
-import { MAPS, type MapDefinition } from '../maps';
-import { loadMap, type LoadedMap } from '../world/MapLoader';
+import { findMap, MAPS, type MapDefinition } from '../maps';
+import { disposeMap, loadMap, type LoadedMap } from '../world/MapLoader';
+import { FRAME_LIMIT_OPTIONS, FrameLoop, type FrameLimit } from './FrameLoop';
+
+const QUALITY_OPTIONS: readonly { value: QualityLevel; label: string }[] = [
+  { value: 'low', label: '낮음 (성능 우선)' },
+  { value: 'medium', label: '중간' },
+  { value: 'high', label: '높음' },
+];
+import { saveSettings, type Settings } from './Settings';
 
 export class Game {
   readonly renderer: THREE.WebGLRenderer;
@@ -19,7 +27,8 @@ export class Game {
   readonly camera: THREE.PerspectiveCamera;
   readonly hud: Hud;
   readonly quality: QualityLevel;
-  readonly mapDef: MapDefinition;
+  mapDef: MapDefinition;
+  readonly settings: Settings;
 
   map: LoadedMap | null = null;
   player: PlayerController | null = null;
@@ -31,6 +40,8 @@ export class Game {
   private readonly input: KeyboardMouseInput;
   private readonly inputState = createInputState();
   private readonly timer = new THREE.Timer();
+  private readonly loop = new FrameLoop((now) => this.frame(now));
+  private loadingMap = false;
   private readonly sun: THREE.DirectionalLight;
   private accumulator = 0;
   private readonly prevPos = new THREE.Vector3();
@@ -39,8 +50,10 @@ export class Game {
   private fpsTime = 0;
   private fps = 0;
 
-  constructor(container: HTMLElement, quality: QualityLevel, mapDef: MapDefinition) {
+  constructor(container: HTMLElement, quality: QualityLevel, settings: Settings) {
     this.quality = quality;
+    this.settings = settings;
+    const mapDef = findMap(settings.mapId);
     this.mapDef = mapDef;
     const preset = QUALITY_PRESETS[quality];
 
@@ -66,6 +79,7 @@ export class Game {
     );
     this.camera.rotation.order = 'YXZ';
     this.viewModel = new ViewModelLayer(window.innerWidth / window.innerHeight);
+    this.viewModel.initEnvironment(this.renderer);
     this.viewModel.setView(createWeaponView(AR_01.view));
     this.scene.add(this.impacts.group);
 
@@ -83,16 +97,20 @@ export class Game {
     this.scene.add(this.sun, this.sun.target);
 
     this.hud = new Hud(document.body);
-    this.hud.setMapOptions(MAPS, mapDef.id, (id) => {
-      // A clean page load per map keeps GPU memory and state simple.
-      const url = new URL(location.href);
-      url.searchParams.set('map', id);
-      location.href = url.toString();
+    // Maps switch in place, so every map shares the same page link.
+    this.hud.setMapOptions(MAPS, mapDef.id, (id) => void this.switchMap(id));
+    this.hud.setFrameLimitOptions(FRAME_LIMIT_OPTIONS, settings.frameLimit, (limit) => this.setFrameLimit(limit));
+    this.hud.setQualityOptions(QUALITY_OPTIONS, quality, (q) => {
+      // The renderer's antialiasing is fixed at creation, so apply by reloading (same link).
+      this.settings.quality = q;
+      saveSettings(this.settings);
+      location.reload();
     });
+    this.loop.setLimit(settings.frameLimit);
     this.input = new KeyboardMouseInput(this.renderer.domElement, (locked) => this.onLockChange(locked));
     this.hud.onStart(() => this.input.requestLock());
     this.renderer.domElement.addEventListener('click', () => {
-      if (this.player && !this.input.active) this.input.requestLock();
+      if (this.player && !this.loadingMap && !this.input.active) this.input.requestLock();
     });
 
     window.addEventListener('resize', this.onResize);
@@ -110,19 +128,60 @@ export class Game {
   }
 
   async start(): Promise<void> {
+    if (!(await this.loadMapInto(this.mapDef))) return;
+    this.timer.connect(document);
+    this.loop.start();
+  }
+
+  /** Swaps the current map for another one without reloading the page. */
+  async switchMap(id: string): Promise<void> {
+    const def = findMap(id);
+    if (this.loadingMap || def.id === this.mapDef.id) return;
+    if (document.pointerLockElement) document.exitPointerLock();
+    if (this.map) disposeMap(this.map);
+    this.map = null;
+    this.player = null;
+    this.hitscan = null;
+    this.weapons = null;
+    this.impacts.clear();
+    this.mapDef = def;
+    this.settings.mapId = def.id;
+    saveSettings(this.settings);
+    await this.loadMapInto(def);
+  }
+
+  setFrameLimit(limit: FrameLimit): void {
+    this.settings.frameLimit = limit;
+    saveSettings(this.settings);
+    this.loop.setLimit(limit);
+  }
+
+  private async loadMapInto(def: MapDefinition): Promise<boolean> {
+    this.loadingMap = true;
+    this.hud.setMapSelectEnabled(false);
     this.hud.setLoading('맵 불러오는 중… 0%');
+    let map: LoadedMap;
     try {
-      this.map = await loadMap(this.mapDef, (r) => this.hud.setLoading(`맵 불러오는 중… ${Math.round(r * 100)}%`));
+      map = await loadMap(def, (r) => this.hud.setLoading(`맵 불러오는 중… ${Math.round(r * 100)}%`));
     } catch (err) {
       console.error(err);
-      this.hud.setError(`맵을 불러오지 못했습니다: ${this.mapDef.url}`);
-      return;
+      this.hud.setError(`맵을 불러오지 못했습니다: ${def.url}`);
+      this.loadingMap = false;
+      this.hud.setMapSelectEnabled(true);
+      return false;
     }
-    this.scene.add(this.map.root);
-    this.fitShadowToMap(this.map.playBounds);
+    this.map = map;
+    this.scene.add(map.root);
+    const env = def.environment;
+    const fog = this.scene.fog as THREE.Fog;
+    fog.near = env.fogNear;
+    fog.far = env.fogFar;
+    this.camera.far = env.viewDistance;
+    this.camera.updateProjectionMatrix();
+    this.fitShadowToMap(map.playBounds);
 
-    this.player = new PlayerController(this.map.collision);
-    this.hitscan = new HitscanSystem(this.map.collision);
+    this.player = new PlayerController(map.collision);
+    this.hitscan = new HitscanSystem(map.collision);
     this.weapons = new WeaponSystem(AR_01, this.player, this.hitscan);
     this.weapons.events = {
       onShot: (result) => {
@@ -138,17 +197,17 @@ export class Game {
     this.renderer.compile(this.viewModel.scene, this.viewModel.camera);
     this.renderer.shadowMap.needsUpdate = true;
 
-    const s = this.map.stats;
+    const s = map.stats;
     console.info(
-      `[map] ${s.sourceMeshes} meshes -> ${s.drawCalls} batches, ${s.triangles} tris, collider ${s.colliderTriangles} tris, ` +
-        `${this.map.attackSpawns.length} ATK / ${this.map.defenseSpawns.length} DEF spawns`,
+      `[map:${def.id}] ${s.sourceMeshes} meshes -> ${s.drawCalls} batches, ${s.triangles} tris, collider ${s.colliderTriangles} tris, ` +
+        `${map.attackSpawns.length} ATK / ${map.defenseSpawns.length} DEF spawns`,
     );
+    this.loadingMap = false;
+    this.hud.setMapSelectEnabled(true);
     this.hud.setReady();
     this.hud.setHealth(this.player.health);
     this.updateWeaponHud();
-
-    this.timer.connect(document);
-    this.renderer.setAnimationLoop(this.frame);
+    return true;
   }
 
   respawn(): void {
@@ -165,10 +224,15 @@ export class Game {
     this.prevEyeHeight = this.player.eyeHeight;
   }
 
-  private frame = (timestamp: number): void => {
-    const player = this.player!;
+  private frame(timestamp: number): void {
     this.timer.update(timestamp);
     const frameTime = Math.min(this.timer.getDelta(), SIM_CONFIG.maxFrameTime);
+    const player = this.player;
+    if (!player) {
+      // Between maps: keep the screen alive behind the loading panel.
+      this.renderer.clear();
+      return;
+    }
 
     this.input.poll(this.inputState);
     const lookYaw = this.inputState.lookYaw;
@@ -216,7 +280,7 @@ export class Game {
     this.hud.setHealth(player.health);
     this.updateWeaponHud();
     this.updateStats(frameTime);
-  };
+  }
 
   /** Dev aid: `game.debugShots = true` in the console logs every shot result. */
   debugShots = false;
@@ -238,7 +302,7 @@ export class Game {
     const p = this.player;
     const info = this.renderer.info.render;
     this.hud.setStats(
-      `${this.fps.toFixed(0)} fps  ·  ${info.calls} draws  ·  ${(info.triangles / 1000).toFixed(0)}k tris  ·  ${this.quality}\n` +
+      `${this.fps.toFixed(0)} fps (limit ${this.loop.frameLimit})  ·  ${info.calls} draws  ·  ${(info.triangles / 1000).toFixed(0)}k tris  ·  ${this.quality}  ·  ${this.mapDef.id}\n` +
         `pos ${p.position.x.toFixed(2)} ${p.position.y.toFixed(2)} ${p.position.z.toFixed(2)}  ` +
         `spd ${Math.hypot(p.velocity.x, p.velocity.z).toFixed(2)}  ${p.grounded ? 'ground' : 'air'}${p.crouching ? ' crouch' : ''}`,
     );
