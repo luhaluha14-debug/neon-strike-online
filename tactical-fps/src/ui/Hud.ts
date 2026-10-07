@@ -37,6 +37,7 @@ export class Hud {
         </div>
       </div>
       <div class="weapon">
+        <div class="loadout"></div>
         <div class="weapon-name">AR-01</div>
         <div class="ammo"><span class="ammo-mag">30</span><span class="ammo-sep">/</span><span class="ammo-reserve">90</span></div>
         <div class="weapon-status"></div>
@@ -66,8 +67,10 @@ export class Hud {
             <dt>Space</dt><dd>점프</dd>
             <dt>Shift</dt><dd>걷기 (조용히)</dd>
             <dt>C / Ctrl</dt><dd>앉기</dd>
-            <dt>좌클릭</dt><dd>사격 (자동)</dd>
+            <dt>좌클릭</dt><dd>사격 / 베기</dd>
             <dt>R</dt><dd>재장전</dd>
+            <dt>1 / 2 / 3</dt><dd>무기 선택 (휠 · Q: 이전 무기)</dd>
+            <dt>F</dt><dd>무기 살펴보기</dd>
             <dt>F4</dt><dd>스폰으로 복귀</dd>
             <dt>F3</dt><dd>성능 정보</dd>
             <dt>Esc</dt><dd>일시정지</dd>
@@ -163,12 +166,36 @@ export class Hud {
     this.root.classList.toggle('low-health', hp <= 25);
   }
 
-  /** `reloadProgress` is 0..1 while reloading, null otherwise. */
-  setWeapon(name: string, magazine: number, magazineSize: number, reserve: number, reloadProgress: number | null): void {
+  /** Slot strip above the ammo counter: "1 AR-01  2 SR-01  3 KARAMBIT". */
+  setLoadout(names: readonly string[], active: number): void {
+    const strip = this.root.querySelector<HTMLDivElement>('.loadout')!;
+    strip.replaceChildren(
+      ...names.map((n, i) => {
+        const span = document.createElement('span');
+        span.className = i === active ? 'slot active' : 'slot';
+        span.textContent = `${i + 1} ${n}`;
+        return span;
+      }),
+    );
+  }
+
+  /**
+   * `magazine` is null for weapons without ammo (melee).
+   * `reloadProgress` is 0..1 while reloading, null otherwise.
+   */
+  setWeapon(name: string, magazine: number | null, magazineSize: number, reserve: number, reloadProgress: number | null): void {
     const key = `${name}|${magazine}|${reserve}|${reloadProgress === null ? 0 : 1}`;
     if (key !== this.lastAmmoKey) {
       this.lastAmmoKey = key;
       this.weaponName.textContent = name;
+      this.root.classList.toggle('no-ammo', magazine === null);
+      if (magazine === null) {
+        this.ammoMag.textContent = '—';
+        this.ammoReserve.textContent = '';
+        this.root.classList.remove('ammo-low', 'ammo-empty', 'reloading');
+        this.weaponStatus.textContent = '';
+        return;
+      }
       this.ammoMag.textContent = String(magazine);
       this.ammoReserve.textContent = String(reserve);
       const reloading = reloadProgress !== null;

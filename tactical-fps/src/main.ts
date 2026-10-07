@@ -29,5 +29,10 @@ const game = new Game(document.getElementById('app')!, pickQuality(settings.qual
 void game.start();
 
 if (import.meta.env.DEV) {
-  (window as unknown as { game: Game }).game = game;
+  const w = window as unknown as { game: Game; vmCheck?: () => unknown };
+  w.game = game;
+  // Dev-only first-person model checks (glove clipping, near-plane); not in production builds.
+  void import('./debug/viewModelChecks').then((m) => {
+    w.vmCheck = () => m.checkViewModel(game.viewModel);
+  });
 }

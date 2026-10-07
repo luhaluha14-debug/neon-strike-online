@@ -6,10 +6,13 @@ import { createInputState } from '../input/InputState';
 import { KeyboardMouseInput } from '../input/KeyboardMouseInput';
 import { PlayerController } from '../player/PlayerController';
 import { Hud } from '../ui/Hud';
-import { createWeaponView } from '../weapons/view/WeaponView';
+import { createWeaponView, loadWeaponView } from '../weapons/view/WeaponView';
+import type { WeaponViewSpec } from '../weapons/WeaponDefinition';
 import { ViewModelLayer } from '../weapons/view/ViewModelLayer';
-import { AR_01 } from '../weapons/weapons';
-import { WeaponSystem } from '../weapons/WeaponSystem';
+import type { Weapon } from '../weapons/Weapon';
+import { DEFAULT_LOADOUT } from '../weapons/weapons';
+import { WeaponSystem, type WeaponCommand } from '../weapons/WeaponSystem';
+import type { WeaponAnimState } from '../weapons/view/WeaponView';
 import { findMap, MAPS, type MapDefinition } from '../maps';
 import { disposeMap, loadMap, type LoadedMap } from '../world/MapLoader';
 import { FRAME_LIMIT_OPTIONS, FrameLoop, type FrameLimit } from './FrameLoop';
@@ -80,7 +83,7 @@ export class Game {
     this.camera.rotation.order = 'YXZ';
     this.viewModel = new ViewModelLayer(window.innerWidth / window.innerHeight);
     this.viewModel.initEnvironment(this.renderer);
-    this.viewModel.setView(createWeaponView(AR_01.view));
+    this.showWeaponModel(DEFAULT_LOADOUT[0].view);
     this.scene.add(this.impacts.group);
 
     // Overcast late-afternoon look: soft sky fill + one warm key light.
@@ -182,10 +185,16 @@ export class Game {
 
     this.player = new PlayerController(map.collision);
     this.hitscan = new HitscanSystem(map.collision);
-    this.weapons = new WeaponSystem(AR_01, this.player, this.hitscan);
+    this.weapons = new WeaponSystem(DEFAULT_LOADOUT, this.player, this.hitscan);
+    this.showWeaponModel(this.weapons.weapon.def.view);
+    this.hud.setLoadout(this.weapons.loadout.map((w) => w.def.displayName), this.weapons.slot);
     this.weapons.events = {
-      onShot: (result) => {
-        this.viewModel.onShot();
+      onEquip: (weapon, slot) => {
+        this.showWeaponModel(weapon.def.view);
+        this.hud.setLoadout(this.weapons!.loadout.map((w) => w.def.displayName), slot);
+      },
+      onShot: (result, _origin, _dir, weapon) => {
+        this.viewModel.onShot(weapon.def.category);
         if (result.kind !== 'miss') this.impacts.spawn(result.point, result.normal);
         if (import.meta.env.DEV && this.debugShots) console.debug('[shot]', result.kind, 'distance' in result ? result.distance.toFixed(2) : '');
       },
@@ -244,12 +253,16 @@ export class Game {
       const tick = 1 / SIM_CONFIG.tickRate;
       this.accumulator += frameTime;
       let ticks = 0;
+      const command = this.weaponCommand();
       while (this.accumulator >= tick) {
         ticks++;
         this.prevPos.copy(player.position);
         this.prevEyeHeight = player.eyeHeight;
         player.step(this.inputState, tick);
-        this.weapons?.step(this.inputState, tick);
+        this.weapons?.step(command, tick);
+        // Switch requests are one-shot: apply them on the first tick only.
+        command.equipSlot = -1;
+        command.equipLast = false;
         this.accumulator -= tick;
       }
       if (ticks > 0) this.input.clearLatches();
@@ -265,14 +278,17 @@ export class Game {
 
     const w = this.weapons?.weapon;
     this.impacts.update(frameTime);
-    this.viewModel.update(frameTime, {
-      lookYaw,
-      lookPitch,
-      speed01: Math.hypot(player.velocity.x, player.velocity.z) / PLAYER_CONFIG.runSpeed,
-      grounded: player.grounded,
-      crouching: player.crouching,
-      reloadProgress: w && w.status === 'reloading' ? w.reloadProgress : null,
-    });
+    this.viewModel.update(
+      frameTime,
+      {
+        lookYaw,
+        lookPitch,
+        speed01: Math.hypot(player.velocity.x, player.velocity.z) / PLAYER_CONFIG.runSpeed,
+        grounded: player.grounded,
+        crouching: player.crouching,
+      },
+      this.animState(w),
+    );
 
     this.renderer.clear();
     this.renderer.render(this.scene, this.camera);
@@ -282,13 +298,59 @@ export class Game {
     this.updateStats(frameTime);
   }
 
+  /**
+   * Shows a weapon model in the first-person hands at its configured pose.
+   * GLB models show their procedural fallback until the file has loaded.
+   */
+  private showWeaponModel(spec: WeaponViewSpec): void {
+    this.shownSpec = spec;
+    this.viewModel.setView(createWeaponView(spec), spec.pose);
+    loadWeaponView(spec)
+      ?.then((view) => {
+        if (this.shownSpec === spec) this.viewModel.setView(view, spec.pose);
+        else view.dispose();
+      })
+      .catch((err) => console.warn('[weapon] could not load GLB model, keeping the placeholder', err));
+  }
+
+  private shownSpec: WeaponViewSpec | null = null;
+
+  /** Translates this frame's player input into a device-independent weapon command. */
+  private weaponCommand(): WeaponCommand {
+    const i = this.inputState;
+    let equipSlot = i.equipSlot;
+    if (equipSlot < 0 && i.equipCycle !== 0 && this.weapons) {
+      const n = this.weapons.loadout.length;
+      equipSlot = (this.weapons.slot + i.equipCycle + n) % n;
+    }
+    return { fire: i.fire, reload: i.reload, equipSlot, equipLast: i.equipLast, inspect: i.inspect };
+  }
+
+  private animState(w: Weapon | undefined): WeaponAnimState {
+    if (!w) return { category: 'rifle', equip: 1, reload: null, sinceShot: Infinity, fireInterval: 1, inspect: null };
+    return {
+      category: w.def.category,
+      equip: w.equipProgress,
+      reload: w.status === 'reloading' ? w.reloadProgress : null,
+      sinceShot: w.timeSinceShot,
+      fireInterval: w.fireInterval,
+      inspect: this.weapons?.inspectProgress ?? null,
+    };
+  }
+
   /** Dev aid: `game.debugShots = true` in the console logs every shot result. */
   debugShots = false;
 
   private updateWeaponHud(): void {
     const w = this.weapons?.weapon;
     if (!w) return;
-    this.hud.setWeapon(w.def.displayName, w.magazine, w.def.magazineSize, w.reserve, w.status === 'reloading' ? w.reloadProgress : null);
+    this.hud.setWeapon(
+      w.def.displayName,
+      w.usesAmmo ? w.magazine : null,
+      w.def.magazineSize,
+      w.reserve,
+      w.status === 'reloading' ? w.reloadProgress : null,
+    );
   }
 
   private updateStats(dt: number): void {

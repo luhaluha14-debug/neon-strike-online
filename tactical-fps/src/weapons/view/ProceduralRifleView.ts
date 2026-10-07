@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { PISTOL_GRIP } from './HandGrip';
 import type { WeaponView } from './WeaponView';
 
 /**
@@ -12,6 +13,7 @@ export class ProceduralRifleView implements WeaponView {
   readonly magazine = new THREE.Group();
   readonly gripAnchor = new THREE.Object3D();
   readonly supportAnchor = new THREE.Object3D();
+  readonly rightHand = PISTOL_GRIP;
   private readonly geometries: THREE.BufferGeometry[] = [];
   private readonly materials: THREE.Material[] = [];
 
@@ -52,6 +54,8 @@ export class ProceduralRifleView implements WeaponView {
     grip.rotation.x = 0.32;
     this.gripAnchor.position.copy(grip.position);
     this.gripAnchor.rotation.x = 0.32;
+    // Hand sits a little low on the grip so the trigger finger clears the receiver.
+    this.gripAnchor.translateY(-0.016);
     // Off hand under the handguard, a little toward the muzzle.
     this.supportAnchor.position.set(0, 0.0, -0.34);
     this.object.add(this.gripAnchor, this.supportAnchor);

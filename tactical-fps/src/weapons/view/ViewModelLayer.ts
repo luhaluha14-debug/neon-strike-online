@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { FirstPersonArms } from './FirstPersonArms';
-import type { WeaponView } from './WeaponView';
+import type { ViewmodelPose, WeaponCategory } from '../WeaponDefinition';
+import type { WeaponAnimState, WeaponView } from './WeaponView';
 
 export interface ViewModelMotion {
   /** Look delta this frame (radians) — drives sway. */
@@ -11,23 +12,29 @@ export interface ViewModelMotion {
   speed01: number;
   grounded: boolean;
   crouching: boolean;
-  /** 0..1 while reloading, otherwise null. */
-  reloadProgress: number | null;
 }
 
+/** Duration of the placeholder melee slash (s). */
+const SLASH_TIME = 0.32;
 
 /**
  * Renders the held weapon in its own scene after the world, with the depth
  * buffer cleared, so it never clips into walls and can use its own FOV.
- * Owns all procedural motion so any WeaponView model gets it for free.
+ * Owns all generic procedural motion (sway, bob, recoil kick, equip, reload
+ * dip, melee slash, inspect) so any WeaponView model gets it for free; the
+ * model only animates its own special parts via `animate()`.
  */
 export class ViewModelLayer {
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
-  /** Rest pose of the weapon in camera space (hip position + angle). */
-  // Angled across the screen so the rifle's side and both gloved hands show.
+  /**
+   * Rest pose of the current weapon in camera space. Initialised from the
+   * weapon definition's `view.pose`; can be changed live (e.g. from the dev
+   * console) to tune offsets without touching weapon logic.
+   */
   readonly restPosition = new THREE.Vector3(0.125, -0.115, -0.42);
   readonly restRotation = new THREE.Euler(0.03, 0.27, -0.1);
+  restScale = 1;
   private view: WeaponView | null = null;
   private arms: FirstPersonArms | null = null;
   /** Motion pivot: position/rotation offsets are applied here. */
@@ -66,7 +73,18 @@ export class ViewModelLayer {
     this.flash.visible = false;
   }
 
-  setView(view: WeaponView): void {
+  /** The model currently in hand (debug / tests). */
+  get currentView(): WeaponView | null {
+    return this.view;
+  }
+
+  get currentArms(): FirstPersonArms | null {
+    return this.arms;
+  }
+
+  /** Puts a weapon model in the hands at its configured pose. */
+  setView(view: WeaponView, pose?: ViewmodelPose): void {
+    this.flash.removeFromParent();
     if (this.view) {
       this.pivot.remove(this.view.object);
       this.view.dispose();
@@ -77,10 +95,20 @@ export class ViewModelLayer {
     }
     this.view = view;
     this.pivot.add(view.object);
-    this.arms = new FirstPersonArms(view.gripAnchor, view.supportAnchor, view.magazine);
+    // Arms attach to whatever anchors the weapon provides — no per-weapon code here.
+    this.arms = new FirstPersonArms(view.gripAnchor, view.supportAnchor, view.magazine, view.rightHand, view.armPose);
     this.pivot.add(this.arms.object);
-    view.muzzle.add(this.flash);
+    view.muzzle?.add(this.flash);
+    this.flashTime = 0;
+    this.kick = this.kickVel = 0;
     this.magRestY = view.magazine?.position.y ?? 0;
+    if (pose) this.setPose(pose);
+  }
+
+  setPose(pose: ViewmodelPose): void {
+    this.restPosition.set(...pose.position);
+    this.restRotation.set(...pose.rotation);
+    this.restScale = pose.scale;
   }
 
   /**
@@ -99,14 +127,18 @@ export class ViewModelLayer {
     this.camera.updateProjectionMatrix();
   }
 
-  onShot(): void {
-    this.kickVel += 1.0;
-    this.flashTime = 0.045;
-    this.flash.rotation.z = Math.random() * Math.PI;
-    this.flash.scale.setScalar(0.8 + Math.random() * 0.5);
+  /** Visual feedback for one shot/attack; melee motion comes from `sinceShot` instead. */
+  onShot(category: WeaponCategory): void {
+    if (category === 'melee') return;
+    this.kickVel += category === 'sniper' ? 1.9 : 1.0;
+    if (this.view?.muzzle) {
+      this.flashTime = 0.045;
+      this.flash.rotation.z = Math.random() * Math.PI;
+      this.flash.scale.setScalar((category === 'sniper' ? 1.5 : 0.8) + Math.random() * 0.5);
+    }
   }
 
-  update(dt: number, m: ViewModelMotion): void {
+  update(dt: number, m: ViewModelMotion, anim: WeaponAnimState): void {
     // Recoil kick: damped spring back to rest. Fixed substeps keep it stable
     // even when a frame takes 100 ms.
     const stiffness = 220;
@@ -132,14 +164,16 @@ export class ViewModelLayer {
     const bobX = Math.sin(this.bobPhase) * 0.008 * this.bobAmount;
     const bobY = -Math.abs(Math.cos(this.bobPhase)) * 0.008 * this.bobAmount;
 
+    // Pose offsets from the placeholder animations (all relative to rest).
+    const off = { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0 };
+
     // Reload: dip and roll, magazine drops out and back in.
-    let reloadDip = 0;
-    let reloadRoll = 0;
-    if (m.reloadProgress !== null) {
-      const t = m.reloadProgress;
+    if (anim.reload !== null) {
+      const t = anim.reload;
       const envelope = Math.sin(Math.min(t, 1) * Math.PI);
-      reloadDip = envelope * 0.07;
-      reloadRoll = envelope * 0.55;
+      off.y -= envelope * 0.07;
+      off.rx -= envelope * 0.07 * 1.2;
+      off.rz += envelope * 0.55;
       if (this.view?.magazine) {
         const out = t < 0.25 ? t / 0.25 : t < 0.6 ? 1 : Math.max(0, 1 - (t - 0.6) / 0.25);
         this.view.magazine.position.y = this.magRestY - out * 0.25;
@@ -150,21 +184,58 @@ export class ViewModelLayer {
       this.view.magazine.visible = true;
     }
 
-    this.arms?.update(m.reloadProgress);
+    // Equip: rise from below the screen edge.
+    const drop = 1 - easeOut(anim.equip);
+    off.y -= drop * 0.24;
+    off.rx -= drop * 0.75;
+    off.rz += drop * 0.25;
+
+    // Melee slash: sweep from the right across the centre and back.
+    if (anim.category === 'melee' && anim.sinceShot < SLASH_TIME) {
+      const sw = Math.sin((anim.sinceShot / SLASH_TIME) * Math.PI);
+      off.x -= sw * 0.11;
+      off.z -= sw * 0.06;
+      off.ry += sw * 0.7;
+      off.rz += sw * 0.55;
+      off.rx -= sw * 0.25;
+    }
+
+    // Inspect: turn the weapon to show its side, then back.
+    if (anim.inspect !== null) {
+      const e = Math.sin(anim.inspect * Math.PI);
+      const wobble = Math.sin(anim.inspect * Math.PI * 2) * 0.15;
+      if (anim.category === 'melee') {
+        // Lift and tilt the blade toward the camera; small angles keep the forearm off-screen.
+        off.rx -= e * 0.5;
+        off.ry += wobble;
+        off.rz -= e * 0.35;
+        off.x -= e * 0.04;
+        off.y += e * 0.04;
+      } else {
+        off.rz += e * 0.6;
+        off.ry -= e * 0.45 + wobble;
+        off.x -= e * 0.04;
+        off.y += e * 0.03;
+      }
+    }
+
+    this.view?.animate?.(anim);
+    this.arms?.update(anim.reload);
 
     const crouchOffset = m.crouching ? 0.01 : 0;
     const rest = this.restPosition;
     const rr = this.restRotation;
     this.pivot.position.set(
-      rest.x + this.swayX + bobX,
-      rest.y + this.swayY + bobY - reloadDip - crouchOffset,
-      rest.z + this.kick * 0.045,
+      rest.x + this.swayX + bobX + off.x,
+      rest.y + this.swayY + bobY - crouchOffset + off.y,
+      rest.z + this.kick * 0.045 + off.z,
     );
     this.pivot.rotation.set(
-      rr.x + this.kick * 0.06 + this.swayY * 0.8 - reloadDip * 1.2,
-      rr.y + this.swayX * 0.8,
-      rr.z + reloadRoll,
+      rr.x + this.kick * 0.06 + this.swayY * 0.8 + off.rx,
+      rr.y + this.swayX * 0.8 + off.ry,
+      rr.z + off.rz,
     );
+    this.pivot.scale.setScalar(this.restScale);
 
     if (this.flashTime > 0) {
       this.flashTime -= dt;
@@ -178,6 +249,11 @@ export class ViewModelLayer {
     renderer.clearDepth();
     renderer.render(this.scene, this.camera);
   }
+}
+
+function easeOut(t: number): number {
+  const c = Math.min(Math.max(t, 0), 1);
+  return 1 - (1 - c) * (1 - c);
 }
 
 function makeFlashTexture(): THREE.CanvasTexture {

@@ -29,8 +29,11 @@ npm run preview    # 빌드 결과 확인
 | W A S D | 이동 |
 | 마우스 | 시점 회전 |
 | Space | 점프 |
-| 좌클릭 | 사격 (자동) |
+| 좌클릭 | 사격 / 베기 |
 | R | 재장전 |
+| 1 / 2 / 3 | 무기 선택 (AR-01 / SR-01 / KARAMBIT) |
+| 마우스 휠 · Q | 다음 무기 · 이전 무기 |
+| F | 무기 살펴보기 |
 | Shift | 걷기 (느리게) |
 | C / 왼쪽 Ctrl | 앉기 (머리 위 공간이 있어야 일어섬) |
 | F4 | 스폰 위치로 복귀 |
@@ -56,13 +59,19 @@ tactical-fps/
    ├─ world/MapLoader.ts        GLB 로드, 노드 분류, 머티리얼별 정적 배칭, 스폰 포인트 추출
    ├─ world/CollisionWorld.ts   맵 삼각형 BVH, 캡슐 충돌 해소, 레이캐스트
    ├─ player/PlayerController.ts 캡슐 캐릭터 이동 (가속/마찰, 점프, 경사로, 앉기, 지면 스냅)
-   ├─ weapons/weapons.ts        ★ 무기 데이터 (피해·연사·탄창·재장전·반동·탄퍼짐) — 밸런스는 여기서만 수정
+   ├─ weapons/weapons.ts        ★ 무기 데이터 (피해·연사·탄창·재장전·반동·탄퍼짐·1인칭 위치) + 기본 로드아웃
    ├─ weapons/WeaponDefinition.ts 무기 데이터 타입
    ├─ weapons/Weapon.ts         탄약·연사·재장전 상태 (렌더링 없음, 서버에서도 재사용 가능)
    ├─ weapons/RecoilController.ts 반동 누적/회복
-   ├─ weapons/WeaponSystem.ts   입력 → 무기 → 한 발씩 히트스캔 → 반동 → 이벤트
+   ├─ weapons/WeaponSystem.ts   로드아웃·무기 교체·살펴보기 + 명령(WeaponCommand) → 무기 → 히트스캔 → 반동 → 이벤트
    ├─ weapons/view/             1인칭 무기 표현 (WeaponView 인터페이스, 임시 절차적 소총, 별도 렌더 패스)
-   │  └─ FirstPersonArms.ts     장갑 낀 손 + 소매 (무기의 손 위치 앵커에 붙음, 재장전 시 왼손이 탄창을 따라감)
+   │  ├─ FirstPersonArms.ts     장갑 낀 손 + 소매. 무기의 앵커와 손잡이 프로필(HandGrip)만 보고 손 모양을 만듦
+   │  ├─ HandGrip.ts            손잡이 크기·검지 위치(방아쇠/고리)·손목 높이·팔꿈치 위치
+   │  ├─ ModelKit.ts            절차적 모델 도구 (상자·원통·측면 프로필 압출·캔버스 텍스처)
+   │  ├─ ProceduralRifleView.ts AR-01 임시 모델
+   │  ├─ SniperRifleView.ts     SR-01 (AWP 스타일 볼트액션 저격총) 임시 모델 + 볼트 애니메이션
+   │  └─ KarambitView.ts        카람빗 임시 모델 (청록/파랑 그라데이션 칼날)
+   ├─ debug/viewModelChecks.ts  (개발용) 장갑-무기 겹침·카메라 근접 측정: 콘솔에서 vmCheck()
    ├─ combat/Damage.ts          Damageable 인터페이스 (나중에 적/봇이 구현)
    ├─ combat/HitscanSystem.ts   화면 중앙 레이캐스트: 맵 먼저 → 더 가까운 대상만 피격, 거리별 피해 감소
    ├─ fx/ImpactEffects.ts       탄흔 + 먼지 (인스턴싱, 드로우콜 2개)
@@ -73,16 +82,65 @@ tactical-fps/
 
 ## 무기
 
-- **AR-01** (오리지널 임시 디자인): 600 RPM 자동, 30발 탄창 / 예비 90발, 재장전 2.2초, 몸통 32 / 머리 ×4.
-- 모든 수치는 `src/weapons/weapons.ts` 한 곳에 있습니다. 새 총은 같은 형식의 항목을 하나 추가하면 됩니다.
+| 슬롯 | 무기 | 특징 |
+| --- | --- | --- |
+| 1 | **AR-01** 돌격소총 | 600 RPM 자동, 30 / 90발, 재장전 2.2초, 몸통 32 · 머리 ×4 |
+| 2 | **SR-01** 볼트액션 저격총 (AWP 스타일) | 한 발씩(볼트 1.46초), 5 / 30발, 재장전 3.6초, 몸통 115 · 머리 ×4, 이동 중 탄퍼짐 큼, 꺼내기 1.0초 |
+| 3 | **KARAMBIT** 카람빗 | 탄약 없음, 0.5초마다 베기, 사거리 1.9 m, 40 피해 |
+
+- 이름과 모델은 모두 오리지널 임시 디자인입니다 (실제 총기·게임 이름을 쓰지 않음).
+- 모든 수치는 `src/weapons/weapons.ts` 한 곳에 있습니다. 새 무기는 같은 형식의 항목을 추가하고 `DEFAULT_LOADOUT` 에 넣으면 됩니다.
+- 무기를 바꿔도 각 무기의 탄약은 유지되고, 재장전 중에 바꾸면 재장전이 취소됩니다(탄약 손실 없음).
 - 발사는 고정 틱(120Hz)에서 계산되어 프레임레이트와 무관하게 연사 속도가 정확합니다. 매 발마다 별도 레이캐스트를 합니다.
 - 제자리에서는 첫 발이 조준점 정중앙에 맞고, 이동/점프 중에는 탄퍼짐이 커집니다 (`spread`).
 - 반동: 발사할수록 위로 누적(최대 6°), 좌우는 약간 흔들리다 길게 쏘면 한쪽으로 흐름. 사격을 멈추면 원래 조준점으로 복귀하며, 플레이어가 마우스를 내려 보정한 만큼은 되돌리지 않습니다.
-- **손**: 검은 전술 장갑 + 어두운 소매의 절차적 팔이 무기의 `gripAnchor`(오른손, 권총 손잡이)와 `supportAnchor`(왼손, 총열 덮개 아래)에 붙습니다. 오른손 검지는 방아쇠 위, 재장전 때는 왼손이 탄창을 빼고 넣습니다.
-- **Blender 무기 모델로 교체하기**: 총구 방향 -Z, 손잡이 위치를 원점으로 모델을 만들고 `Muzzle`, `Magazine`, `Grip_R`, `Grip_L` 이름의 Empty를 두면 됩니다.
-  `weapons.ts` 의 `view` 를 `{ kind: 'gltf', url: '/weapons/ar01.glb' }` 로 바꾸고 `WeaponView.ts` 의 GLB 로더 부분만 채우면 흔들림·반동·재장전 모션은 그대로 적용됩니다.
+- **손**: 검은 전술 장갑 + 어두운 소매의 절차적 팔이 무기의 `gripAnchor`(오른손)와 `supportAnchor`(왼손)에 붙습니다.
+  손잡이 크기에 맞춰 손가락 위치가 바뀌고, 검지는 방아쇠 위(총) 또는 고리 안(카람빗)에 들어갑니다. 한 손 무기는 왼팔을 숨깁니다.
 - **적 추가 시**: `Damageable` 을 구현해 `game.hitscan.register(target)` 하면 벽 판정·거리 감소·부위 배율이 자동 적용됩니다.
 - 개발 서버 콘솔에서 `game.debugShots = true` 로 매 발의 명중 결과를 로그로 볼 수 있습니다.
+
+## 무기 구조
+
+```
+플레이어 입력 ─┐
+               ├─▶ WeaponCommand { fire, reload, equipSlot, equipLast, inspect }
+AI 봇 (예정) ──┘                 │
+                                 ▼
+                         WeaponSystem (로드아웃, 교체, 살펴보기)
+                                 ▼
+                         Weapon (탄약·연사·재장전·꺼내기 상태, 렌더링 없음)
+                                 ▼  이벤트(onShot, onEquip …)
+          Game ──▶ ViewModelLayer ──▶ WeaponView (AR-01 / SR-01 / KARAMBIT / GLB)
+                         │                 └─ 앵커: Grip_R, Grip_L, Muzzle, Magazine, Bolt
+                         └──▶ FirstPersonArms (앵커 + HandGripProfile 로 손 모양 생성)
+```
+
+- 무기는 입력 장치를 모릅니다. `WeaponSystem.step(command, dt)` 에 같은 구조체만 넣으면 플레이어든 봇이든 똑같이 동작합니다.
+- 근접 무기는 "탄창 0 + 사거리 1.9 m" 인 무기라서 사격·히트스캔·피해 코드를 그대로 씁니다.
+- **1인칭 위치 조정**: `weapons.ts` 의 `view.pose` (position / rotation / scale). 코드 수정 없이 숫자만 바꾸면 됩니다.
+  개발 서버에서는 콘솔에서 `game.viewModel.restPosition.set(x, y, z)` 로 바로 확인하고, `vmCheck()` 로 장갑 겹침과 카메라 근접을 측정할 수 있습니다.
+- 애니메이션 자리: 꺼내기(아래에서 올라옴), 재장전, 반동, 볼트 당기기(SR-01), 베기(카람빗), 살펴보기(F)는 간단한 임시 동작입니다.
+  모델은 `animate(state)` 로 자기 부품(볼트 등)만 움직이고, 공통 동작은 `ViewModelLayer` 가 처리합니다.
+
+### Blender 모델로 교체하기
+
+1. 모델 좌표(게임 기준): 총구/칼날 방향 **-Z**, 위 **+Y**, 오른쪽 **+X**, 단위 m. 원점은 대략 손잡이 근처.
+   Blender(Z-up)에서는 총구를 **+Y**, 위를 **+Z** 로 만들면 glTF 내보내기가 게임 기준으로 바꿔 줍니다.
+2. 빈 오브젝트(Empty) 이름:
+   - `Grip_R` — 오른손 위치. 로컬 +Y 가 손잡이 축(위), +Z 가 사수 쪽.
+   - `Grip_L` — 왼손 위치 (총열 덮개 아래). 한 손 무기는 생략 → 왼팔 숨김.
+   - `Muzzle` (총구 화염), `Magazine` (재장전 때 빠지는 부품), `Bolt` (볼트액션) — 있으면 사용.
+3. 장갑 맞추기 (Custom Properties, glTF 내보내기에서 "Custom Properties" 체크):
+   - `Grip_R` 에 `grip_width`, `grip_depth` (m), `grip_index` ("trigger" / "ring"), `wrist_lift` (m)
+   - 무기 오브젝트에 `right_elbow`, `left_elbow` ([x, y, z]) — 팔이 모델을 관통할 때만
+4. `public/weapons/` 에 GLB를 넣고 `weapons.ts` 의 `view` 를
+   `{ kind: 'gltf', url: '/weapons/sr01.glb', fallback: 'sr01', pose: { … } }` 로 바꿉니다. 끝입니다.
+   로딩 중에는 `fallback` 임시 모델이 보이고, 다 받으면 자동으로 바뀝니다 (`GltfWeaponView`).
+   무기 로직(`Weapon`, `WeaponSystem`), 팔(`FirstPersonArms`), 공통 모션(`ViewModelLayer`)은 수정하지 않습니다.
+5. 개발 서버 콘솔에서 `vmCheck()` 로 장갑이 모델에 묻히는지(mm)와 카메라에 너무 가까운지 확인하고 `pose` 를 조정합니다.
+
+검증: 현재 SR-01 임시 모델을 브라우저에서 GLB로 내보낸 뒤 이 경로로 다시 불러와, 손 위치·손잡이 프로필·팔꿈치·볼트 동작·겹침 수치가
+절차적 모델과 동일함을 확인했습니다.
 
 ## 맵 규칙 (Blender 노드 이름)
 

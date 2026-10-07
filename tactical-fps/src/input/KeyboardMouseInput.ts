@@ -9,6 +9,9 @@ export class KeyboardMouseInput implements InputSource {
   /** Keys / buttons pressed since the last tick consumed input (catches sub-frame taps). */
   private latchedKeys = new Set<string>();
   private latchedButtons = 0;
+  /** Weapon selection is an event, not a held state: keep the latest request until a tick consumes it. */
+  private requestedSlot = -1;
+  private wheel = 0;
   private yaw = 0;
   private pitch = 0;
   private locked = false;
@@ -22,6 +25,7 @@ export class KeyboardMouseInput implements InputSource {
     document.addEventListener('mousemove', this.handleMouseMove);
     document.addEventListener('mousedown', this.handleMouseDown);
     document.addEventListener('mouseup', this.handleMouseUp);
+    document.addEventListener('wheel', this.handleWheel, { passive: true });
     document.addEventListener('pointerlockchange', this.handlePointerLockChange);
   }
 
@@ -47,6 +51,10 @@ export class KeyboardMouseInput implements InputSource {
     out.walk = k.has('ShiftLeft');
     out.fire = ((this.mouseButtons | this.latchedButtons) & 1) !== 0;
     out.reload = k.has('KeyR') || l.has('KeyR');
+    out.equipSlot = this.requestedSlot;
+    out.equipLast = l.has('KeyQ');
+    out.equipCycle = Math.sign(this.wheel);
+    out.inspect = k.has('KeyF') || l.has('KeyF');
     out.lookYaw = this.yaw;
     out.lookPitch = this.pitch;
     this.yaw = 0;
@@ -56,6 +64,8 @@ export class KeyboardMouseInput implements InputSource {
   clearLatches(): void {
     this.latchedKeys.clear();
     this.latchedButtons = 0;
+    this.requestedSlot = -1;
+    this.wheel = 0;
   }
 
   dispose(): void {
@@ -65,6 +75,7 @@ export class KeyboardMouseInput implements InputSource {
     document.removeEventListener('mousemove', this.handleMouseMove);
     document.removeEventListener('mousedown', this.handleMouseDown);
     document.removeEventListener('mouseup', this.handleMouseUp);
+    document.removeEventListener('wheel', this.handleWheel);
     document.removeEventListener('pointerlockchange', this.handlePointerLockChange);
   }
 
@@ -72,6 +83,8 @@ export class KeyboardMouseInput implements InputSource {
     if (!this.locked) return;
     this.keys.add(e.code);
     this.latchedKeys.add(e.code);
+    const digit = /^Digit([1-9])$/.exec(e.code);
+    if (digit) this.requestedSlot = Number(digit[1]) - 1;
     // Stop Ctrl+W / Space scrolling etc. while playing.
     if (e.code === 'Space' || e.ctrlKey) e.preventDefault();
   };
@@ -94,6 +107,11 @@ export class KeyboardMouseInput implements InputSource {
 
   private handleMouseUp = (e: MouseEvent): void => {
     this.mouseButtons &= ~(1 << e.button);
+  };
+
+  private handleWheel = (e: WheelEvent): void => {
+    if (!this.locked || e.deltaY === 0) return;
+    this.wheel = e.deltaY > 0 ? 1 : -1;
   };
 
   private handleMouseMove = (e: MouseEvent): void => {
