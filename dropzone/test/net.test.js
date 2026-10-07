@@ -134,3 +134,54 @@ test('online: quick match starts by itself and fills with bots', async () => {
     net.close(); server.close();
   }
 });
+
+test('online: the client mirror stays in sync with the server through a whole match (items, deaths, knocks)', async () => {
+  const { buildMap } = await import('../shared/mapgen.js');
+  const { NavGrid } = await import('../shared/nav.js');
+  const { TICK } = await import('../shared/game.js');
+  const { enrichEvent, packWorld, applyWorld, packMe, unpackPlayer, unpackVehicle } = await import('../shared/net.js');
+  const world = buildMap(), nav = new NavGrid(world);
+  const opts = { seed: 77, bots: 23, teamSize: 2, difficulty: 'normal', humans: [{ id: 1, name: 'me', team: 0 }] };
+  const srv = new Match({ world, nav, ...opts });
+  const mir = new Match({ world, nav, ...opts, mirror: true });
+  for (const p of mir.players) p.brain = null;
+  let t = 0;
+  while (srv.state === 'playing' && srv.time < 900) {
+    srv.step(TICK); t++;
+    // same path as the network: JSON round trip of events and snapshots
+    for (const e of JSON.parse(JSON.stringify(srv.drainEvents().map((e) => enrichEvent(srv, e))))) applyItemEvent(mir, e);
+    if (t % 3 === 0) {
+      const s = JSON.parse(JSON.stringify({ me: packMe(srv.byId.get(1), 0), ...packWorld(srv) }));
+      applyWorld(mir, s);
+      for (const a of s.p) unpackPlayer(mir.byId.get(a[0]), a);
+      for (const a of s.v) unpackVehicle(mir.vehById.get(a[0]), a);
+    }
+  }
+  assert.equal(srv.state, 'ended');
+  // the server keeps sending snapshots after the end (final placements)
+  const last = JSON.parse(JSON.stringify(packWorld(srv)));
+  for (const a of last.p) unpackPlayer(mir.byId.get(a[0]), a);
+  const key = (m) => m.items.map((i) => `${i.id}:${i.key}:${i.count}`).sort().join(',');
+  assert.equal(key(mir), key(srv), 'same ground items');
+  for (const p of srv.players) {
+    const q = mir.byId.get(p.id);
+    assert.deepEqual([q.alive, q.downed, q.team, q.place], [p.alive, p.downed, p.team, p.place], `player ${p.id}`);
+  }
+});
+
+test('knocked-down players in the storm do not spam hit events', async () => {
+  const { buildMap } = await import('../shared/mapgen.js');
+  const { NavGrid } = await import('../shared/nav.js');
+  const { TICK } = await import('../shared/game.js');
+  const world = buildMap(), nav = new NavGrid(world);
+  const m = new Match({ world, nav, seed: 3, bots: 3, teamSize: 2, drop: false });
+  const [a, b] = m.players.filter((p) => p.team === m.players[0].team);
+  for (const p of m.players) p.brain = null;
+  m.damage(a, 150, null, 'gun', null);
+  assert.ok(a.downed);
+  m.drainEvents();
+  for (let i = 0; i < 60; i++) m.damage(a, 0.1, null, 'zone', null);
+  assert.equal(m.drainEvents().filter((e) => e.t === 'hit').length, 0);
+  assert.ok(a.dhp < 100, 'the storm still drains the bleed-out bar');
+  assert.ok(b.alive);
+});
