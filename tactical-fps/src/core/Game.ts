@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { HitscanSystem } from '../combat/HitscanSystem';
-import { CAMERA_CONFIG, MAP_CONFIG, PLAYER_CONFIG, QUALITY_PRESETS, SIM_CONFIG, type QualityLevel } from '../config';
+import { CAMERA_CONFIG, PLAYER_CONFIG, QUALITY_PRESETS, SIM_CONFIG, type QualityLevel } from '../config';
 import { ImpactEffects } from '../fx/ImpactEffects';
 import { createInputState } from '../input/InputState';
 import { KeyboardMouseInput } from '../input/KeyboardMouseInput';
@@ -10,6 +10,7 @@ import { createWeaponView } from '../weapons/view/WeaponView';
 import { ViewModelLayer } from '../weapons/view/ViewModelLayer';
 import { AR_01 } from '../weapons/weapons';
 import { WeaponSystem } from '../weapons/WeaponSystem';
+import { MAPS, type MapDefinition } from '../maps';
 import { loadMap, type LoadedMap } from '../world/MapLoader';
 
 export class Game {
@@ -18,6 +19,7 @@ export class Game {
   readonly camera: THREE.PerspectiveCamera;
   readonly hud: Hud;
   readonly quality: QualityLevel;
+  readonly mapDef: MapDefinition;
 
   map: LoadedMap | null = null;
   player: PlayerController | null = null;
@@ -37,8 +39,9 @@ export class Game {
   private fpsTime = 0;
   private fps = 0;
 
-  constructor(container: HTMLElement, quality: QualityLevel) {
+  constructor(container: HTMLElement, quality: QualityLevel, mapDef: MapDefinition) {
     this.quality = quality;
+    this.mapDef = mapDef;
     const preset = QUALITY_PRESETS[quality];
 
     this.renderer = new THREE.WebGLRenderer({ antialias: preset.antialias, powerPreference: 'high-performance' });
@@ -59,7 +62,7 @@ export class Game {
       CAMERA_CONFIG.fov,
       window.innerWidth / window.innerHeight,
       CAMERA_CONFIG.near,
-      CAMERA_CONFIG.far,
+      mapDef.environment.viewDistance,
     );
     this.camera.rotation.order = 'YXZ';
     this.viewModel = new ViewModelLayer(window.innerWidth / window.innerHeight);
@@ -69,7 +72,7 @@ export class Game {
     // Overcast late-afternoon look: soft sky fill + one warm key light.
     const skyColor = new THREE.Color(0x9fb0bf);
     this.scene.background = skyColor;
-    this.scene.fog = new THREE.Fog(skyColor, 60, 180);
+    this.scene.fog = new THREE.Fog(skyColor, mapDef.environment.fogNear, mapDef.environment.fogFar);
     this.scene.add(new THREE.HemisphereLight(0xc9d4de, 0x4a4238, 1.35));
     this.sun = new THREE.DirectionalLight(0xfff1dc, 2.4);
     this.sun.position.set(28, 45, 18);
@@ -80,6 +83,12 @@ export class Game {
     this.scene.add(this.sun, this.sun.target);
 
     this.hud = new Hud(document.body);
+    this.hud.setMapOptions(MAPS, mapDef.id, (id) => {
+      // A clean page load per map keeps GPU memory and state simple.
+      const url = new URL(location.href);
+      url.searchParams.set('map', id);
+      location.href = url.toString();
+    });
     this.input = new KeyboardMouseInput(this.renderer.domElement, (locked) => this.onLockChange(locked));
     this.hud.onStart(() => this.input.requestLock());
     this.renderer.domElement.addEventListener('click', () => {
@@ -103,14 +112,14 @@ export class Game {
   async start(): Promise<void> {
     this.hud.setLoading('맵 불러오는 중… 0%');
     try {
-      this.map = await loadMap(MAP_CONFIG.url, (r) => this.hud.setLoading(`맵 불러오는 중… ${Math.round(r * 100)}%`));
+      this.map = await loadMap(this.mapDef, (r) => this.hud.setLoading(`맵 불러오는 중… ${Math.round(r * 100)}%`));
     } catch (err) {
       console.error(err);
-      this.hud.setError(`맵을 불러오지 못했습니다: ${MAP_CONFIG.url}`);
+      this.hud.setError(`맵을 불러오지 못했습니다: ${this.mapDef.url}`);
       return;
     }
     this.scene.add(this.map.root);
-    this.fitShadowToMap(this.map.bounds);
+    this.fitShadowToMap(this.map.playBounds);
 
     this.player = new PlayerController(this.map.collision);
     this.hitscan = new HitscanSystem(this.map.collision);
@@ -146,7 +155,7 @@ export class Game {
     if (!this.map || !this.player) return;
     const spawns = this.map.attackSpawns.length ? this.map.attackSpawns : this.map.defenseSpawns;
     const spawn = spawns[Math.floor(spawns.length / 2)];
-    const pos = spawn ? spawn.position.clone() : this.map.bounds.getCenter(new THREE.Vector3());
+    const pos = spawn ? spawn.position.clone() : this.map.playBounds.getCenter(new THREE.Vector3());
     // Spawn empties sit slightly above the floor; drop onto it from a little higher.
     pos.y += 0.1;
     this.player.teleport(pos, spawn?.yaw ?? 0);
@@ -180,7 +189,7 @@ export class Game {
         this.accumulator -= tick;
       }
       if (ticks > 0) this.input.clearLatches();
-      if (player.position.y < MAP_CONFIG.killPlaneY) this.respawn();
+      if (player.position.y < this.mapDef.killPlaneY) this.respawn();
     }
 
     // Interpolate between the last two ticks for smooth motion at any refresh rate.
@@ -241,14 +250,16 @@ export class Game {
     const half = Math.max(size.x, size.z) * 0.6;
     const dir = this.sun.position.clone().normalize();
     this.sun.target.position.copy(center);
-    this.sun.position.copy(center).addScaledVector(dir, 80);
+    // Far enough back that tall buildings sit inside the shadow camera.
+    const back = Math.max(size.y, 40) + 60;
+    this.sun.position.copy(center).addScaledVector(dir, back);
     const cam = this.sun.shadow.camera;
     cam.left = -half;
     cam.right = half;
     cam.top = half;
     cam.bottom = -half;
     cam.near = 1;
-    cam.far = 200;
+    cam.far = back * 2 + half;
     cam.updateProjectionMatrix();
     this.sun.target.updateMatrixWorld();
   }

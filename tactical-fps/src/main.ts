@@ -1,5 +1,6 @@
 import { Game } from './core/Game';
 import type { QualityLevel } from './config';
+import { findMap } from './maps';
 
 // Quality can be forced with ?quality=low|medium|high; defaults to a
 // conservative guess so low-end devices start playable.
@@ -10,7 +11,7 @@ function pickQuality(): QualityLevel {
   return lowEnd ? 'low' : 'medium';
 }
 
-const game = new Game(document.getElementById('app')!, pickQuality());
+const game = new Game(document.getElementById('app')!, pickQuality(), findMap(new URLSearchParams(location.search).get('map')));
 void game.start();
 
 if (import.meta.env.DEV) {

@@ -46,6 +46,10 @@ export class Hud {
       <div class="overlay">
         <div class="panel">
           <h1>TACTICAL FPS <span>PROTOTYPE</span></h1>
+          <label class="map-select">
+            <span>맵</span>
+            <select></select>
+          </label>
           <p class="status">맵 불러오는 중…</p>
           <button type="button" disabled>클릭하여 시작</button>
           <dl class="controls">
@@ -75,6 +79,19 @@ export class Hud {
     this.ammoReserve = this.root.querySelector('.ammo-reserve')!;
     this.weaponStatus = this.root.querySelector('.weapon-status')!;
     this.reloadBar = this.root.querySelector('.reload-bar')!;
+  }
+
+  setMapOptions(maps: readonly { id: string; name: string }[], currentId: string, onChange: (id: string) => void): void {
+    const select = this.root.querySelector<HTMLSelectElement>('.map-select select')!;
+    select.innerHTML = '';
+    for (const m of maps) {
+      const opt = document.createElement('option');
+      opt.value = m.id;
+      opt.textContent = m.name;
+      opt.selected = m.id === currentId;
+      select.appendChild(opt);
+    }
+    select.addEventListener('change', () => onChange(select.value));
   }
 
   onStart(handler: () => void): void {

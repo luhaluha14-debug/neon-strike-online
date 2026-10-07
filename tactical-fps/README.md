@@ -15,6 +15,7 @@ npm run preview    # 빌드 결과 확인
 ```
 
 화면의 **클릭하여 시작** 버튼을 누르면 마우스가 잠기고 바로 플레이할 수 있습니다.
+시작 화면에서 **맵**을 고를 수 있습니다 (`?map=seoul` / `?map=warehouse` 로도 지정).
 화질은 자동으로 고르며 `?quality=low|medium|high` 로 강제할 수 있습니다.
 
 | 키 | 동작 |
@@ -37,10 +38,12 @@ npm run preview    # 빌드 결과 확인
 ```
 tactical-fps/
 ├─ index.html
-├─ public/maps/Untitled.glb     Blender에서 만든 맵 (원본 그대로)
+├─ public/maps/seoul.glb        MAP 02 · 서울 (기본 맵)
+├─ public/maps/Untitled.glb     MAP 01 · 창고 지구
 └─ src/
    ├─ main.ts                   진입점, 화질 자동 선택
-   ├─ config.ts                 맵 경로·노드 분류 규칙, 이동/카메라/화질 수치
+   ├─ maps.ts                   ★ 맵 목록: 파일 경로, 노드 분류 규칙, 안개/시야 거리
+   ├─ config.ts                 이동/카메라/화질 수치
    ├─ core/Game.ts              렌더러, 조명, 고정 틱 게임 루프(120Hz) + 보간
    ├─ world/MapLoader.ts        GLB 로드, 노드 분류, 머티리얼별 정적 배칭, 스폰 포인트 추출
    ├─ world/CollisionWorld.ts   맵 삼각형 BVH, 캡슐 충돌 해소, 레이캐스트
@@ -73,21 +76,25 @@ tactical-fps/
 
 ## 맵 규칙 (Blender 노드 이름)
 
-맵은 노드 이름 접두어로 분류됩니다. 규칙은 `src/config.ts` 의 `MAP_CONFIG` 에 있습니다.
+맵은 노드 이름 접두어로 분류되며, 규칙은 맵마다 `src/maps.ts` 에 있습니다.
 
-- `ATK_SpawnPoint_*`, `DEF_SpawnPoint_*` (Empty): 공격/수비 스폰 위치. 현재는 공격 스폰 가운데에서 시작합니다.
-- `Tpl_*`, `Cube`: 원점에 놓인 템플릿/기본 큐브 → 숨김, 충돌 없음.
-- `Zone_*`: 스폰·폭탄 설치 구역 표시 → 기본 숨김(F3로 표시), 충돌 없음.
-- `Ground_Pebble_*`, `Ground_Dirt_*`, `Deco_Cables_*`, `Sign_Letter_*` 등: 보이지만 충돌 없음 (작은 돌기에 걸리지 않도록).
-- 나머지 메시(`Floor_`, `Wall_`, `Bldg_`, `Cover_`, `Ramp_`, `Platform_`, `Prop_` …): 렌더링 + 충돌.
+| 분류 | 서울 | 창고 지구 | 동작 |
+| --- | --- | --- | --- |
+| 스폰 (Empty) | `ATK_SpawnPoint_*`, `DEF_SpawnPoint_*` | 같음 | 공격 스폰 가운데에서 시작 |
+| 숨김 | `TPL_*`, `Cube` | `Tpl_*`, `Cube` | 원점에 놓인 템플릿 → 표시·충돌 없음 |
+| 플레이어 차단벽 | `Boundary_*` | – | 보이지 않음, 이동만 막고 **총알은 통과** |
+| 충돌 없음 | 원경(`Backdrop_`, `Skyline_`, `Mountain_`, `Far_`, `Han_River_` …), 바닥 도색 | 자갈·케이블·간판 등 | 보이지만 통과 |
+| 구역 표시 | `Zone_*` | `Zone_*` | 기본 숨김, F3로 표시 |
+| 나머지 | | | 렌더링 + 충돌 + 총알 차단 |
 
-맵 파일을 교체할 때는 `public/maps/` 에 넣고 `MAP_CONFIG.url` 만 바꾸면 됩니다.
+**새 맵 추가**: GLB를 `public/maps/` 에 넣고 `src/maps.ts` 의 `MAPS` 에 항목 하나를 추가하면 시작 화면 선택 목록에 나타납니다.
+Blender 파일에 장면이 여러 개면 **활성 장면**(내보낼 때 선택된 장면)이 로드됩니다.
 
 ## 성능 설계
 
-- 586개 메시를 머티리얼별로 병합해 **약 90 드로우콜**로 렌더링
-- 정적 맵이므로 그림자 맵은 로드 시 **한 번만** 렌더링
-- 충돌은 약 10만 삼각형을 하나의 BVH(three-mesh-bvh)로 처리
+- 메시를 머티리얼별로 병합: 서울 1160개 → 136 드로우콜, 창고 지구 586개 → 88 드로우콜
+- 정적 맵이므로 그림자 맵은 로드 시 **한 번만** 렌더링 (플레이 구역에만 맞춰 해상도 확보)
+- 충돌은 BVH(three-mesh-bvh)로 처리 (서울 약 15만, 창고 지구 약 10만 삼각형). 원경은 충돌에서 제외
 - 저사양(`low`): 픽셀 비율 1, 그림자·안티앨리어싱 끔
 - HUD는 값이 바뀔 때만 DOM을 갱신
 

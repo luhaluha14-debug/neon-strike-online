@@ -155,7 +155,7 @@ export class PlayerController {
     const cfg = PLAYER_CONFIG;
     // Cast from the center of the bottom sphere; the sphere surface is `radius` below it.
     const origin = new THREE.Vector3(this.position.x, this.position.y + cfg.radius, this.position.z);
-    const dist = this.world.raycast(origin, _down, cfg.radius + cfg.groundSnapDistance, _normal);
+    const dist = this.world.raycast(origin, _down, cfg.radius + cfg.groundSnapDistance, _normal, true);
     if (dist === null) return;
     if (Math.abs(_normal.y) < cfg.walkableNormalY) return;
     this.position.y -= Math.max(dist - cfg.radius, 0);

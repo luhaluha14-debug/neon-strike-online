@@ -286,3 +286,26 @@ body {
 .hud.reloading .ammo-mag {
   color: var(--hud-dim);
 }
+
+/* Map selector on the start screen */
+.map-select {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 10px;
+  font-size: 12px;
+  color: var(--hud-dim);
+}
+.map-select select {
+  flex: 1;
+  padding: 7px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--hud-fg);
+  font: 500 13px var(--hud-font);
+  cursor: pointer;
+}
+.map-select select option {
+  background: #1b1c1f;
+}
