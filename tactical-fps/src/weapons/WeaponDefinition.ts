@@ -1,7 +1,10 @@
-// Data-only description of a firearm. Every gun in the game is one of these;
-// the runtime classes never hard-code per-weapon numbers.
+// Data-only description of a weapon (guns and melee). Every weapon in the
+// game is one of these; the runtime classes never hard-code per-weapon numbers.
 
 export type FireMode = 'auto' | 'semi';
+
+/** Drives view animation style and HUD; behavior itself comes from the numbers below. */
+export type WeaponCategory = 'rifle' | 'sniper' | 'melee';
 
 export interface RecoilProfile {
   /** Upward camera kick of the first shot (radians). */
@@ -50,22 +53,41 @@ export interface DamageProfile {
   maxRange: number;
 }
 
+/**
+ * Where the first-person model sits in camera space (meters / radians).
+ * Tune these per weapon without touching any weapon logic.
+ */
+export interface ViewmodelPose {
+  position: readonly [number, number, number];
+  rotation: readonly [number, number, number];
+  scale: number;
+}
+
+/** Built-in placeholder models. */
+export type ProceduralModelId = 'ar01' | 'sr01' | 'karambit';
+
 /** How the weapon looks in first person. A Blender model can replace the procedural one later. */
-export type WeaponViewSpec =
-  | { kind: 'procedural'; style: 'rifle' }
-  | { kind: 'gltf'; url: string; scale?: number };
+export type WeaponViewSpec = (
+  | { kind: 'procedural'; model: ProceduralModelId }
+  | { kind: 'gltf'; url: string; fallback: ProceduralModelId }
+) & { pose: ViewmodelPose };
 
 export interface WeaponDefinition {
   id: string;
   displayName: string;
+  category: WeaponCategory;
   fireMode: FireMode;
   /** Rounds per minute. */
   fireRate: number;
+  /** 0 = no ammo at all (melee): attacks are only limited by `fireRate`. */
   magazineSize: number;
   /** Reserve ammo the weapon spawns with. */
   reserveAmmo: number;
+  /** Seconds after switching to this weapon before it can attack. */
+  equipTime: number;
   /** Seconds from pressing reload until the magazine is refilled. */
   reloadTime: number;
+  /** Melee uses the same profile with a short `maxRange` (its reach). */
   damage: DamageProfile;
   spread: SpreadProfile;
   recoil: RecoilProfile;

@@ -17,10 +17,18 @@ export interface InputState {
   fire: boolean;
   /** Reload key held (weapon code reacts to the press edge). */
   reload: boolean;
+  /** Weapon slot requested this frame (0-based), -1 = none. */
+  equipSlot: number;
+  /** Swap to the previously held weapon. */
+  equipLast: boolean;
+  /** Scroll through the loadout: -1 / +1, 0 = none. */
+  equipCycle: number;
+  /** Inspect key held. */
+  inspect: boolean;
 }
 
 export function createInputState(): InputState {
-  return { moveX: 0, moveY: 0, lookYaw: 0, lookPitch: 0, jump: false, crouch: false, walk: false, fire: false, reload: false };
+  return { moveX: 0, moveY: 0, lookYaw: 0, lookPitch: 0, jump: false, crouch: false, walk: false, fire: false, reload: false, equipSlot: -1, equipLast: false, equipCycle: 0, inspect: false };
 }
 
 export interface InputSource {

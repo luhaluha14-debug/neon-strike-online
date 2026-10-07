@@ -147,6 +147,19 @@ export async function loadMap(def: MapDefinition, onProgress?: (ratio: number) =
   };
 }
 
+/** Frees GPU resources of a loaded map (used when switching maps). */
+export function disposeMap(map: LoadedMap): void {
+  const materials = new Set<THREE.Material>();
+  map.root.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    mesh.geometry.dispose();
+    (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).forEach((m) => materials.add(m));
+  });
+  materials.forEach((m) => m.dispose());
+  map.root.removeFromParent();
+}
+
 /** Non-indexed position-only copy for collision BVHs. */
 function positionsOnly(g: THREE.BufferGeometry): THREE.BufferGeometry {
   const out = new THREE.BufferGeometry();

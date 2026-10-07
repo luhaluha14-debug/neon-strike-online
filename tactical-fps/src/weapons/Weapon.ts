@@ -1,10 +1,14 @@
 import type { WeaponDefinition } from './WeaponDefinition';
 
-export type WeaponStatus = 'ready' | 'reloading';
+export type WeaponStatus = 'ready' | 'reloading' | 'equipping';
 
 /**
- * Ammo, fire-rate and reload state for one gun. Pure logic (no rendering, no
- * DOM) so it can run unchanged on a server later.
+ * Ammo, fire-rate, reload and equip state for one weapon. Pure logic (no
+ * rendering, no DOM, no input devices) so it runs the same for the local
+ * player, future AI bots and a future server.
+ *
+ * Melee weapons are weapons with `magazineSize: 0`: they never use ammo and
+ * attack as often as `fireRate` allows.
  */
 export class Weapon {
   readonly def: WeaponDefinition;
@@ -13,6 +17,10 @@ export class Weapon {
   status: WeaponStatus = 'ready';
   /** Seconds left on the current reload. */
   reloadRemaining = 0;
+  /** Seconds left before a freshly equipped weapon can attack. */
+  equipRemaining = 0;
+  /** Seconds since the last shot/attack (drives bolt cycling, slashes). */
+  timeSinceShot = Infinity;
 
   /** Time until the next round may fire; may go negative inside a tick to keep the exact RPM. */
   private cooldown = 0;
@@ -24,6 +32,10 @@ export class Weapon {
     this.reserve = def.reserveAmmo;
   }
 
+  get usesAmmo(): boolean {
+    return this.def.magazineSize > 0;
+  }
+
   get fireInterval(): number {
     return 60 / this.def.fireRate;
   }
@@ -32,8 +44,13 @@ export class Weapon {
     return this.status === 'reloading' ? 1 - this.reloadRemaining / this.def.reloadTime : 0;
   }
 
+  /** 0 → 1 while being drawn, 1 once ready. */
+  get equipProgress(): number {
+    return this.def.equipTime > 0 ? 1 - Math.max(this.equipRemaining, 0) / this.def.equipTime : 1;
+  }
+
   get canReload(): boolean {
-    return this.status === 'ready' && this.magazine < this.def.magazineSize && this.reserve > 0;
+    return this.usesAmmo && this.status === 'ready' && this.magazine < this.def.magazineSize && this.reserve > 0;
   }
 
   /** Starts a reload if one is possible. Returns true when it started. */
@@ -44,6 +61,15 @@ export class Weapon {
     return true;
   }
 
+  /** Called when this weapon becomes the active one. An unfinished reload is cancelled (ammo unchanged). */
+  equip(): void {
+    this.status = 'equipping';
+    this.reloadRemaining = 0;
+    this.equipRemaining = this.def.equipTime;
+    this.timeSinceShot = Infinity;
+    this.triggerWasHeld = true; // a trigger held through the switch must be released first
+  }
+
   /**
    * Advances timers by `dt` and returns how many rounds fire during this step
    * (0 or more; >1 only if `dt` is longer than the fire interval).
@@ -52,8 +78,15 @@ export class Weapon {
     let reloadFinished = false;
     let dryFire = false;
     let shots = 0;
+    this.timeSinceShot += dt;
 
-    if (this.status === 'reloading') {
+    if (this.status === 'equipping') {
+      this.equipRemaining -= dt;
+      if (this.equipRemaining <= 0) {
+        this.equipRemaining = 0;
+        this.status = 'ready';
+      }
+    } else if (this.status === 'reloading') {
       this.reloadRemaining -= dt;
       if (this.reloadRemaining <= 0) {
         this.finishReload();
@@ -66,13 +99,14 @@ export class Weapon {
     const wantsFire = this.def.fireMode === 'auto' ? triggerHeld : pressedThisStep;
 
     if (wantsFire && this.status === 'ready') {
-      if (this.magazine <= 0) {
+      if (this.usesAmmo && this.magazine <= 0) {
         if (pressedThisStep) dryFire = true;
       } else {
-        while (this.cooldown <= 0 && this.magazine > 0) {
-          this.magazine--;
+        while (this.cooldown <= 0 && (!this.usesAmmo || this.magazine > 0)) {
+          if (this.usesAmmo) this.magazine--;
           shots++;
           this.cooldown += this.fireInterval;
+          this.timeSinceShot = 0;
           if (this.def.fireMode === 'semi') break;
         }
       }
@@ -99,6 +133,8 @@ export class Weapon {
     this.reserve = this.def.reserveAmmo;
     this.status = 'ready';
     this.reloadRemaining = 0;
+    this.equipRemaining = 0;
     this.cooldown = 0;
+    this.timeSinceShot = Infinity;
   }
 }

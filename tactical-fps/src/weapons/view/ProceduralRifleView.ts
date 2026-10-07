@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { PISTOL_GRIP } from './HandGrip';
 import type { WeaponView } from './WeaponView';
 
 /**
@@ -10,6 +11,9 @@ export class ProceduralRifleView implements WeaponView {
   readonly object = new THREE.Group();
   readonly muzzle = new THREE.Object3D();
   readonly magazine = new THREE.Group();
+  readonly gripAnchor = new THREE.Object3D();
+  readonly supportAnchor = new THREE.Object3D();
+  readonly rightHand = PISTOL_GRIP;
   private readonly geometries: THREE.BufferGeometry[] = [];
   private readonly materials: THREE.Material[] = [];
 
@@ -48,6 +52,13 @@ export class ProceduralRifleView implements WeaponView {
     // Pistol grip (angled back) and trigger guard.
     const grip = this.box(0.036, 0.1, 0.045, furniture, 0, -0.065, 0.075);
     grip.rotation.x = 0.32;
+    this.gripAnchor.position.copy(grip.position);
+    this.gripAnchor.rotation.x = 0.32;
+    // Hand sits a little low on the grip so the trigger finger clears the receiver.
+    this.gripAnchor.translateY(-0.016);
+    // Off hand under the handguard, a little toward the muzzle.
+    this.supportAnchor.position.set(0, 0.0, -0.34);
+    this.object.add(this.gripAnchor, this.supportAnchor);
     this.box(0.012, 0.008, 0.06, metal, 0, -0.038, 0.025);
 
     // Magazine (slightly curved: two angled blocks) — its own group for reload animation.

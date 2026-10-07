@@ -40,7 +40,8 @@ export const MAPS: readonly MapDefinition[] = [
     id: 'seoul',
     name: 'MAP 02 · 서울',
     url: '/maps/seoul.glb',
-    hiddenPrefixes: ['TPL_', 'Cube'],
+    // TPL_/CG_TPL are instancing sources parked at the origin (on the bridge).
+    hiddenPrefixes: ['TPL_', 'CG_TPL', 'Cube'],
     nonCollidingPrefixes: [
       // Distant scenery outside the boundary walls.
       'Backdrop_',
@@ -49,7 +50,9 @@ export const MAPS: readonly MapDefinition[] = [
       'Skyline_',
       'Mountain_',
       'Namsan_Backdrop',
-      'Han_River_',
+      // Soft vegetation along the stream: visible, but walk/shoot through it.
+      'Cheonggye_Reeds',
+      'Tree_Weeping',
       // Flat paint / decals.
       'Road_Markings',
       'BombSite_A_Ground_',
