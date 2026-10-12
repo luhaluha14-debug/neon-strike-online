@@ -7,7 +7,9 @@ import { KeyboardMouseInput } from '../input/KeyboardMouseInput';
 import { PlayerController } from '../player/PlayerController';
 import { Hud } from '../ui/Hud';
 import { createWeaponView, loadWeaponView } from '../weapons/view/WeaponView';
-import type { WeaponViewSpec } from '../weapons/WeaponDefinition';
+import type { MenuWeapon } from '../ui/MainMenu';
+import { renderWeaponThumbnails } from '../ui/weaponThumbnails';
+import type { WeaponDefinition, WeaponViewSpec } from '../weapons/WeaponDefinition';
 import { ViewModelLayer } from '../weapons/view/ViewModelLayer';
 import type { Weapon } from '../weapons/Weapon';
 import { DEFAULT_LOADOUT } from '../weapons/weapons';
@@ -110,6 +112,20 @@ export class Game {
       location.reload();
     });
     this.loop.setLimit(settings.frameLimit);
+    // Weapons page: picking a card equips that loadout slot through the normal weapon system.
+    this.hud.setWeaponOptions(DEFAULT_LOADOUT.map(menuWeapon), (slot) => this.weapons?.equipSlot(slot));
+    this.hud.setWeaponOptionsEnabled(false);
+    // Same action as F3.
+    this.hud.menu.bindToggle('stats', false, (on) => this.setStatsShown(on));
+    // Weapon card images: rendered once, the first time the Weapons page is opened,
+    // so the work happens in the menu on demand and never during play.
+    this.hud.menu.onPageShown((page) => {
+      if (page !== 'loadout' || this.thumbnailsDone) return;
+      this.thumbnailsDone = true;
+      void renderWeaponThumbnails(this.renderer, this.viewModel.scene.environment, DEFAULT_LOADOUT, (id, url) =>
+        this.hud.menu.setWeaponThumbnail(id, url),
+      ).catch((err) => console.warn('[menu] weapon thumbnails unavailable', err));
+    });
     this.input = new KeyboardMouseInput(this.renderer.domElement, (locked) => this.onLockChange(locked));
     this.hud.onStart(() => this.input.requestLock());
     this.renderer.domElement.addEventListener('click', () => {
@@ -120,9 +136,7 @@ export class Game {
     window.addEventListener('keydown', (e) => {
       if (e.code === 'F3') {
         e.preventDefault();
-        const show = !this.hud.statsVisible;
-        this.hud.setStatsVisible(show);
-        if (this.map) this.map.zoneMarkers.visible = show;
+        this.setStatsShown(!this.hud.statsVisible);
       } else if (e.code === 'F4' && this.input.active) {
         e.preventDefault();
         this.respawn();
@@ -159,13 +173,25 @@ export class Game {
     this.loop.setLimit(limit);
   }
 
+  /** Performance overlay + gameplay zone markers (F3 or the settings toggle). */
+  setStatsShown(show: boolean): void {
+    this.hud.setStatsVisible(show);
+    if (this.map) this.map.zoneMarkers.visible = show;
+  }
+
   private async loadMapInto(def: MapDefinition): Promise<boolean> {
     this.loadingMap = true;
     this.hud.setMapSelectEnabled(false);
-    this.hud.setLoading('맵 불러오는 중… 0%');
+    this.hud.setWeaponOptionsEnabled(false);
+    // Real download progress when the server reports a size; otherwise an indeterminate bar.
+    this.hud.setLoading('다운로드 중', def.name, null);
     let map: LoadedMap;
     try {
-      map = await loadMap(def, (r) => this.hud.setLoading(`맵 불러오는 중… ${Math.round(r * 100)}%`));
+      map = await loadMap(
+        def,
+        (r) => this.hud.setLoading('다운로드 중', def.name, r),
+        () => this.hud.setLoading('맵 데이터 준비 중 (충돌 · 조명)', def.name, null),
+      );
     } catch (err) {
       console.error(err);
       this.hud.setError(`맵을 불러오지 못했습니다: ${def.url}`);
@@ -213,7 +239,9 @@ export class Game {
     );
     this.loadingMap = false;
     this.hud.setMapSelectEnabled(true);
-    this.hud.setReady();
+    this.hud.setWeaponOptionsEnabled(true);
+    this.hud.setReady(this.hasStarted ? '일시정지됨' : '준비 완료');
+
     this.hud.setHealth(this.player.health);
     this.updateWeaponHud();
     return true;
@@ -394,10 +422,17 @@ export class Game {
     this.hud.setPaused(!locked);
     if (locked) {
       this.accumulator = 0;
+      if (!this.hasStarted) {
+        this.hasStarted = true;
+        this.hud.setResumeMode(true);
+      }
     } else if (this.player) {
       this.hud.setReady('일시정지됨');
     }
   }
+
+  private hasStarted = false;
+  private thumbnailsDone = false;
 
   private onResize = (): void => {
     this.camera.aspect = window.innerWidth / window.innerHeight;
@@ -405,4 +440,20 @@ export class Game {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.viewModel.setAspect(this.camera.aspect);
   };
+}
+
+/** Weapon card data straight from the weapon definition (no invented stats). */
+function menuWeapon(def: WeaponDefinition, slot: number): MenuWeapon {
+  const stats =
+    def.magazineSize > 0
+      ? [
+          { label: '탄약', value: `${def.magazineSize} / ${def.reserveAmmo}` },
+          { label: '연사', value: `${def.fireRate} RPM` },
+          { label: '피해', value: String(def.damage.base) },
+        ]
+      : [
+          { label: '사거리', value: `${def.damage.maxRange} m` },
+          { label: '피해', value: String(def.damage.base) },
+        ];
+  return { slot, id: def.id, name: def.displayName, category: def.category, stats };
 }

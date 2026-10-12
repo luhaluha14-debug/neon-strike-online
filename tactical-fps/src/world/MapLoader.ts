@@ -42,10 +42,23 @@ function attributeSignature(g: THREE.BufferGeometry): string {
   return Object.keys(g.attributes).sort().join(',') + (g.index ? '|i' : '|n');
 }
 
-export async function loadMap(def: MapDefinition, onProgress?: (ratio: number) => void): Promise<LoadedMap> {
+/**
+ * @param onProgress download progress 0..1 (only when the server sends a size)
+ * @param onBuild called once the file is downloaded, before the synchronous
+ *   batching / collision build; one frame is yielded so a loading UI can paint.
+ */
+export async function loadMap(
+  def: MapDefinition,
+  onProgress?: (ratio: number) => void,
+  onBuild?: () => void,
+): Promise<LoadedMap> {
   const gltf = await new GLTFLoader().loadAsync(def.url, (e) => {
     if (onProgress && e.total > 0) onProgress(e.loaded / e.total);
   });
+  if (onBuild) {
+    onBuild();
+    await yieldToPaint();
+  }
   const scene = gltf.scene;
   scene.updateMatrixWorld(true);
 
@@ -145,6 +158,15 @@ export async function loadMap(def: MapDefinition, onProgress?: (ratio: number) =
     defenseSpawns,
     stats: { sourceMeshes, drawCalls: root.children.length - 1, triangles, colliderTriangles: collision.triangleCount },
   };
+}
+
+/** Lets the browser paint once (rAF + task), with a timeout so hidden tabs don't stall. */
+function yieldToPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    const done = () => resolve();
+    requestAnimationFrame(() => setTimeout(done, 0));
+    setTimeout(done, 50);
+  });
 }
 
 /** Frees GPU resources of a loaded map (used when switching maps). */

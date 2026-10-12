@@ -1,18 +1,19 @@
 import { PLAYER_CONFIG } from '../config';
+import { MainMenu, type MenuMap, type MenuOption, type MenuWeapon } from './MainMenu';
+import './theme.css';
 import './hud.css';
 
 /**
  * Minimal DOM HUD. Values are only written to the DOM when they change so the
- * HUD costs nothing per frame.
+ * HUD costs nothing per frame. The start/pause menu and loading screen live
+ * in MainMenu; the methods below keep the game's existing calls working.
  */
 export class Hud {
   readonly root: HTMLDivElement;
+  readonly menu: MainMenu;
   private readonly healthValue: HTMLSpanElement;
   private readonly healthBar: HTMLDivElement;
   private readonly stats: HTMLDivElement;
-  private readonly overlay: HTMLDivElement;
-  private readonly overlayStatus: HTMLParagraphElement;
-  private readonly overlayButton: HTMLButtonElement;
   private readonly weaponName: HTMLDivElement;
   private readonly ammoMag: HTMLSpanElement;
   private readonly ammoReserve: HTMLSpanElement;
@@ -43,48 +44,13 @@ export class Hud {
         <div class="weapon-status"></div>
         <div class="reload-track"><div class="reload-bar"></div></div>
       </div>
-      <div class="stats"></div>
-      <div class="overlay">
-        <div class="panel">
-          <h1>TACTICAL FPS <span>PROTOTYPE</span></h1>
-          <label class="map-select map-choice">
-            <span>맵</span>
-            <select></select>
-          </label>
-          <label class="map-select fps-select">
-            <span>프레임 제한</span>
-            <select></select>
-          </label>
-          <label class="map-select quality-select">
-            <span>화질</span>
-            <select></select>
-          </label>
-          <p class="status">맵 불러오는 중…</p>
-          <button type="button" disabled>클릭하여 시작</button>
-          <dl class="controls">
-            <dt>W A S D</dt><dd>이동</dd>
-            <dt>마우스</dt><dd>시점</dd>
-            <dt>Space</dt><dd>점프</dd>
-            <dt>Shift</dt><dd>걷기 (조용히)</dd>
-            <dt>C / Ctrl</dt><dd>앉기</dd>
-            <dt>좌클릭</dt><dd>사격 / 베기</dd>
-            <dt>R</dt><dd>재장전</dd>
-            <dt>1 / 2 / 3</dt><dd>무기 선택 (휠 · Q: 이전 무기)</dd>
-            <dt>F</dt><dd>무기 살펴보기</dd>
-            <dt>F4</dt><dd>스폰으로 복귀</dd>
-            <dt>F3</dt><dd>성능 정보</dd>
-            <dt>Esc</dt><dd>일시정지</dd>
-          </dl>
-        </div>
-      </div>`;
+      <div class="stats"></div>`;
     parent.appendChild(this.root);
 
     this.healthValue = this.root.querySelector('.health-value')!;
     this.healthBar = this.root.querySelector('.health-bar')!;
     this.stats = this.root.querySelector('.stats')!;
-    this.overlay = this.root.querySelector('.overlay')!;
-    this.overlayStatus = this.root.querySelector('.status')!;
-    this.overlayButton = this.root.querySelector('button')!;
+    this.menu = new MainMenu(this.root);
     this.weaponName = this.root.querySelector('.weapon-name')!;
     this.ammoMag = this.root.querySelector('.ammo-mag')!;
     this.ammoReserve = this.root.querySelector('.ammo-reserve')!;
@@ -92,69 +58,57 @@ export class Hud {
     this.reloadBar = this.root.querySelector('.reload-bar')!;
   }
 
-  setMapOptions(maps: readonly { id: string; name: string }[], currentId: string, onChange: (id: string) => void): void {
-    const select = this.mapSelect;
-    fillSelect(select, maps.map((m) => ({ value: m.id, label: m.name })), currentId);
-    select.addEventListener('change', () => onChange(select.value));
+  setMapOptions(maps: readonly MenuMap[], currentId: string, onChange: (id: string) => void): void {
+    this.menu.setMaps(maps, currentId, onChange);
   }
 
   setMapSelectEnabled(enabled: boolean): void {
-    this.mapSelect.disabled = !enabled;
+    this.menu.setMapsEnabled(enabled);
   }
 
-  setFrameLimitOptions<T extends string | number>(
-    options: readonly { value: T; label: string }[],
-    current: T,
-    onChange: (value: T) => void,
-  ): void {
-    this.bindSelect('.fps-select select', options, current, onChange);
+  setFrameLimitOptions<T extends string | number>(options: readonly MenuOption<T>[], current: T, onChange: (value: T) => void): void {
+    this.menu.bindSelect('frame-limit', options, current, onChange);
   }
 
-  setQualityOptions<T extends string>(options: readonly { value: T; label: string }[], current: T, onChange: (value: T) => void): void {
-    this.bindSelect('.quality-select select', options, current, onChange);
+  setQualityOptions<T extends string>(options: readonly MenuOption<T>[], current: T, onChange: (value: T) => void): void {
+    this.menu.bindSelect('quality', options, current, onChange);
   }
 
-  private bindSelect<T extends string | number>(
-    selector: string,
-    options: readonly { value: T; label: string }[],
-    current: T,
-    onChange: (value: T) => void,
-  ): void {
-    const select = this.root.querySelector<HTMLSelectElement>(selector)!;
-    fillSelect(select, options.map((o) => ({ value: String(o.value), label: o.label })), String(current));
-    select.addEventListener('change', () => {
-      const picked = options.find((o) => String(o.value) === select.value);
-      if (picked) onChange(picked.value);
-    });
+  /** Weapon cards on the menu's Weapons page; selecting one equips that loadout slot. */
+  setWeaponOptions(weapons: readonly MenuWeapon[], onSelect: (slot: number) => void): void {
+    this.menu.setWeapons(weapons, onSelect);
   }
 
-  private get mapSelect(): HTMLSelectElement {
-    return this.root.querySelector<HTMLSelectElement>('.map-choice select')!;
+  setWeaponOptionsEnabled(enabled: boolean): void {
+    this.menu.setWeaponsEnabled(enabled);
   }
 
   onStart(handler: () => void): void {
-    this.overlayButton.addEventListener('click', handler);
+    this.menu.onPlay(handler);
   }
 
-  setLoading(text: string): void {
-    this.overlayStatus.textContent = text;
-    this.overlayButton.disabled = true;
+  /** Loading screen with real progress (0..1) or an indeterminate bar (null). */
+  setLoading(text: string, mapName = '', progress: number | null = null): void {
+    this.menu.showLoading(mapName, progress, text);
   }
 
   setReady(text = '준비 완료'): void {
-    this.overlayStatus.textContent = text;
-    this.overlayButton.disabled = false;
+    this.menu.setReady(text);
   }
 
   setError(text: string): void {
-    this.overlayStatus.textContent = text;
-    this.overlayStatus.classList.add('error');
-    this.overlayButton.disabled = true;
+    this.menu.setError(text);
   }
 
+  /** `paused` = menu showing (before the first start, or after Esc). */
   setPaused(paused: boolean): void {
-    this.overlay.classList.toggle('hidden', !paused);
+    this.menu.setVisible(paused);
     this.root.classList.toggle('playing', !paused);
+  }
+
+  /** After the first start the menu's primary button reads "계속하기". */
+  setResumeMode(resume: boolean): void {
+    this.menu.setPausedMode(resume);
   }
 
   setHealth(value: number): void {
@@ -168,6 +122,7 @@ export class Hud {
 
   /** Slot strip above the ammo counter: "1 AR-01  2 SR-01  3 KARAMBIT". */
   setLoadout(names: readonly string[], active: number): void {
+    this.menu.setSelectedWeapon(active);
     const strip = this.root.querySelector<HTMLDivElement>('.loadout')!;
     strip.replaceChildren(
       ...names.map((n, i) => {
@@ -222,6 +177,7 @@ export class Hud {
 
   setStatsVisible(visible: boolean): void {
     this.stats.classList.toggle('visible', visible);
+    this.menu.setToggle('stats', visible);
   }
 
   get statsVisible(): boolean {
@@ -230,17 +186,6 @@ export class Hud {
 
   setStats(text: string): void {
     this.stats.textContent = text;
-  }
-}
-
-function fillSelect(select: HTMLSelectElement, options: { value: string; label: string }[], current: string): void {
-  select.innerHTML = '';
-  for (const o of options) {
-    const opt = document.createElement('option');
-    opt.value = o.value;
-    opt.textContent = o.label;
-    opt.selected = o.value === current;
-    select.appendChild(opt);
   }
 }
 
