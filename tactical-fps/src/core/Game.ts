@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { HitscanSystem } from '../combat/HitscanSystem';
 import { CAMERA_CONFIG, PLAYER_CONFIG, QUALITY_PRESETS, SIM_CONFIG, type QualityLevel } from '../config';
+import { AudioEngine } from '../audio/AudioEngine';
+import { WeaponAudio } from '../audio/WeaponAudio';
 import { ImpactEffects } from '../fx/ImpactEffects';
 import { createInputState } from '../input/InputState';
 import { KeyboardMouseInput } from '../input/KeyboardMouseInput';
@@ -12,7 +14,7 @@ import { renderWeaponThumbnails } from '../ui/weaponThumbnails';
 import type { WeaponDefinition, WeaponViewSpec } from '../weapons/WeaponDefinition';
 import { ViewModelLayer } from '../weapons/view/ViewModelLayer';
 import type { Weapon } from '../weapons/Weapon';
-import { DEFAULT_LOADOUT } from '../weapons/weapons';
+import { DEFAULT_LOADOUT, SR_01 } from '../weapons/weapons';
 import { WeaponSystem, type WeaponCommand } from '../weapons/WeaponSystem';
 import type { WeaponAnimState } from '../weapons/view/WeaponView';
 import { findMap, MAPS, type MapDefinition } from '../maps';
@@ -23,6 +25,13 @@ const QUALITY_OPTIONS: readonly { value: QualityLevel; label: string }[] = [
   { value: 'low', label: '낮음 (성능 우선)' },
   { value: 'medium', label: '중간' },
   { value: 'high', label: '높음' },
+];
+const VOLUME_OPTIONS: readonly { value: number; label: string }[] = [
+  { value: 0, label: '끄기' },
+  { value: 0.25, label: '25%' },
+  { value: 0.5, label: '50%' },
+  { value: 0.75, label: '75%' },
+  { value: 1, label: '100%' },
 ];
 import { saveSettings, type Settings } from './Settings';
 
@@ -41,6 +50,12 @@ export class Game {
   weapons: WeaponSystem | null = null;
   readonly impacts = new ImpactEffects();
   readonly viewModel: ViewModelLayer;
+  readonly audio: AudioEngine;
+  private readonly weaponAudio: WeaponAudio;
+  /** Index of the simulation tick being run inside the current frame. */
+  private tickInFrame = 0;
+  /** Tick of the first sound-producing shot in this frame (-1 = none yet). */
+  private frameShotTick = -1;
 
   private readonly input: KeyboardMouseInput;
   private readonly inputState = createInputState();
@@ -87,6 +102,9 @@ export class Game {
     this.viewModel.initEnvironment(this.renderer);
     this.showWeaponModel(DEFAULT_LOADOUT[0].view);
     this.scene.add(this.impacts.group);
+    // Sounds are synthesised in the background while the map downloads.
+    this.audio = new AudioEngine(settings.volume, { srFireInterval: 60 / SR_01.fireRate });
+    this.weaponAudio = new WeaponAudio(this.audio);
 
     // Overcast late-afternoon look: soft sky fill + one warm key light.
     const skyColor = new THREE.Color(0x9fb0bf);
@@ -115,6 +133,11 @@ export class Game {
     // Weapons page: picking a card equips that loadout slot through the normal weapon system.
     this.hud.setWeaponOptions(DEFAULT_LOADOUT.map(menuWeapon), (slot) => this.weapons?.equipSlot(slot));
     this.hud.setWeaponOptionsEnabled(false);
+    this.hud.menu.bindSelect('volume', VOLUME_OPTIONS, settings.volume, (v) => {
+      this.settings.volume = v;
+      saveSettings(this.settings);
+      this.audio.setVolume(v);
+    });
     // Same action as F3.
     this.hud.menu.bindToggle('stats', false, (on) => this.setStatsShown(on));
     // Weapon card images: rendered once, the first time the Weapons page is opened,
@@ -217,13 +240,20 @@ export class Game {
     this.weapons.events = {
       onEquip: (weapon, slot) => {
         this.showWeaponModel(weapon.def.view);
+        this.weaponAudio.onEquip(weapon);
         this.hud.setLoadout(this.weapons!.loadout.map((w) => w.def.displayName), slot);
       },
       onShot: (result, _origin, _dir, weapon) => {
+        // Rounds resolved in later ticks of the same frame keep their real spacing.
+        if (this.frameShotTick < 0) this.frameShotTick = this.tickInFrame;
+        const delay = (this.tickInFrame - this.frameShotTick) / SIM_CONFIG.tickRate;
+        this.weaponAudio.onShot(weapon, result, delay, this.camera);
         this.viewModel.onShot(weapon.def.category);
         if (result.kind !== 'miss') this.impacts.spawn(result.point, result.normal);
         if (import.meta.env.DEV && this.debugShots) console.debug('[shot]', result.kind, 'distance' in result ? result.distance.toFixed(2) : '');
       },
+      onDryFire: () => this.weaponAudio.onDryFire(this.weapons!.weapon),
+      onReloadEnd: () => this.weaponAudio.onReloadEnd(this.weapons!.weapon),
     };
     this.respawn();
 
@@ -282,7 +312,9 @@ export class Game {
       this.accumulator += frameTime;
       let ticks = 0;
       const command = this.weaponCommand();
+      this.frameShotTick = -1;
       while (this.accumulator >= tick) {
+        this.tickInFrame = ticks;
         ticks++;
         this.prevPos.copy(player.position);
         this.prevEyeHeight = player.eyeHeight;
@@ -305,6 +337,7 @@ export class Game {
     this.camera.rotation.set(player.pitch, player.yaw, 0);
 
     const w = this.weapons?.weapon;
+    this.weaponAudio.update(w);
     this.impacts.update(frameTime);
     this.viewModel.update(
       frameTime,

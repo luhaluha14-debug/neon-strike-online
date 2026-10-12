@@ -11,9 +11,11 @@ export interface Settings {
   frameLimit: FrameLimit;
   /** null = pick automatically from the device. */
   quality: QualityLevel | null;
+  /** Effects volume 0..1. */
+  volume: number;
 }
 
-const DEFAULTS: Settings = { mapId: null, frameLimit: 'max', quality: null };
+const DEFAULTS: Settings = { mapId: null, frameLimit: 'max', quality: null, volume: 0.75 };
 
 export function parseQuality(value: unknown): QualityLevel | null {
   return value === 'low' || value === 'medium' || value === 'high' ? value : null;
@@ -26,6 +28,7 @@ export function loadSettings(): Settings {
       mapId: typeof raw.mapId === 'string' ? raw.mapId : DEFAULTS.mapId,
       frameLimit: parseFrameLimit(raw.frameLimit) ?? DEFAULTS.frameLimit,
       quality: parseQuality(raw.quality),
+      volume: typeof raw.volume === 'number' && raw.volume >= 0 && raw.volume <= 1 ? raw.volume : DEFAULTS.volume,
     };
   } catch {
     return { ...DEFAULTS };
