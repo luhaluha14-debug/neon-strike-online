@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { getArmTextures } from './ArmTextures';
 import { PISTOL_GRIP, type ArmPose, type HandGripProfile } from './HandGrip';
 
 /**
@@ -33,6 +34,9 @@ export class FirstPersonArms {
   private readonly pad: THREE.MeshStandardMaterial;
   private readonly sleeve: THREE.MeshStandardMaterial;
   private readonly cuff: THREE.MeshStandardMaterial;
+  /** Last finger joints / thumb tip of the support hand (straightened while holding the magazine). */
+  private readonly leftTips: THREE.Group[] = [];
+  private leftThumbTip: THREE.Group | null = null;
 
   constructor(
     private readonly gripAnchor: THREE.Object3D,
@@ -44,10 +48,12 @@ export class FirstPersonArms {
   ) {
     if (armPose?.rightElbow) this.rightElbow.set(...armPose.rightElbow);
     if (armPose?.leftElbow) this.leftElbow.set(...armPose.leftElbow);
-    this.glove = this.mat(0x1c1d1f, 0.0, 0.82);
-    this.pad = this.mat(0x2f3134, 0.1, 0.6);
-    this.sleeve = this.mat(0x34372f, 0.0, 0.95);
-    this.cuff = this.mat(0x2a2c27, 0.0, 0.9);
+    const tex = getArmTextures();
+    // Synthetic glove shell, rubberised knuckle / palm pads, ripstop jacket sleeve.
+    this.glove = this.mat(0x1f2022, 0.0, 0.78, tex.gloveMap, tex.gloveNormal, 0.6);
+    this.pad = this.mat(0x34363a, 0.05, 0.55, null, tex.gloveNormal, 0.3);
+    this.sleeve = this.mat(0x3b3f34, 0.0, 0.92, tex.fabricMap, tex.fabricNormal, 0.55);
+    this.cuff = this.mat(0x2b2d28, 0.0, 0.88, tex.fabricMap, tex.fabricNormal, 0.5);
 
     this.buildRightHand(grip);
     this.buildLeftHand();
@@ -78,14 +84,18 @@ export class FirstPersonArms {
     // Left hand: on the handguard, or following the magazine during a reload.
     this.left.position.copy(this.supportAnchor.position);
     this.left.quaternion.copy(this.supportAnchor.quaternion);
+    let grab = 0;
     if (reloadProgress !== null && this.magazine) {
       const t = reloadProgress;
-      const w = smoothstep(0.04, 0.18, t) * (1 - smoothstep(0.8, 0.95, t));
+      grab = smoothstep(0.04, 0.18, t) * (1 - smoothstep(0.8, 0.95, t));
       _target.copy(this.magazine.position).add(MAG_GRAB_OFFSET);
-      this.left.position.lerp(_target, w);
+      this.left.position.lerp(_target, grab);
       _q.setFromEuler(MAG_GRAB_ROT);
-      this.left.quaternion.slerp(_q, w);
+      this.left.quaternion.slerp(_q, grab);
     }
+    // Finger tips hooked over the handguard open outward, clear of the magazine, while holding it.
+    for (const tip of this.leftTips) tip.rotation.z = -1.5 * grab;
+    if (this.leftThumbTip) this.leftThumbTip.rotation.x = 0.5 * grab;
 
     this.left.updateMatrix();
     this.setLimb(this.leftForearm, _a.copy(this.leftWristLocal).applyMatrix4(this.left.matrix), this.leftElbow);
@@ -144,34 +154,62 @@ export class FirstPersonArms {
     this.rightWristLocal.set(0.02, W(-0.058), B(0.062));
   }
 
+  /**
+   * Support hand, C-clamp style: palm under the handguard, fingers wrapping
+   * up the far (right) side with the tips curling over its top edge, thumb
+   * running forward along the near top edge. Both stay visible from the
+   * camera instead of hiding under the handguard (≈ 58 x 60 mm, anchor on
+   * its bottom face).
+   */
   private buildLeftHand(): void {
     const h = this.left;
     // Palm under the handguard, slightly rolled toward the shooter.
     this.box(h, 0.052, 0.022, 0.082, this.glove, -0.004, -0.014, 0.004, 0, 0, 0.12);
     this.box(h, 0.03, 0.008, 0.06, this.pad, 0.0, -0.027, 0.006);
-    // Four fingers curl up the right side of the handguard.
+    // Ball of the thumb: rounded, hugging the near side of the handguard.
+    this.capsule(h, 0.0125, this.glove, [-0.02, -0.02, 0.036], [-0.042, -0.002, 0.02]);
+    // Four fingers curl up the far side and over its top edge.
     [-0.03, -0.01, 0.01, 0.029].forEach((z, i) => {
       const r = 0.0086 - Math.abs(i - 1.5) * 0.0004;
       this.capsule(h, r, this.glove, [0.02, -0.014, z], [0.036, 0.004, z]);
-      // Fingers run straight up the side of the handguard (no curling into it).
-      this.capsule(h, r, this.glove, [0.0378, 0.006, z], [0.0378, 0.032, z - 0.002]);
-      this.capsule(h, r * 0.9, this.glove, [0.0378, 0.034, z - 0.002], [0.0372, 0.048, z - 0.004]);
+      this.capsule(h, r, this.glove, [0.0378, 0.006, z], [0.0378, 0.05, z - 0.002]);
+      // Last joint pivots at the top of the far side so it can straighten during a reload.
+      const tip = new THREE.Group();
+      tip.position.set(0.0372, 0.056, z - 0.002);
+      h.add(tip);
+      this.leftTips.push(tip);
+      this.capsule(tip, r * 0.92, this.glove, [0, 0, 0], [-0.0132, 0.0135, -0.001]);
     });
-    // Thumb along the left side.
-    this.capsule(h, 0.0095, this.glove, [-0.024, -0.014, 0.03], [-0.036, 0.012, 0.004]);
-    this.capsule(h, 0.0088, this.glove, [-0.036, 0.014, 0.002], [-0.034, 0.03, -0.028]);
+    // Thumb along the near side, then forward on the top edge.
+    this.capsule(h, 0.0095, this.glove, [-0.026, -0.012, 0.032], [-0.0395, 0.02, 0.012]);
+    this.capsule(h, 0.009, this.glove, [-0.0395, 0.022, 0.01], [-0.0385, 0.052, -0.01]);
+    const thumbTip = new THREE.Group();
+    thumbTip.position.set(-0.037, 0.058, -0.014);
+    h.add(thumbTip);
+    this.leftThumbTip = thumbTip;
+    this.capsule(thumbTip, 0.0084, this.glove, [0, 0, 0], [0.007, 0.0115, -0.028]);
     // Glove cuff.
     this.capsule(h, 0.029, this.cuff, [-0.006, -0.03, 0.045], [-0.01, -0.044, 0.07]);
   }
 
   /** Debug names like "R.seg7" so clipping reports can point at a finger part. */
   private partName(parent: THREE.Object3D, kind: string): string {
-    const side = parent === this.right ? 'R' : parent === this.left ? 'L' : 'arm';
-    return `${side}.${kind}${parent.children.length}`;
+    // Finger-tip joints are sub-groups of a hand: name them after that hand.
+    const hand = parent.parent === this.left || parent.parent === this.right ? parent.parent : parent;
+    const side = hand === this.right ? 'R' : hand === this.left ? 'L' : 'arm';
+    return `${side}.${kind}${parent === hand ? '' : 'tip'}${parent.children.length}`;
   }
 
-  private mat(color: number, metalness: number, roughness: number): THREE.MeshStandardMaterial {
-    const m = new THREE.MeshStandardMaterial({ color, metalness, roughness });
+  private mat(
+    color: number,
+    metalness: number,
+    roughness: number,
+    map: THREE.Texture | null = null,
+    normalMap: THREE.Texture | null = null,
+    normalStrength = 1,
+  ): THREE.MeshStandardMaterial {
+    const m = new THREE.MeshStandardMaterial({ color, metalness, roughness, map, normalMap });
+    m.normalScale.setScalar(normalStrength);
     this.materials.push(m);
     return m;
   }
@@ -215,17 +253,38 @@ export class FirstPersonArms {
     return m;
   }
 
-  /** Forearm: a tapered sleeve whose ends are re-fit each frame. */
+  /**
+   * Forearm: a tapered jacket sleeve whose ends are re-fit each frame. Oval
+   * cross-section (forearms are wider than deep) with soft cloth folds, a
+   * gathered cuff and a hook-and-loop tab at the wrist.
+   */
   private limb(wristRadius: number, elbowRadius: number): Limb {
-    const g = new THREE.CylinderGeometry(wristRadius, elbowRadius, 1, 12, 1, false);
-    g.translate(0, 0.5, 0); // origin at the wrist end
+    const g = new THREE.CylinderGeometry(1, 1, 1, 18, 14, false);
+    g.translate(0, 0.5, 0); // origin at the wrist end, length 1 (scaled per frame)
+    const pos = g.getAttribute('position');
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i);
+      const y = pos.getY(i);
+      const z = pos.getZ(i);
+      const a = Math.atan2(z, x);
+      const base = THREE.MathUtils.lerp(wristRadius, elbowRadius, Math.pow(y, 0.8));
+      // Folds: rings that wander around the arm, strongest toward the wrist where the cuff bunches.
+      const fold = 0.055 * Math.sin(y * 31 + Math.sin(a * 2 + y * 9) * 1.4) * (1 - y * 0.6);
+      const r = base * (1 + fold);
+      pos.setXYZ(i, x * r * 1.1, y, z * r * 0.9);
+    }
+    g.computeVertexNormals();
     this.geometries.push(g);
     const sleeve = new THREE.Mesh(g, this.sleeve);
-    const band = new THREE.Mesh(new THREE.CylinderGeometry(wristRadius * 1.08, wristRadius * 1.1, 0.03, 12), this.cuff);
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(wristRadius * 1.12, wristRadius * 1.14, 0.03, 16), this.cuff);
     this.geometries.push(band.geometry);
     band.position.y = 0.05;
+    band.scale.set(1.1, 1, 0.9);
+    const tab = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.026, 0.008), this.pad);
+    this.geometries.push(tab.geometry);
+    tab.position.set(0, 0.05, -wristRadius * 1.04);
     const group = new THREE.Group();
-    group.add(sleeve, band);
+    group.add(sleeve, band, tab);
     this.object.add(group);
     return { group, sleeve };
   }

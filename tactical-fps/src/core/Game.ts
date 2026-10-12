@@ -6,6 +6,7 @@ import { WeaponAudio } from '../audio/WeaponAudio';
 import { ImpactEffects } from '../fx/ImpactEffects';
 import { createInputState } from '../input/InputState';
 import { KeyboardMouseInput } from '../input/KeyboardMouseInput';
+import { FirstPersonBody, type BodyState } from '../player/FirstPersonBody';
 import { PlayerController } from '../player/PlayerController';
 import { Hud } from '../ui/Hud';
 import { createWeaponView, loadWeaponView } from '../weapons/view/WeaponView';
@@ -52,6 +53,15 @@ export class Game {
   weapons: WeaponSystem | null = null;
   readonly impacts = new ImpactEffects();
   readonly viewModel: ViewModelLayer;
+  /** Local player's legs and waist, visible when looking down. */
+  readonly body = new FirstPersonBody();
+  private readonly bodyState: BodyState = {
+    feet: new THREE.Vector3(),
+    yaw: 0,
+    eyeHeight: 0,
+    velocity: new THREE.Vector3(),
+    grounded: true,
+  };
   readonly audio: AudioEngine;
   private readonly weaponAudio: WeaponAudio;
   /** Index of the simulation tick being run inside the current frame. */
@@ -106,6 +116,7 @@ export class Game {
     this.viewModel.initEnvironment(this.renderer);
     this.showWeaponModel(DEFAULT_LOADOUT[0].view);
     this.scene.add(this.impacts.group);
+    this.scene.add(this.body.object);
     // Sounds are synthesised in the background while the map downloads.
     this.audio = new AudioEngine(settings.volume, { srFireInterval: 60 / SR_01.fireRate });
     this.weaponAudio = new WeaponAudio(this.audio);
@@ -297,6 +308,7 @@ export class Game {
     pos.y += 0.1;
     this.player.teleport(pos, spawn?.yaw ?? 0);
     this.weapons?.resetForRespawn();
+    this.body.reset();
     this.impacts.clear();
     this.prevPos.copy(this.player.position);
     this.prevEyeHeight = this.player.eyeHeight;
@@ -346,6 +358,7 @@ export class Game {
     this.camera.position.lerpVectors(this.prevPos, player.position, alpha);
     this.camera.position.y += eye;
     this.camera.rotation.set(player.pitch, player.yaw, 0);
+    this.updateBody(frameTime, eye);
 
     const w = this.weapons?.weapon;
     this.weaponAudio.update(w);
@@ -369,6 +382,19 @@ export class Game {
     this.hud.setHealth(player.health);
     this.updateWeaponHud();
     this.updateStats(frameTime);
+  }
+
+  /** Poses the lower body from the interpolated camera (same smoothing as the view). */
+  private updateBody(dt: number, eyeHeight: number): void {
+    const player = this.player;
+    if (!player) return;
+    const s = this.bodyState;
+    s.feet.set(this.camera.position.x, this.camera.position.y - eyeHeight, this.camera.position.z);
+    s.yaw = player.yaw;
+    s.eyeHeight = eyeHeight;
+    s.velocity.copy(player.velocity);
+    s.grounded = player.grounded;
+    this.body.update(dt, s);
   }
 
   /**
