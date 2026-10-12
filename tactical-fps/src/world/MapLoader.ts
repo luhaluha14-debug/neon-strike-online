@@ -125,7 +125,6 @@ export async function loadMap(
     root.add(batch);
     triangles += (merged.index ? merged.index.count : merged.getAttribute('position').count) / 3;
   }
-  tuneMaterials(root);
   root.add(zoneMarkers);
   root.updateMatrixWorld(true);
 
@@ -205,20 +204,4 @@ function addToBatch(
     batches.set(key, batch);
   }
   batch.geometries.push(geometry);
-}
-
-function tuneMaterials(root: THREE.Object3D): void {
-  root.traverse((o) => {
-    const mesh = o as THREE.Mesh;
-    if (!mesh.isMesh) return;
-    const mat = mesh.material as THREE.MeshStandardMaterial;
-    if (!mat.isMeshStandardMaterial) return;
-    // Glass reads as a dark reflective surface rather than a see-through one;
-    // keeping it opaque avoids costly sorted transparency.
-    if (/glass/i.test(mat.name) && !/lamp/i.test(mat.name)) {
-      mat.metalness = 0.6;
-      mat.roughness = 0.15;
-    }
-    mat.envMapIntensity = 0.6;
-  });
 }

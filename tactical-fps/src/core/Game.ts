@@ -6,6 +6,7 @@ import { WeaponAudio } from '../audio/WeaponAudio';
 import { ImpactEffects } from '../fx/ImpactEffects';
 import { createInputState } from '../input/InputState';
 import { KeyboardMouseInput } from '../input/KeyboardMouseInput';
+import { FirstPersonBody, type BodyState } from '../player/FirstPersonBody';
 import { PlayerController } from '../player/PlayerController';
 import { Hud } from '../ui/Hud';
 import { createWeaponView, loadWeaponView } from '../weapons/view/WeaponView';
@@ -19,6 +20,8 @@ import { WeaponSystem, type WeaponCommand } from '../weapons/WeaponSystem';
 import type { WeaponAnimState } from '../weapons/view/WeaponView';
 import { findMap, MAPS, type MapDefinition } from '../maps';
 import { disposeMap, loadMap, type LoadedMap } from '../world/MapLoader';
+import { createSkyEnvironment, HORIZON_COLOR, SkyDome } from '../world/Sky';
+import { enhanceMapMaterials } from '../world/SurfaceMaterials';
 import { FRAME_LIMIT_OPTIONS, FrameLoop, type FrameLimit } from './FrameLoop';
 
 const QUALITY_OPTIONS: readonly { value: QualityLevel; label: string }[] = [
@@ -50,6 +53,15 @@ export class Game {
   weapons: WeaponSystem | null = null;
   readonly impacts = new ImpactEffects();
   readonly viewModel: ViewModelLayer;
+  /** Local player's legs and waist, visible when looking down. */
+  readonly body = new FirstPersonBody();
+  private readonly bodyState: BodyState = {
+    feet: new THREE.Vector3(),
+    yaw: 0,
+    eyeHeight: 0,
+    velocity: new THREE.Vector3(),
+    grounded: true,
+  };
   readonly audio: AudioEngine;
   private readonly weaponAudio: WeaponAudio;
   /** Index of the simulation tick being run inside the current frame. */
@@ -63,6 +75,8 @@ export class Game {
   private readonly loop = new FrameLoop((now) => this.frame(now));
   private loadingMap = false;
   private readonly sun: THREE.DirectionalLight;
+  private readonly sky: SkyDome;
+  private readonly skyEnv: THREE.Texture;
   private accumulator = 0;
   private readonly prevPos = new THREE.Vector3();
   private prevEyeHeight = 0;
@@ -102,17 +116,23 @@ export class Game {
     this.viewModel.initEnvironment(this.renderer);
     this.showWeaponModel(DEFAULT_LOADOUT[0].view);
     this.scene.add(this.impacts.group);
+    this.scene.add(this.body.object);
     // Sounds are synthesised in the background while the map downloads.
     this.audio = new AudioEngine(settings.volume, { srFireInterval: 60 / SR_01.fireRate });
     this.weaponAudio = new WeaponAudio(this.audio);
 
-    // Overcast late-afternoon look: soft sky fill + one warm key light.
-    const skyColor = new THREE.Color(0x9fb0bf);
-    this.scene.background = skyColor;
-    this.scene.fog = new THREE.Fog(skyColor, mapDef.environment.fogNear, mapDef.environment.fogFar);
-    this.scene.add(new THREE.HemisphereLight(0xc9d4de, 0x4a4238, 1.35));
+    // Overcast late-afternoon look: gradient sky, sky reflections / ambient
+    // from an environment map, a weaker sky fill and one warm key light.
+    this.scene.background = HORIZON_COLOR.clone();
+    this.scene.fog = new THREE.Fog(HORIZON_COLOR.clone(), mapDef.environment.fogNear, mapDef.environment.fogFar);
+    const sunDir = new THREE.Vector3(28, 45, 18).normalize();
+    this.sky = new SkyDome(sunDir);
+    this.scene.add(this.sky.mesh);
+    // Bound per material (reflective surfaces only), not as scene.environment.
+    this.skyEnv = createSkyEnvironment(this.renderer, sunDir);
+    this.scene.add(new THREE.HemisphereLight(0xc9d4de, 0x4a4238, 1.25));
     this.sun = new THREE.DirectionalLight(0xfff1dc, 2.4);
-    this.sun.position.set(28, 45, 18);
+    this.sun.position.copy(sunDir).multiplyScalar(55);
     this.sun.castShadow = preset.shadows;
     this.sun.shadow.mapSize.setScalar(preset.shadowMapSize);
     this.sun.shadow.bias = -0.0004;
@@ -223,6 +243,8 @@ export class Game {
       return false;
     }
     this.map = map;
+    const surfaces = enhanceMapMaterials(map.root, this.quality, this.skyEnv);
+    console.info(`[map:${def.id}] surfaces`, surfaces);
     this.scene.add(map.root);
     const env = def.environment;
     const fog = this.scene.fog as THREE.Fog;
@@ -286,6 +308,7 @@ export class Game {
     pos.y += 0.1;
     this.player.teleport(pos, spawn?.yaw ?? 0);
     this.weapons?.resetForRespawn();
+    this.body.reset();
     this.impacts.clear();
     this.prevPos.copy(this.player.position);
     this.prevEyeHeight = this.player.eyeHeight;
@@ -335,6 +358,7 @@ export class Game {
     this.camera.position.lerpVectors(this.prevPos, player.position, alpha);
     this.camera.position.y += eye;
     this.camera.rotation.set(player.pitch, player.yaw, 0);
+    this.updateBody(frameTime, eye);
 
     const w = this.weapons?.weapon;
     this.weaponAudio.update(w);
@@ -351,12 +375,26 @@ export class Game {
       this.animState(w),
     );
 
+    this.sky.follow(this.camera);
     this.renderer.clear();
     this.renderer.render(this.scene, this.camera);
     this.viewModel.render(this.renderer);
     this.hud.setHealth(player.health);
     this.updateWeaponHud();
     this.updateStats(frameTime);
+  }
+
+  /** Poses the lower body from the interpolated camera (same smoothing as the view). */
+  private updateBody(dt: number, eyeHeight: number): void {
+    const player = this.player;
+    if (!player) return;
+    const s = this.bodyState;
+    s.feet.set(this.camera.position.x, this.camera.position.y - eyeHeight, this.camera.position.z);
+    s.yaw = player.yaw;
+    s.eyeHeight = eyeHeight;
+    s.velocity.copy(player.velocity);
+    s.grounded = player.grounded;
+    this.body.update(dt, s);
   }
 
   /**
