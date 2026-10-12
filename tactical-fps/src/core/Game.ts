@@ -19,6 +19,8 @@ import { WeaponSystem, type WeaponCommand } from '../weapons/WeaponSystem';
 import type { WeaponAnimState } from '../weapons/view/WeaponView';
 import { findMap, MAPS, type MapDefinition } from '../maps';
 import { disposeMap, loadMap, type LoadedMap } from '../world/MapLoader';
+import { createSkyEnvironment, HORIZON_COLOR, SkyDome } from '../world/Sky';
+import { enhanceMapMaterials } from '../world/SurfaceMaterials';
 import { FRAME_LIMIT_OPTIONS, FrameLoop, type FrameLimit } from './FrameLoop';
 
 const QUALITY_OPTIONS: readonly { value: QualityLevel; label: string }[] = [
@@ -63,6 +65,8 @@ export class Game {
   private readonly loop = new FrameLoop((now) => this.frame(now));
   private loadingMap = false;
   private readonly sun: THREE.DirectionalLight;
+  private readonly sky: SkyDome;
+  private readonly skyEnv: THREE.Texture;
   private accumulator = 0;
   private readonly prevPos = new THREE.Vector3();
   private prevEyeHeight = 0;
@@ -106,13 +110,18 @@ export class Game {
     this.audio = new AudioEngine(settings.volume, { srFireInterval: 60 / SR_01.fireRate });
     this.weaponAudio = new WeaponAudio(this.audio);
 
-    // Overcast late-afternoon look: soft sky fill + one warm key light.
-    const skyColor = new THREE.Color(0x9fb0bf);
-    this.scene.background = skyColor;
-    this.scene.fog = new THREE.Fog(skyColor, mapDef.environment.fogNear, mapDef.environment.fogFar);
-    this.scene.add(new THREE.HemisphereLight(0xc9d4de, 0x4a4238, 1.35));
+    // Overcast late-afternoon look: gradient sky, sky reflections / ambient
+    // from an environment map, a weaker sky fill and one warm key light.
+    this.scene.background = HORIZON_COLOR.clone();
+    this.scene.fog = new THREE.Fog(HORIZON_COLOR.clone(), mapDef.environment.fogNear, mapDef.environment.fogFar);
+    const sunDir = new THREE.Vector3(28, 45, 18).normalize();
+    this.sky = new SkyDome(sunDir);
+    this.scene.add(this.sky.mesh);
+    // Bound per material (reflective surfaces only), not as scene.environment.
+    this.skyEnv = createSkyEnvironment(this.renderer, sunDir);
+    this.scene.add(new THREE.HemisphereLight(0xc9d4de, 0x4a4238, 1.25));
     this.sun = new THREE.DirectionalLight(0xfff1dc, 2.4);
-    this.sun.position.set(28, 45, 18);
+    this.sun.position.copy(sunDir).multiplyScalar(55);
     this.sun.castShadow = preset.shadows;
     this.sun.shadow.mapSize.setScalar(preset.shadowMapSize);
     this.sun.shadow.bias = -0.0004;
@@ -223,6 +232,8 @@ export class Game {
       return false;
     }
     this.map = map;
+    const surfaces = enhanceMapMaterials(map.root, this.quality, this.skyEnv);
+    console.info(`[map:${def.id}] surfaces`, surfaces);
     this.scene.add(map.root);
     const env = def.environment;
     const fog = this.scene.fog as THREE.Fog;
@@ -351,6 +362,7 @@ export class Game {
       this.animState(w),
     );
 
+    this.sky.follow(this.camera);
     this.renderer.clear();
     this.renderer.render(this.scene, this.camera);
     this.viewModel.render(this.renderer);

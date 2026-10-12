@@ -69,7 +69,10 @@ export const MAPS: readonly MapDefinition[] = [
     id: 'warehouse',
     name: 'MAP 01 · 창고 지구',
     url: '/maps/Untitled.glb',
-    hiddenPrefixes: ['Tpl_', 'Cube'],
+    // Ground_Pebble_Emitter: Blender particle emitter for the pebble scatter. It has no
+    // material and lies exactly on the ground tiles (z-fighting black floor); the
+    // pebbles themselves stay.
+    hiddenPrefixes: ['Tpl_', 'Cube', 'Ground_Pebble_Emitter'],
     nonCollidingPrefixes: [
       'Ground_Pebble_',
       'Ground_Dirt_',
