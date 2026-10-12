@@ -1,0 +1,343 @@
+/* Start / pause menu and loading screen. Built only from theme.css tokens. */
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  pointer-events: auto;
+  color: var(--c-text);
+}
+.overlay.hidden {
+  display: none;
+}
+
+/* The live 3D map stays visible on the right; one scrim keeps text readable. */
+.menu-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(17, 19, 21, 0.96) 0%, rgba(17, 19, 21, 0.9) 34%, rgba(17, 19, 21, 0.45) 62%, rgba(17, 19, 21, 0.2) 100%);
+}
+.overlay.is-loading .menu-scrim {
+  background: var(--c-bg);
+}
+
+/* ---- Menu column ------------------------------------------------------------ */
+.menu {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: clamp(400px, 38vw, 560px);
+  max-width: 100%;
+  height: 100%;
+  padding: clamp(24px, 6vh, 64px) var(--s-6) clamp(20px, 4vh, 40px) clamp(24px, 4.5vw, 72px);
+}
+.menu[hidden],
+.loading[hidden] {
+  display: none;
+}
+
+.brand {
+  display: flex;
+  align-items: stretch;
+  gap: var(--s-3);
+  margin-bottom: clamp(20px, 5vh, 48px);
+}
+.brand-mark {
+  flex: none;
+  width: 4px;
+  background: var(--c-accent);
+}
+.brand-title {
+  margin: 0;
+  font-size: var(--fs-display);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+.brand-sub {
+  margin-top: var(--s-2);
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: var(--s-1);
+  margin-bottom: var(--s-4);
+  border-bottom: 1px solid var(--c-border);
+}
+.tab {
+  position: relative;
+  padding: var(--s-2) var(--s-3) var(--s-3);
+  border: 0;
+  background: none;
+  color: var(--c-text-2);
+  font: 600 var(--fs-md) var(--font);
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: color var(--t-fast);
+}
+.tab:hover {
+  color: var(--c-text);
+}
+.tab[aria-selected='true'] {
+  color: var(--c-text);
+}
+.tab[aria-selected='true']::after {
+  content: '';
+  position: absolute;
+  left: var(--s-3);
+  right: var(--s-3);
+  bottom: -1px;
+  height: 2px;
+  background: var(--c-accent);
+}
+.tab:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Pages scroll on their own so the Play button never leaves the screen. */
+.pages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin-right: calc(-1 * var(--s-3));
+  padding-right: var(--s-3);
+  scrollbar-width: thin;
+  scrollbar-color: var(--c-border-strong) transparent;
+}
+.page > .section-title:not(:first-child) {
+  margin-top: var(--s-5);
+}
+.page-note {
+  margin: 0 0 var(--s-4);
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+}
+
+.menu-footer {
+  padding-top: var(--s-4);
+}
+
+/* ---- Map cards ------------------------------------------------------------- */
+.map-list {
+  display: grid;
+  gap: var(--s-2);
+}
+.map-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-1);
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-bg-2);
+  color: var(--c-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--t-fast), border-color var(--t-fast);
+}
+.map-card:hover:not(:disabled) {
+  background: var(--c-panel);
+  border-color: var(--c-border-strong);
+}
+.map-card[aria-checked='true'] {
+  border-color: var(--c-accent);
+  background: var(--c-panel);
+  box-shadow: inset 3px 0 0 var(--c-accent);
+}
+.map-card:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.map-card:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.map-name {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+}
+
+.menu-status {
+  min-height: 1.4em;
+  margin: var(--s-4) 0 0;
+  color: var(--c-text-2);
+  font-size: var(--fs-sm);
+}
+.menu-status.error {
+  color: var(--c-danger);
+}
+
+/* ---- Weapon cards ------------------------------------------------------------ */
+.weapon-group + .weapon-group {
+  margin-top: var(--s-5);
+}
+.weapon-card {
+  display: grid;
+  grid-template-columns: 112px 1fr;
+  align-items: center;
+  gap: var(--s-3);
+  width: 100%;
+  padding: var(--s-2);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-bg-2);
+  color: var(--c-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--t-fast), border-color var(--t-fast);
+}
+.weapon-card + .weapon-card {
+  margin-top: var(--s-2);
+}
+.weapon-card:hover:not(:disabled) {
+  background: var(--c-panel);
+  border-color: var(--c-border-strong);
+}
+.weapon-card[aria-pressed='true'] {
+  border-color: var(--c-accent);
+  background: var(--c-panel);
+}
+.weapon-card:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.weapon-card:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.weapon-thumb {
+  height: 56px;
+  background: var(--c-bg) center / contain no-repeat;
+  border: 1px solid var(--c-border);
+}
+.weapon-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.weapon-title {
+  font-size: var(--fs-md);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+.weapon-equipped {
+  margin-left: auto;
+  color: var(--c-accent);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-caps);
+  visibility: hidden;
+}
+.weapon-card[aria-pressed='true'] .weapon-equipped {
+  visibility: visible;
+}
+.weapon-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1) var(--s-3);
+  margin-top: var(--s-2);
+  font-size: var(--fs-xs);
+}
+.weapon-stat b {
+  margin-left: var(--s-1);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Controls ------------------------------------------------------------------ */
+.keys {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--s-2) var(--s-4);
+  align-items: center;
+  margin: 0;
+}
+.keys dt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-1);
+}
+.keys dd {
+  margin: 0;
+  color: var(--c-text-2);
+  font-size: var(--fs-md);
+}
+.key-or {
+  color: var(--c-text-3);
+  font-size: var(--fs-xs);
+}
+
+/* ---- Loading screen --------------------------------------------------------------- */
+.loading {
+  position: relative;
+  flex: 1;
+  display: flex;
+}
+.loading-inner {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  width: 100%;
+  padding: clamp(24px, 6vh, 64px) clamp(24px, 4.5vw, 72px);
+}
+.brand-compact {
+  align-items: center;
+  margin: 0;
+}
+.brand-compact .brand-mark {
+  height: 22px;
+}
+.brand-compact .brand-title {
+  font-size: var(--fs-lg);
+}
+.loading-info {
+  width: min(520px, 100%);
+}
+.loading-map {
+  margin: var(--s-2) 0 var(--s-4);
+  font-size: var(--fs-xl);
+  font-weight: 700;
+}
+.loading-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s-4);
+  margin-top: var(--s-2);
+  font-size: var(--fs-sm);
+}
+.loading-percent {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Small windows ------------------------------------------------------------------ */
+@media (max-width: 720px) {
+  .menu {
+    width: 100%;
+    padding: var(--s-5) var(--s-4) var(--s-4);
+  }
+  .menu-scrim {
+    background: rgba(17, 19, 21, 0.92);
+  }
+  .tab {
+    padding-inline: var(--s-2);
+  }
+}
+@media (max-height: 560px) {
+  .brand {
+    margin-bottom: var(--s-3);
+  }
+  .brand-title {
+    font-size: var(--fs-xl);
+  }
+  .btn-primary {
+    min-height: 44px;
+  }
+}
