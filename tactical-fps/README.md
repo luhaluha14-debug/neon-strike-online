@@ -56,7 +56,7 @@ tactical-fps/
    ├─ config.ts                 이동/카메라/화질 수치
    ├─ core/Game.ts              렌더러, 조명, 고정 틱 게임 루프(120Hz) + 보간, 맵 교체
    ├─ core/FrameLoop.ts         rAF 기반 프레임 루프 + 프레임 제한
-   ├─ core/Settings.ts          맵·프레임 제한·화질 저장 (localStorage)
+   ├─ core/Settings.ts          맵·프레임 제한·화질·볼륨 저장 (localStorage)
    ├─ world/MapLoader.ts        GLB 로드, 노드 분류, 머티리얼별 정적 배칭, 스폰 포인트 추출
    ├─ world/CollisionWorld.ts   맵 삼각형 BVH, 캡슐 충돌 해소, 레이캐스트
    ├─ player/PlayerController.ts 캡슐 캐릭터 이동 (가속/마찰, 점프, 경사로, 앉기, 지면 스냅)
@@ -76,6 +76,10 @@ tactical-fps/
    ├─ combat/Damage.ts          Damageable 인터페이스 (나중에 적/봇이 구현)
    ├─ combat/HitscanSystem.ts   화면 중앙 레이캐스트: 맵 먼저 → 더 가까운 대상만 피격, 거리별 피해 감소
    ├─ fx/ImpactEffects.ts       탄흔 + 먼지 (인스턴싱, 드로우콜 2개)
+   ├─ audio/weaponSounds.ts     ★ 효과음 레시피 (총성·볼트·탄창·전환·탄착·칼). 오디오 파일 없이 합성
+   ├─ audio/dsp.ts              합성 도구 (노이즈·필터·엔벨로프)
+   ├─ audio/AudioEngine.ts      Web Audio: 시작 시 한 번 합성, 첫 클릭에 활성화, 그룹별 동시 재생 제한, 리미터, 볼륨
+   ├─ audio/WeaponAudio.ts      무기 이벤트 → 소리 (발사·빈 탄창·재장전 단계·전환·탄착 거리 감쇠/지연/좌우)
    ├─ input/InputState.ts       장치 독립 입력 상태 (모바일 터치 입력을 나중에 추가하기 위한 추상화)
    ├─ input/KeyboardMouseInput.ts PC 키보드 + Pointer Lock 마우스
    ├─ ui/theme.css              ★ 디자인 토큰(색·글꼴·간격) + 공통 버튼/선택/토글/진행 막대
@@ -145,6 +149,19 @@ AI 봇 (예정) ──┘                 │
 
 검증: 현재 SR-01 임시 모델을 브라우저에서 GLB로 내보낸 뒤 이 경로로 다시 불러와, 손 위치·손잡이 프로필·팔꿈치·볼트 동작·겹침 수치가
 절차적 모델과 동일함을 확인했습니다.
+
+## 사운드
+
+오디오 파일은 없습니다. 모든 효과음은 `audio/weaponSounds.ts`의 레시피로 페이지 시작 직후(맵 다운로드 중)
+한 번만 합성되고(약 0.3초, 여러 작업으로 나눔, 약 3 MB), 전투 중에는 미리 만든 버퍼를 재생만 합니다.
+
+- 총성 = 날카로운 초기 파열음 + 본체(폭발음) + 작은 저음 + 기계음(노리쇠/리시버) + 어두운 잔향 꼬리 + 약한 초기 반사음.
+  AR-01은 4가지, SR-01은 3가지 변형 + 재생 속도 ±2.5%·음량 변화로 연사해도 같은 소리가 반복되지 않습니다.
+- 발사 1회 = 총성 1회 (무기 시스템의 `onShot` 이벤트에서만 재생). 탄착음은 거리만큼 늦고 작게 들립니다.
+- 재장전 소리는 1인칭 탄창 애니메이션 시점(`sounds.reload`의 `at` 값)에 맞춰 나오고, 무기를 바꾸면 끊깁니다.
+- SR-01 볼트 소리는 볼트 애니메이션(`animateBolt`)과 같은 시간표로 만들어집니다.
+- 브라우저 정책상 첫 클릭/키 입력 전에는 소리가 나지 않습니다. 볼륨은 설정 → 사운드에서 바꾸고 저장됩니다.
+- 무기별 소리는 `weapons.ts`의 `sounds` 항목에서 고릅니다 (게임 밸런스와 무관).
 
 ## 맵 규칙 (Blender 노드 이름)
 

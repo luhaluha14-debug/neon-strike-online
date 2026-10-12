@@ -1,3 +1,4 @@
+import type { SoundId } from '../audio/weaponSounds';
 // Data-only description of a weapon (guns and melee). Every weapon in the
 // game is one of these; the runtime classes never hard-code per-weapon numbers.
 
@@ -72,6 +73,25 @@ export type WeaponViewSpec = (
   | { kind: 'gltf'; url: string; fallback: ProceduralModelId }
 ) & { pose: ViewmodelPose };
 
+/** Sound cues of one weapon (ids from `audio/weaponSounds`). Presentation only. */
+export interface WeaponSounds {
+  /** One per shot / attack. */
+  fire: SoundId;
+  /** Per-weapon loudness of `fire` (linear, 1 = reference). */
+  fireVolume: number;
+  /** Melee: extra contact sound when the attack hits something. */
+  hit?: SoundId;
+  /** Played after every shot (e.g. bolt cycle), stopped if the weapon is put away. */
+  cycle?: SoundId;
+  /** Trigger pulled on an empty magazine. */
+  dry?: SoundId;
+  equip: SoundId;
+  /** Reload cues at reload progress 0..1, matching the view model's magazine motion. */
+  reload?: readonly { at: number; sound: SoundId }[];
+  /** When the reload completes. */
+  reloadEnd?: SoundId;
+}
+
 export interface WeaponDefinition {
   id: string;
   displayName: string;
@@ -92,4 +112,5 @@ export interface WeaponDefinition {
   spread: SpreadProfile;
   recoil: RecoilProfile;
   view: WeaponViewSpec;
+  sounds: WeaponSounds;
 }

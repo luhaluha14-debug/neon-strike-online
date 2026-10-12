@@ -49,6 +49,17 @@ export const AR_01: WeaponDefinition = {
     // Angled across the screen so the rifle's side and both gloved hands show.
     pose: { position: [0.125, -0.115, -0.42], rotation: [0.03, 0.27, -0.1], scale: 1 },
   },
+  sounds: {
+    fire: 'ar01.shot',
+    fireVolume: 0.85,
+    dry: 'dryfire',
+    equip: 'equip.gun',
+    reload: [
+      { at: 0.04, sound: 'mag.out' },
+      { at: 0.81, sound: 'mag.in' },
+    ],
+    reloadEnd: 'ar01.charge',
+  },
 };
 
 /** Bolt-action sniper rifle (AWP-style). One heavy, precise shot per bolt cycle. */
@@ -97,6 +108,18 @@ export const SR_01: WeaponDefinition = {
     // Right of centre and angled so the scope, magazine and both gloved hands read.
     pose: { position: [0.17, -0.095, -0.46], rotation: [0.02, 0.36, -0.16], scale: 1 },
   },
+  sounds: {
+    fire: 'sr01.shot',
+    fireVolume: 1,
+    cycle: 'sr01.bolt',
+    dry: 'dryfire',
+    equip: 'equip.gun',
+    reload: [
+      { at: 0.04, sound: 'mag.out' },
+      { at: 0.81, sound: 'mag.in' },
+    ],
+    reloadEnd: 'sr01.chamber',
+  },
 };
 
 /** Curved-blade knife. Melee = a weapon without ammo and a ~1.9 m reach. */
@@ -139,6 +162,12 @@ export const KARAMBIT: WeaponDefinition = {
     model: 'karambit',
     // Fist on the right, ring on top, blade sweeping down-left across the view.
     pose: { position: [0.13, -0.05, -0.28], rotation: [0.35, 1.35, 0.1], scale: 1 },
+  },
+  sounds: {
+    fire: 'karambit.swing',
+    fireVolume: 0.5,
+    hit: 'karambit.hit',
+    equip: 'equip.knife',
   },
 };
 

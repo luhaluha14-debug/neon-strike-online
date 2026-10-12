@@ -100,6 +100,11 @@ export class MainMenu {
               <select class="select" data-setting="frame-limit"></select>
               <span class="field-hint">"최대"는 모니터 주사율까지 그립니다.</span>
             </label>
+            <h2 class="section-title">사운드</h2>
+            <label class="field">
+              <span class="field-label">효과음 볼륨</span>
+              <select class="select" data-setting="volume"></select>
+            </label>
             <h2 class="section-title">인터페이스</h2>
             <label class="field">
               <span class="field-label">성능 정보 표시 <span class="kbd">F3</span></span>
@@ -287,7 +292,7 @@ export class MainMenu {
 
   // --- Settings ---------------------------------------------------------------
 
-  bindSelect<T extends string | number>(setting: 'quality' | 'frame-limit', options: readonly MenuOption<T>[], current: T, onChange: (value: T) => void): void {
+  bindSelect<T extends string | number>(setting: 'quality' | 'frame-limit' | 'volume', options: readonly MenuOption<T>[], current: T, onChange: (value: T) => void): void {
     const select = this.root.querySelector<HTMLSelectElement>(`select[data-setting="${setting}"]`)!;
     select.replaceChildren(
       ...options.map((o) => {
