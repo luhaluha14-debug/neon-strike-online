@@ -12,6 +12,7 @@ npm install
 npm run dev        # http://localhost:5173
 npm run build      # 타입 검사 + 프로덕션 빌드 (dist/)
 npm run preview    # 빌드 결과 확인
+npm test           # 회귀 테스트 (아래 "테스트" 참고)
 ```
 
 화면의 **클릭하여 시작** 버튼을 누르면 마우스가 잠기고 바로 플레이할 수 있습니다.
@@ -42,6 +43,31 @@ Esc로 언제든 돌아와 **계속하기**를 누를 수 있습니다. 맵 · �
 | Esc | 일시정지 |
 
 > 브라우저는 Ctrl+W 같은 단축키를 막을 수 없으므로 앉기는 C 키를 권장합니다.
+
+## 테스트 (회귀 검사)
+
+```bash
+npm test                    # 전체 (헤드리스 Chromium, 이 환경에서 약 수 분)
+npm test -- ui body         # 파일 이름에 ui 또는 body가 들어간 것만
+UPDATE_GOLDEN=1 npm test -- movement   # 의도한 변경 후 기준값 다시 기록 (diff를 꼭 검토)
+```
+
+처음 한 번은 브라우저가 필요합니다: `npx playwright install chromium`.
+테스트는 Vite 개발 서버를 직접 띄우고, 개발 빌드가 노출하는 `window.game` / `window.vmCheck`로 게임을 조작합니다.
+게임 코드는 테스트를 위해 바뀌지 않습니다. `playwright`는 devDependency라 배포 결과물(`dist/`)에 들어가지 않습니다.
+
+| 파일 | 확인하는 것 |
+| --- | --- |
+| `tests/movement.test.mjs` | 두 맵에서 시드 고정 무작위 이동(36,000틱)·히트스캔 200발이 매번 같고, 맵 이탈·추락이 없고, 기록된 기준값(`tests/golden/movement.json`, 충돌 삼각형 수 포함)과 같음 |
+| `tests/combat.test.mjs` | 무기·부위·거리별 피해량, 테스트용 표적에 대한 명중/벽 차단/가까운 표적 우선/자기 자신·죽은 표적·사거리 밖 무시 |
+| `tests/weapons-audio.test.mjs` | 실제 입력으로 연사 속도, 탄약, 빈 격발, 재장전(애니메이션 시점의 장전음), 무기 전환, 칼, 탄착음, 동시 재생 상한·해제, 볼륨 0 |
+| `tests/viewmodel.test.mjs` | 무기·동작별 장갑-무기 겹침(mm)과 카메라 근접 (기하 계산) |
+| `tests/body.test.mjs` | 1인칭 하체: 카메라와 거리, 디딘 발 미끄러짐, 시선 회전 규칙, 앉기·점프 자세 |
+| `tests/ui.test.mjs` | 3개 화면 크기 레이아웃, 로딩 화면, 메뉴 흐름, 설정 적용·저장 형식, 맵 전환, 탭 키보드, HUD 탄약 상태 |
+| `tests/assets.test.mjs` | 맵 재질 → 표면 종류 분류(`tests/golden/surfaces.json`), 맵 노드 규칙, 효과음 합성 결과 |
+
+자동 테스트가 **확인하지 않는 것**: 실제 GPU에서의 FPS·화면 품질(테스트는 소프트웨어 렌더러에서 돌고 픽셀을 비교하지 않음),
+소리가 실제로 어떻게 들리는지, 실제 마우스 감도·조작감, Render 배포 결과. 이것들은 직접 플레이해서 확인해야 합니다.
 
 ## 구조
 
