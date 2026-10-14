@@ -19,6 +19,8 @@ export class Hud {
   private readonly ammoReserve: HTMLSpanElement;
   private readonly weaponStatus: HTMLDivElement;
   private readonly reloadBar: HTMLDivElement;
+  private readonly hitMarker: HTMLDivElement;
+  private hitMarkerAnim: Animation | null = null;
   private lastHealth = -1;
   private lastAmmoKey = '';
   private lastReload = -1;
@@ -29,6 +31,7 @@ export class Hud {
       <div class="crosshair" aria-hidden="true">
         <span class="ch-line ch-top"></span><span class="ch-line ch-bottom"></span>
         <span class="ch-line ch-left"></span><span class="ch-line ch-right"></span>
+        <div class="hitmarker"><span class="hm hm-tl"></span><span class="hm hm-tr"></span><span class="hm hm-bl"></span><span class="hm hm-br"></span></div>
       </div>
       <div class="vitals">
         <div class="vitals-label">HP</div>
@@ -56,6 +59,19 @@ export class Hud {
     this.ammoReserve = this.root.querySelector('.ammo-reserve')!;
     this.weaponStatus = this.root.querySelector('.weapon-status')!;
     this.reloadBar = this.root.querySelector('.reload-bar')!;
+    this.hitMarker = this.root.querySelector('.hitmarker')!;
+  }
+
+  /** Brief X around the crosshair when a shot hits a target: red for the head, bigger on a kill. */
+  showHitMarker(head: boolean, kill: boolean): void {
+    const m = this.hitMarker;
+    m.classList.toggle('head', head);
+    m.classList.toggle('kill', kill);
+    this.hitMarkerAnim?.cancel();
+    this.hitMarkerAnim = m.animate([{ opacity: 1 }, { opacity: 1, offset: 0.5 }, { opacity: 0 }], {
+      duration: kill ? 300 : 120,
+      easing: 'linear',
+    });
   }
 
   setMapOptions(maps: readonly MenuMap[], currentId: string, onChange: (id: string) => void): void {

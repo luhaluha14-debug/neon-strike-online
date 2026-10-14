@@ -23,6 +23,11 @@ export class WeaponAudio {
     this.engine.play(s.fire, { group: 'shot', gain: s.fireVolume, rateJitter: 0.025, delay });
     if (s.cycle) this.engine.play(s.cycle, { group: 'foley', gain: 0.8, delay });
     if (result.kind === 'miss') return;
+    // Hit confirm, heard at the shooter (not placed in the world), right after the shot.
+    if (result.kind === 'target') {
+      const head = result.zone === 'head';
+      this.engine.play(head ? 'hit.head' : 'hit.body', { group: 'impact', gain: head ? 0.55 : 0.5, rateJitter: 0.03, delay: delay + 0.02 });
+    }
     if (s.hit) {
       this.engine.play(s.hit, { group: 'impact', gain: 0.8, rateJitter: 0.04, delay: delay + 0.03 });
       return;

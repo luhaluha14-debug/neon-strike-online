@@ -57,6 +57,15 @@ before(async () => {
     const g = window.game;
     const T = window.T;
     T.stopLoop();
+    // Isolation: training dummies stand in the line of fire from the spawn, and where the
+    // moving one is depends on how long the page ran before the frame driver took over.
+    // This file checks weapon -> sound / flash wiring and world impacts, so the dummies are
+    // taken out of the hitscan here (nothing else changes). Hits on dummies, their confirm
+    // sounds and hit markers are checked with real input in targets.test.mjs.
+    const range = g.trainingRange;
+    if (!range || range.targets.length < 3) throw new Error('expected the training dummies to be present');
+    for (const t of range.targets) g.hitscan.unregister(t);
+    if ([...g.hitscan.targets].some((t) => t.team === 'training')) throw new Error('dummies still registered');
     T.log = [];
     T.kinds = {};
     T.flashes = 0;

@@ -80,6 +80,42 @@ body {
   left: 4px;
 }
 
+/* Hit marker: an X around the crosshair, shown briefly by Hud.showHitMarker(). */
+.hitmarker {
+  position: absolute;
+  left: 0;
+  top: 0;
+  opacity: 0;
+  --hm-color: rgba(255, 255, 255, 0.95);
+}
+.hitmarker.head {
+  --hm-color: #ff5446;
+}
+.hitmarker.kill {
+  transform: scale(1.45);
+}
+.hm {
+  position: absolute;
+  width: 2px;
+  height: 7px;
+  left: -1px;
+  top: -3.5px;
+  background: var(--hm-color);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55);
+}
+.hm-tl {
+  transform: rotate(-45deg) translateY(-11px);
+}
+.hm-tr {
+  transform: rotate(45deg) translateY(-11px);
+}
+.hm-bl {
+  transform: rotate(45deg) translateY(11px);
+}
+.hm-br {
+  transform: rotate(-45deg) translateY(11px);
+}
+
 /* Health */
 .vitals {
   position: absolute;

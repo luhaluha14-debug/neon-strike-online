@@ -18,7 +18,9 @@ export type SoundId =
   | 'sr01.chamber'
   | 'equip.gun'
   | 'equip.knife'
-  | 'impact';
+  | 'impact'
+  | 'hit.body'
+  | 'hit.head';
 
 /** Number of pre-rendered variants per sound. */
 export const VARIANTS: Record<SoundId, number> = {
@@ -35,6 +37,8 @@ export const VARIANTS: Record<SoundId, number> = {
   'equip.gun': 2,
   'equip.knife': 2,
   impact: 4,
+  'hit.body': 2,
+  'hit.head': 2,
 };
 
 interface GunshotRecipe {
@@ -279,6 +283,34 @@ function impact(seed: number): Float32Array {
   return finish(out, 0.7, 1.2);
 }
 
+/** Body hit confirm: a dull, padded thwack (round into a vest / dummy). */
+function hitBody(seed: number): Float32Array {
+  const rand = rng(seed);
+  const out = buffer(0.16);
+  const thwack = biquad(noise(0.12, rand), 'lowpass', 1100 + rand() * 200);
+  shape(thwack, expEnv(0.0006, 0.018));
+  mix(out, thwack, 1);
+  const knock = glideSine(0.1, 260, 150, 0.02);
+  shape(knock, expEnv(0.0008, 0.022));
+  mix(out, knock, 0.45);
+  mix(out, click(rand, 2200, 0.004, 0.25, 0.03), 1, 0.001);
+  biquad(out, 'highpass', 110);
+  return finish(out, 0.75, 1.3);
+}
+
+/** Head hit confirm: a sharp, short metallic tink (helmet), easy to tell from a body hit. */
+function hitHead(seed: number): Float32Array {
+  const rand = rng(seed);
+  const out = buffer(0.3);
+  const tick = biquad(noise(0.02, rand), 'highpass', 3000);
+  shape(tick, expEnv(0.0002, 0.002));
+  mix(out, tick, 0.8);
+  const f = 2350 + rand() * 120;
+  mix(out, ring(0.3, [[f, 0.5, 0.07], [f * 1.53, 0.32, 0.05], [f * 2.31, 0.18, 0.035]]), 1, 0.0005);
+  biquad(out, 'highpass', 600);
+  return finish(out, 0.7, 1.2);
+}
+
 /** Renders one variant of one sound. */
 export function renderSound(id: SoundId, variant: number, opts: { srFireInterval: number }): Float32Array {
   const seed = hash(id) + variant * 7919;
@@ -309,6 +341,10 @@ export function renderSound(id: SoundId, variant: number, opts: { srFireInterval
       return equipKnife(seed);
     case 'impact':
       return impact(seed);
+    case 'hit.body':
+      return hitBody(seed);
+    case 'hit.head':
+      return hitHead(seed);
   }
 }
 
