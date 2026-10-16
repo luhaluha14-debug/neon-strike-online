@@ -41,6 +41,9 @@ export class ViewModelLayer {
   private readonly pivot = new THREE.Group();
   private readonly flash: THREE.Mesh;
   private flashTime = 0;
+  /** Muzzle flash light on the hands and weapon; always in the scene (only its intensity changes, so no shader recompiles). */
+  private readonly flashLight = new THREE.PointLight(0xffb468, 0, 1.4, 2);
+  private flashPeak = 0;
 
   // Spring-ish state.
   private kick = 0;
@@ -58,6 +61,7 @@ export class ViewModelLayer {
     const key = new THREE.DirectionalLight(0xfff1dc, 2.2);
     key.position.set(0.6, 1, 0.4);
     this.scene.add(key);
+    this.scene.add(this.flashLight);
 
     this.flash = new THREE.Mesh(
       new THREE.PlaneGeometry(0.14, 0.14),
@@ -71,6 +75,16 @@ export class ViewModelLayer {
       }),
     );
     this.flash.visible = false;
+  }
+
+  /** World-space position of the muzzle as seen through `worldCamera` (for tracers); null for melee. */
+  muzzleInWorld(worldCamera: THREE.Camera, out: THREE.Vector3): THREE.Vector3 | null {
+    const m = this.view?.muzzle;
+    if (!m) return null;
+    this.scene.updateMatrixWorld();
+    // View-model space is camera space of its own camera (at the origin); map it onto the world camera.
+    m.getWorldPosition(out).applyMatrix4(this.camera.matrixWorldInverse).applyMatrix4(worldCamera.matrixWorld);
+    return out;
   }
 
   /** The model currently in hand (debug / tests). */
@@ -132,9 +146,11 @@ export class ViewModelLayer {
     if (category === 'melee') return;
     this.kickVel += category === 'sniper' ? 1.9 : 1.0;
     if (this.view?.muzzle) {
-      this.flashTime = 0.045;
+      this.flashTime = 0.05;
       this.flash.rotation.z = Math.random() * Math.PI;
-      this.flash.scale.setScalar((category === 'sniper' ? 1.5 : 0.8) + Math.random() * 0.5);
+      this.flash.scale.setScalar((category === 'sniper' ? 1.9 : 1.1) + Math.random() * 0.6);
+      this.view.muzzle.getWorldPosition(this.flashLight.position);
+      this.flashPeak = category === 'sniper' ? 2.6 : 1.6;
     }
   }
 
@@ -240,8 +256,10 @@ export class ViewModelLayer {
     if (this.flashTime > 0) {
       this.flashTime -= dt;
       this.flash.visible = true;
+      this.flashLight.intensity = this.flashPeak * Math.max(this.flashTime / 0.05, 0);
     } else {
       this.flash.visible = false;
+      this.flashLight.intensity = 0;
     }
   }
 

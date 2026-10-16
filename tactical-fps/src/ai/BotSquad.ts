@@ -1,46 +1,45 @@
 import * as THREE from 'three';
 import type { HitscanResult, HitscanSystem } from '../combat/HitscanSystem';
-import { buildDummyGeometry } from '../combat/TrainingTarget';
 import type { PlayerDamageEvent } from '../player/PlayerCombat';
 import type { Weapon } from '../weapons/Weapon';
 import type { WeaponDefinition } from '../weapons/WeaponDefinition';
 import type { LoadedMap } from '../world/MapLoader';
 import { Bot, type Combatant } from './Bot';
+import { BotKit, BotModel, type BotPose } from './BotModel';
 import type { NavGrid } from './NavGrid';
 
 const NAMES = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot', 'Golf', 'Hotel', 'India'];
-const DEATH_FALL = 0.45;
-const FLASH_TIME = 0.05;
 
 export interface SquadEvents {
-  onShot?(bot: Bot, result: HitscanResult, origin: THREE.Vector3, dir: THREE.Vector3, weapon: Weapon): void;
+  /** `muzzle`: world position of the bot's rifle muzzle (flash / tracer start; the round itself starts at the eye, like the player's). */
+  onShot?(bot: Bot, result: HitscanResult, origin: THREE.Vector3, dir: THREE.Vector3, weapon: Weapon, muzzle: THREE.Vector3): void;
   /** A bot took damage (`e.killed` when it died). */
   onDamage?(bot: Bot, e: PlayerDamageEvent): void;
 }
 
-interface Visual {
-  root: THREE.Group;
-  body: THREE.Group;
-  flash: THREE.Mesh;
-  flashTime: number;
-}
+const _muzzle = new THREE.Vector3();
+const _pose: BotPose = {
+  feet: new THREE.Vector3(),
+  yaw: 0,
+  pitch: 0,
+  velocity: new THREE.Vector3(),
+  grounded: true,
+  aiming: false,
+  alive: true,
+  deadTime: 0,
+};
 
 /**
  * The AI opponents of one match on one map: creation, registration with the
  * map's hitscan, the per-tick update, respawning far from enemies, their
- * bodies in the scene, and cleanup.
+ * bodies (BotModel) in the scene, and cleanup.
  */
 export class BotSquad {
   readonly bots: Bot[] = [];
+  readonly models: BotModel[] = [];
   readonly group = new THREE.Group();
   events: SquadEvents = {};
-  private readonly visuals: Visual[] = [];
-  private readonly geometry = buildDummyGeometry();
-  private readonly bodyMat = new THREE.MeshStandardMaterial({ vertexColors: true, color: 0x9aa7b8, roughness: 0.8 });
-  private readonly gunMat = new THREE.MeshStandardMaterial({ color: 0x1c1d1f, roughness: 0.55, metalness: 0.5 });
-  private readonly gunGeo = new THREE.BoxGeometry(0.06, 0.09, 0.72);
-  private readonly flashMat = new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending });
-  private readonly flashGeo = new THREE.PlaneGeometry(0.28, 0.28);
+  private readonly kit = new BotKit();
   private disposed = false;
 
   constructor(
@@ -55,15 +54,23 @@ export class BotSquad {
     for (let i = 0; i < count; i++) {
       const bot = new Bot(`bot-${i + 1}`, `BOT ${NAMES[i % NAMES.length]}`, map.collision, hitscan, loadout, nav, undefined, rand);
       hitscan.register(bot.combat);
-      bot.combat.onDamage = (e) => this.events.onDamage?.(bot, e);
+      const model = new BotModel(this.kit);
+      model.object.name = bot.id;
+      this.group.add(model.object);
+      bot.combat.onDamage = (e) => {
+        model.onHit(e.direction);
+        this.events.onDamage?.(bot, e);
+      };
       bot.weapons.events = {
         onShot: (result, origin, dir, weapon) => {
-          this.visuals[i].flashTime = FLASH_TIME;
-          this.events.onShot?.(bot, result, origin, dir, weapon);
+          model.onShot();
+          model.object.updateMatrixWorld(true);
+          model.muzzle.getWorldPosition(_muzzle);
+          this.events.onShot?.(bot, result, origin, dir, weapon, _muzzle);
         },
       };
       this.bots.push(bot);
-      this.visuals.push(this.makeVisual(bot));
+      this.models.push(model);
     }
   }
 
@@ -85,18 +92,19 @@ export class BotSquad {
     }
   }
 
-  /** Per frame: bodies follow their controllers, fall when dead, flash when firing. */
-  updateVisuals(dt: number, camera: THREE.Camera): void {
+  /** Per frame: bodies walk / aim / fall from their bot's state. */
+  updateVisuals(dt: number): void {
     this.bots.forEach((b, i) => {
-      const v = this.visuals[i];
-      v.root.position.copy(b.position);
-      v.root.rotation.y = b.controller.yaw;
-      const fall = b.alive ? 0 : Math.min(b.combat.deadTime / DEATH_FALL, 1);
-      // Falls onto its back (+Z is behind a bot).
-      v.body.rotation.x = (Math.PI / 2) * fall * fall;
-      v.flashTime = Math.max(0, v.flashTime - dt);
-      v.flash.visible = v.flashTime > 0 && b.alive;
-      if (v.flash.visible) v.flash.quaternion.copy(camera.quaternion).premultiply(v.root.quaternion.clone().invert());
+      const c = b.controller;
+      _pose.feet.copy(c.position);
+      _pose.yaw = c.yaw;
+      _pose.pitch = c.pitch;
+      _pose.velocity.copy(c.velocity);
+      _pose.grounded = c.grounded;
+      _pose.aiming = b.mode === 'engage' && b.alive;
+      _pose.alive = b.alive;
+      _pose.deadTime = b.combat.deadTime;
+      this.models[i].update(dt, _pose);
     });
   }
 
@@ -104,9 +112,9 @@ export class BotSquad {
     if (this.disposed) return;
     this.disposed = true;
     for (const b of this.bots) this.hitscan.unregister(b.combat);
+    for (const m of this.models) m.dispose();
+    this.kit.dispose();
     this.group.removeFromParent();
-    this.geometry.geometry.dispose();
-    for (const d of [this.bodyMat, this.gunMat, this.flashMat, this.gunGeo, this.flashGeo]) d.dispose();
   }
 
   /** A walkable spot as far as possible from `avoid` (sampled), facing the map centre. */
@@ -128,30 +136,6 @@ export class BotSquad {
     const at = best >= 0 ? this.nav.center(best) : this.map.defenseSpawns[0]?.position.clone() ?? new THREE.Vector3();
     const centre = this.map.playBounds.getCenter(new THREE.Vector3());
     b.spawn(at, Math.atan2(-(centre.x - at.x), -(centre.z - at.z)));
-  }
-
-  private makeVisual(bot: Bot): Visual {
-    const root = new THREE.Group();
-    root.name = bot.id;
-    // The dummy mesh faces +Z and pivots 0.14 m behind its heels; bots face -Z.
-    const body = new THREE.Group();
-    body.rotation.order = 'YXZ';
-    const mesh = new THREE.Mesh(this.geometry.geometry, this.bodyMat);
-    mesh.rotation.y = Math.PI;
-    mesh.position.z = 0.14;
-    mesh.castShadow = false;
-    mesh.receiveShadow = true;
-    const gun = new THREE.Mesh(this.gunGeo, this.gunMat);
-    gun.position.set(0.12, 1.32, -0.3);
-    const flash = new THREE.Mesh(this.flashGeo, this.flashMat);
-    flash.position.set(0.12, 1.34, -0.7);
-    flash.visible = false;
-    body.add(mesh, gun, flash);
-    root.add(body);
-    root.traverse((o) => {
-      o.frustumCulled = true;
-    });
-    this.group.add(root);
-    return { root, body, flash, flashTime: 0 };
+    this.models[this.bots.indexOf(b)]?.reset();
   }
 }

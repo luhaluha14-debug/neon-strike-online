@@ -8,6 +8,7 @@ import { CAMERA_CONFIG, PLAYER_CONFIG, QUALITY_PRESETS, SIM_CONFIG, type Quality
 import { AudioEngine } from '../audio/AudioEngine';
 import { WeaponAudio } from '../audio/WeaponAudio';
 import { BloodEffects } from '../fx/BloodEffects';
+import { CombatEffects } from '../fx/CombatEffects';
 import { ImpactEffects } from '../fx/ImpactEffects';
 import { createInputState } from '../input/InputState';
 import { loadControls, saveControls } from '../input/Controls';
@@ -48,6 +49,8 @@ const VOLUME_OPTIONS: readonly { value: number; label: string }[] = [
 ];
 import { saveSettings, type Settings } from './Settings';
 
+const _muzzleWorld = new THREE.Vector3();
+
 export class Game {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
@@ -83,6 +86,8 @@ export class Game {
   readonly impacts = new ImpactEffects();
   /** Blood mist, droplets and wall spatter on body hits. */
   readonly blood = new BloodEffects();
+  /** Tracers and world muzzle flashes (cosmetic). */
+  readonly fx = new CombatEffects();
   readonly viewModel: ViewModelLayer;
   /** Local player's legs and waist, visible when looking down. */
   readonly body = new FirstPersonBody();
@@ -166,6 +171,7 @@ export class Game {
     this.showWeaponModel(DEFAULT_LOADOUT[0].view);
     this.scene.add(this.impacts.group);
     this.scene.add(this.blood.group);
+    this.scene.add(this.fx.group);
     this.scene.add(this.body.object);
     // Sounds are synthesised in the background while the map downloads.
     this.audio = new AudioEngine(settings.volume, { srFireInterval: 60 / SR_01.fireRate });
@@ -360,6 +366,9 @@ export class Game {
         const delay = (this.tickInFrame - this.frameShotTick) / SIM_CONFIG.tickRate;
         this.weaponAudio.onShot(weapon, result, delay, this.camera);
         this.viewModel.onShot(weapon.def.category);
+        if (weapon.def.category !== 'melee' && this.viewModel.muzzleInWorld(this.camera, _muzzleWorld)) {
+          this.fx.tracer(_muzzleWorld, result.kind === 'miss' ? result.end : result.point);
+        }
         // Holes and dust only on the map: a decal would float in the air once a dummy falls.
         if (result.kind === 'world') this.impacts.spawn(result.point, result.normal);
         if (result.kind === 'target') {
@@ -412,6 +421,7 @@ export class Game {
     this.trainingRange?.reset();
     this.impacts.clear();
     this.blood.clear();
+    this.fx.clear();
     this.prevPos.copy(this.player.position);
     this.prevEyeHeight = this.player.eyeHeight;
   }
@@ -431,8 +441,10 @@ export class Game {
       console.info(`[bots] nav grid ${this.nav.walkable.length} cells in ${this.nav.buildMs.toFixed(0)} ms`);
       const squad = new BotSquad(map, this.nav, hitscan, this.matchSettings.bots, [AR_01]);
       squad.events = {
-        onShot: (_bot, result, origin, dir, weapon) => {
+        onShot: (_bot, result, origin, dir, weapon, muzzle) => {
           this.weaponAudio.onRemoteShot(weapon, origin, result, this.camera);
+          this.fx.flash(muzzle, dir);
+          this.fx.tracer(muzzle, result.kind === 'miss' ? result.end : result.point);
           if (result.kind === 'world') this.impacts.spawn(result.point, result.normal);
           else if (result.kind === 'target') this.blood.spawn(result.point, dir, result.zone === 'head');
         },
@@ -644,7 +656,8 @@ export class Game {
     this.weaponAudio.update(w);
     this.impacts.update(frameTime);
     this.blood.update(frameTime, this.camera);
-    this.squad?.updateVisuals(frameTime, this.camera);
+    this.squad?.updateVisuals(frameTime);
+    this.fx.update(frameTime, this.camera);
     if (this.match) this.matchHud.update(this.match, this.scoreboardHeld && this.input.active);
     this.viewModel.update(
       frameTime,
