@@ -35,6 +35,27 @@ export class WeaponAudio {
     this.impact(result.kind === 'target' ? 'impact.flesh' : 'impact', result.point, delay, listener);
   }
 
+  /**
+   * Someone else's shot (a bot): the gunshot is quieter, later and panned with
+   * distance; its impact as for the player's own rounds.
+   */
+  onRemoteShot(weapon: Weapon, origin: THREE.Vector3, result: HitscanResult, listener: THREE.Camera): void {
+    _dir.subVectors(origin, listener.position);
+    const d = _dir.length();
+    if (d > 250) return;
+    _dir.multiplyScalar(1 / Math.max(d, 1e-3));
+    _right.set(1, 0, 0).applyQuaternion(listener.quaternion);
+    const s = weapon.def.sounds;
+    this.engine.play(s.fire, {
+      group: 'shot',
+      gain: (s.fireVolume * 0.9) / (1 + d / 14),
+      pan: _dir.dot(_right) * 0.75,
+      rateJitter: 0.03,
+      delay: Math.min(d / SPEED_OF_SOUND, 0.4),
+    });
+    if (result.kind !== 'miss') this.impact(result.kind === 'target' ? 'impact.flesh' : 'impact', result.point, 0, listener);
+  }
+
   onDryFire(weapon: Weapon): void {
     const dry = weapon.def.sounds.dry;
     if (dry) this.engine.play(dry, { group: 'foley', gain: 0.7, rateJitter: 0.02 });

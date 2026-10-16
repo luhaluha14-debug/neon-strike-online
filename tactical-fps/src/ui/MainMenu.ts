@@ -82,6 +82,26 @@ export class MainMenu {
         </nav>
         <div class="pages">
           <section class="page" id="page-play" data-page="play" role="tabpanel" aria-labelledby="tab-play">
+            <h2 class="section-title">게임</h2>
+            <label class="field">
+              <span class="field-label">모드</span>
+              <select class="select" data-setting="mode"></select>
+            </label>
+            <div class="match-options">
+              <label class="field">
+                <span class="field-label">봇 수</span>
+                <select class="select" data-setting="bots"></select>
+              </label>
+              <label class="field">
+                <span class="field-label">제한 시간</span>
+                <select class="select" data-setting="time-limit"></select>
+              </label>
+              <label class="field">
+                <span class="field-label">목표 킬</span>
+                <select class="select" data-setting="kill-target"></select>
+                <span class="field-hint">바꾸면 경기가 처음부터 다시 시작됩니다.</span>
+              </label>
+            </div>
             <h2 class="section-title">맵</h2>
             <div class="map-list" role="radiogroup" aria-label="맵 선택"></div>
             <p class="menu-status" aria-live="polite"></p>
@@ -154,6 +174,11 @@ export class MainMenu {
     this.loadingBar = q('.loading-progress .progress-bar');
 
     this.bindTabs();
+  }
+
+  /** Match options only matter in deathmatch. */
+  setMatchOptionsVisible(on: boolean): void {
+    this.root.querySelector<HTMLElement>('.match-options')!.hidden = !on;
   }
 
   // --- Controls page -----------------------------------------------------------
@@ -361,7 +386,7 @@ export class MainMenu {
 
   // --- Settings ---------------------------------------------------------------
 
-  bindSelect<T extends string | number>(setting: 'quality' | 'frame-limit' | 'volume', options: readonly MenuOption<T>[], current: T, onChange: (value: T) => void): void {
+  bindSelect<T extends string | number>(setting: 'quality' | 'frame-limit' | 'volume' | 'mode' | 'bots' | 'time-limit' | 'kill-target', options: readonly MenuOption<T>[], current: T, onChange: (value: T) => void): void {
     const select = this.root.querySelector<HTMLSelectElement>(`select[data-setting="${setting}"]`)!;
     select.replaceChildren(
       ...options.map((o) => {

@@ -1,0 +1,170 @@
+/* Deathmatch overlay: timer bar, kill feed, scoreboard, results. Tokens in theme.css. */
+.match-hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+.hud:not(.playing) .match-hud .match-bar,
+.hud:not(.playing) .match-hud .killfeed {
+  visibility: hidden;
+}
+.match-bar {
+  position: absolute;
+  top: max(14px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 16px;
+  background: var(--hud-bg);
+  border-bottom: 2px solid var(--c-border-strong);
+  color: var(--hud-fg);
+  font-size: var(--fs-md);
+  white-space: nowrap;
+}
+.mb-time {
+  font-size: 20px;
+  font-weight: 600;
+  min-width: 3.2em;
+  text-align: center;
+}
+.mb-time.low {
+  color: var(--hud-danger);
+}
+.mb-kills b {
+  color: var(--hud-accent);
+  font-size: 18px;
+}
+.mb-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--c-border-strong);
+}
+.mb-rank {
+  color: var(--hud-dim);
+}
+.killfeed {
+  position: absolute;
+  top: max(14px, env(safe-area-inset-top));
+  right: max(16px, env(safe-area-inset-right));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  max-width: min(46vw, 360px);
+}
+.killfeed li {
+  padding: 4px 10px;
+  background: var(--hud-bg);
+  color: var(--hud-fg);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.killfeed li.mine {
+  border-left: 2px solid var(--hud-accent);
+}
+.killfeed li.me-died {
+  border-left: 2px solid var(--hud-danger);
+}
+.killfeed .me {
+  color: var(--hud-accent);
+  font-weight: 600;
+}
+.kf-w {
+  color: var(--hud-dim);
+  margin: 0 4px;
+}
+.scoreboard {
+  position: absolute;
+  left: 50%;
+  top: 18%;
+  transform: translateX(-50%);
+  width: min(460px, calc(100vw - 32px));
+  padding: 14px 16px;
+  background: rgba(17, 19, 21, 0.86);
+  border-top: 2px solid var(--c-accent);
+}
+.score-table {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--c-text);
+  font-size: var(--fs-md);
+}
+.score-table th {
+  text-align: left;
+  color: var(--c-text-3);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-caps);
+  padding: 4px 6px 8px;
+  border-bottom: 1px solid var(--c-border);
+}
+.score-table td {
+  padding: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.score-table th:nth-child(n + 3),
+.score-table td:nth-child(n + 3) {
+  text-align: right;
+  width: 3.5em;
+}
+.score-table th:first-child,
+.score-table td:first-child {
+  width: 2em;
+  color: var(--c-text-3);
+}
+.score-table tr.me td {
+  color: var(--c-accent);
+  font-weight: 600;
+}
+.results {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(10, 11, 12, 0.72);
+  pointer-events: auto;
+}
+.results[hidden] {
+  display: none;
+}
+.results-panel {
+  width: min(480px, 100%);
+  padding: 24px 22px 20px;
+  background: var(--c-bg-2);
+  border-top: 3px solid var(--c-danger);
+}
+.results.won .results-panel {
+  border-top-color: var(--c-accent);
+}
+.results-title {
+  font-size: var(--fs-display);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--c-danger);
+}
+.results.won .results-title {
+  color: var(--c-accent);
+}
+.results-sub {
+  margin: 4px 0 16px;
+  color: var(--c-text-2);
+}
+.results-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}
+.results-actions .btn-primary {
+  flex: 1;
+}

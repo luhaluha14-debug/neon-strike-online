@@ -16,6 +16,9 @@ const LEGS = 0.5;
 
 export interface PlayerDamageEvent {
   amount: number;
+  /** Shooter id ('local' = the player, bots 'bot-N') and weapon. */
+  sourceId: string;
+  weaponId: string;
   zone: HitZone;
   /** Normalized world direction the bullet travelled. */
   direction: THREE.Vector3;
@@ -39,7 +42,8 @@ const _ba = new THREE.Vector3();
  * the Damageable interface.
  */
 export class PlayerCombat implements Damageable {
-  readonly id = 'local';
+  /** Hitscan id: shots with the same sourceId never hit this body. */
+  readonly id: string;
   /** Seconds since death (0 while alive). */
   deadTime = 0;
   /** Seconds of spawn protection left. */
@@ -49,7 +53,12 @@ export class PlayerCombat implements Damageable {
 
   private dead = false;
 
-  constructor(private readonly player: PlayerController) {}
+  constructor(
+    private readonly player: PlayerController,
+    id = 'local',
+  ) {
+    this.id = id;
+  }
 
   get alive(): boolean {
     return !this.dead;
@@ -94,7 +103,7 @@ export class PlayerCombat implements Damageable {
       this.dead = true;
       this.deadTime = 0;
     }
-    this.onDamage?.({ amount: info.amount, zone: info.zone, direction: info.direction.clone(), killed });
+    this.onDamage?.({ amount: info.amount, sourceId: info.sourceId, weaponId: info.weaponId, zone: info.zone, direction: info.direction.clone(), killed });
   }
 
   /** Advances timers by one simulation tick. */

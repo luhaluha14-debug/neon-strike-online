@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import { BotSquad } from '../ai/BotSquad';
+import type { Combatant } from '../ai/Bot';
+import { NavGrid } from '../ai/NavGrid';
 import { HitscanSystem } from '../combat/HitscanSystem';
 import { TrainingRange } from '../combat/TrainingRange';
 import { CAMERA_CONFIG, PLAYER_CONFIG, QUALITY_PRESETS, SIM_CONFIG, type QualityLevel } from '../config';
@@ -12,14 +15,17 @@ import { KeyboardMouseInput } from '../input/KeyboardMouseInput';
 import { FirstPersonBody, type BodyState } from '../player/FirstPersonBody';
 import { PlayerController } from '../player/PlayerController';
 import { PlayerCombat, RESPAWN_DELAY, type PlayerDamageEvent } from '../player/PlayerCombat';
+import { Match, BOT_COUNT_OPTIONS, KILL_TARGET_OPTIONS, TIME_LIMIT_OPTIONS, type GameMode } from '../game/Match';
+import { loadMatchSettings, parseMode, saveMatchSettings, type MatchSettings } from '../game/MatchSettings';
 import { Hud } from '../ui/Hud';
+import { MatchHud } from '../ui/MatchHud';
 import { createWeaponView, loadWeaponView, preloadWeaponViews } from '../weapons/view/WeaponView';
 import type { MenuWeapon } from '../ui/MainMenu';
 import { renderWeaponThumbnails } from '../ui/weaponThumbnails';
 import type { WeaponDefinition, WeaponViewSpec } from '../weapons/WeaponDefinition';
 import { ViewModelLayer } from '../weapons/view/ViewModelLayer';
 import type { Weapon } from '../weapons/Weapon';
-import { DEFAULT_LOADOUT, SR_01 } from '../weapons/weapons';
+import { AR_01, DEFAULT_LOADOUT, SR_01 } from '../weapons/weapons';
 import { WeaponSystem, type WeaponCommand } from '../weapons/WeaponSystem';
 import type { WeaponAnimState } from '../weapons/view/WeaponView';
 import { findMap, MAPS, type MapDefinition } from '../maps';
@@ -63,6 +69,17 @@ export class Game {
   spawnPoint: SpawnPoint | null = null;
   /** Last training-target hit, shown in the F3 overlay. */
   private lastHit = '';
+  /** 'deathmatch' (bots, match rules) or 'training' (dummies). `?mode=` overrides the saved choice. */
+  mode: GameMode;
+  readonly matchSettings: MatchSettings;
+  /** Walkable grid of the current map (built when bots need it). */
+  nav: NavGrid | null = null;
+  squad: BotSquad | null = null;
+  match: Match | null = null;
+  private readonly matchHud: MatchHud;
+  private scoreboardHeld = false;
+  /** The player as bots see it. */
+  private readonly playerCombatant: Combatant;
   readonly impacts = new ImpactEffects();
   /** Blood mist, droplets and wall spatter on body hits. */
   readonly blood = new BloodEffects();
@@ -103,6 +120,22 @@ export class Game {
   constructor(container: HTMLElement, quality: QualityLevel, settings: Settings) {
     this.quality = quality;
     this.settings = settings;
+    this.matchSettings = loadMatchSettings();
+    this.mode = parseMode(new URLSearchParams(location.search).get('mode')) ?? this.matchSettings.mode;
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const game = this;
+    this.playerCombatant = {
+      id: 'local',
+      get alive() {
+        return game.combat?.alive ?? false;
+      },
+      get position() {
+        return game.player!.position;
+      },
+      get height() {
+        return game.player!.height;
+      },
+    };
     const mapDef = findMap(settings.mapId);
     this.mapDef = mapDef;
     const preset = QUALITY_PRESETS[quality];
@@ -197,6 +230,15 @@ export class Game {
       saveControls(c);
     });
     this.hud.onStart(() => this.input.requestLock());
+    this.matchHud = new MatchHud(
+      this.hud.root,
+      () => {
+        this.restartMatch();
+        this.input.requestLock();
+      },
+      () => this.restartMatch(),
+    );
+    this.bindMatchOptions();
     this.renderer.domElement.addEventListener('click', () => {
       if (this.player && !this.loadingMap && !this.input.active) this.input.requestLock();
     });
@@ -206,10 +248,16 @@ export class Game {
       if (e.code === 'F3') {
         e.preventDefault();
         this.setStatsShown(!this.hud.statsVisible);
-      } else if (e.code === 'F4' && this.input.active && this.combat?.alive !== false) {
+      } else if (e.code === 'F4' && this.input.active && this.combat?.alive !== false && this.mode === 'training') {
         e.preventDefault();
         this.respawn();
+      } else if (e.code === 'Tab') {
+        e.preventDefault();
+        this.scoreboardHeld = true;
       }
+    });
+    window.addEventListener('keyup', (e) => {
+      if (e.code === 'Tab') this.scoreboardHeld = false;
     });
   }
 
@@ -226,8 +274,8 @@ export class Game {
     const def = findMap(id);
     if (this.loadingMap || def.id === this.mapDef.id) return;
     if (document.pointerLockElement) document.exitPointerLock();
-    this.trainingRange?.dispose();
-    this.trainingRange = null;
+    this.teardownMode();
+    this.nav = null;
     if (this.combat) this.hitscan?.unregister(this.combat);
     this.combat = null;
     this.spawnPoint = null;
@@ -297,8 +345,6 @@ export class Game {
     this.combat = new PlayerCombat(this.player);
     this.combat.onDamage = (e) => this.onPlayerDamaged(e);
     this.hitscan.register(this.combat);
-    this.trainingRange = new TrainingRange(map, this.homeSpawn(map), this.hitscan);
-    this.scene.add(this.trainingRange.group);
     await this.weaponModels;
     this.showWeaponModel(this.weapons.weapon.def.view);
     this.hud.setLoadout(this.weapons.loadout.map((w) => w.def.displayName), this.weapons.slot);
@@ -327,7 +373,9 @@ export class Game {
       onDryFire: () => this.weaponAudio.onDryFire(this.weapons!.weapon),
       onReloadEnd: () => this.weaponAudio.onReloadEnd(this.weapons!.weapon),
     };
+    this.setupMode();
     this.respawn();
+    this.squad?.spawnAll([this.player.position]);
 
     // Compile shaders and bake the static shadow map before the first frame.
     this.renderer.compile(this.scene, this.camera);
@@ -351,7 +399,7 @@ export class Game {
 
   respawn(): void {
     if (!this.map || !this.player) return;
-    const spawn = this.safeSpawn(this.map);
+    const spawn = this.squad ? this.deathmatchSpawn() : this.safeSpawn(this.map);
     this.spawnPoint = spawn ?? null;
     const pos = spawn ? spawn.position.clone() : this.map.playBounds.getCenter(new THREE.Vector3());
     // Spawn empties sit slightly above the floor; drop onto it from a little higher.
@@ -366,6 +414,115 @@ export class Game {
     this.blood.clear();
     this.prevPos.copy(this.player.position);
     this.prevEyeHeight = this.player.eyeHeight;
+  }
+
+  /** Builds what the current mode needs on the loaded map: dummies, or bots + a fresh match. */
+  private setupMode(): void {
+    const map = this.map;
+    const hitscan = this.hitscan;
+    if (!map || !hitscan) return;
+    this.teardownMode();
+    const dm = this.mode === 'deathmatch';
+    if (!dm) {
+      this.trainingRange = new TrainingRange(map, this.homeSpawn(map), hitscan);
+      this.scene.add(this.trainingRange.group);
+    } else {
+      this.nav ??= new NavGrid(map);
+      console.info(`[bots] nav grid ${this.nav.walkable.length} cells in ${this.nav.buildMs.toFixed(0)} ms`);
+      const squad = new BotSquad(map, this.nav, hitscan, this.matchSettings.bots, [AR_01]);
+      squad.events = {
+        onShot: (_bot, result, origin, dir, weapon) => {
+          this.weaponAudio.onRemoteShot(weapon, origin, result, this.camera);
+          if (result.kind === 'world') this.impacts.spawn(result.point, result.normal);
+          else if (result.kind === 'target') this.blood.spawn(result.point, dir, result.zone === 'head');
+        },
+        onDamage: (bot, e) => {
+          if (e.killed) this.match?.recordKill(e.sourceId, bot.id, e.weaponId, e.zone === 'head');
+        },
+      };
+      this.squad = squad;
+      this.scene.add(squad.group);
+      this.match = new Match(this.matchSettings, [{ id: 'local', name: 'YOU', isPlayer: true }, ...squad.bots.map((b) => ({ id: b.id, name: b.name, isPlayer: false }))]);
+    }
+    this.matchHud.setVisible(dm);
+    this.matchHud.hideResults();
+    this.hud.menu.setMatchOptionsVisible(dm);
+  }
+
+  private teardownMode(): void {
+    this.trainingRange?.dispose();
+    this.trainingRange = null;
+    this.squad?.dispose();
+    this.squad = null;
+    this.match = null;
+  }
+
+  /** New match on the same map: fresh scores, everyone respawned. */
+  restartMatch(): void {
+    if (!this.map) return;
+    this.setupMode();
+    this.respawn();
+    this.squad?.spawnAll([this.player!.position]);
+    this.accumulator = 0;
+  }
+
+  /** Deathmatch spawn: a walkable spot far from the living bots. */
+  private deathmatchSpawn(): SpawnPoint | undefined {
+    const nav = this.nav;
+    const map = this.map;
+    if (!nav || !map) return undefined;
+    const bots = this.squad?.bots.filter((b) => b.alive).map((b) => b.position) ?? [];
+    let best: THREE.Vector3 | null = null;
+    let bestScore = -Infinity;
+    for (let k = 0; k < 32; k++) {
+      const c = nav.randomCell();
+      if (c < 0) break;
+      const p = nav.center(c);
+      let near = 60;
+      for (const b of bots) near = Math.min(near, Math.hypot(b.x - p.x, b.z - p.z));
+      if (near > bestScore) {
+        bestScore = near;
+        best = p;
+      }
+    }
+    if (!best) return this.safeSpawn(map);
+    const centre = map.playBounds.getCenter(new THREE.Vector3());
+    return { position: best, yaw: Math.atan2(-(centre.x - best.x), -(centre.z - best.z)) };
+  }
+
+  /** Mode and match rules on the Play page (saved apart from the settings record). */
+  private bindMatchOptions(): void {
+    const ms = this.matchSettings;
+    const save = () => saveMatchSettings({ ...ms, mode: this.mode });
+    this.hud.menu.bindSelect(
+      'mode',
+      [
+        { value: 'deathmatch', label: '봇 데스매치 (개인전)' },
+        { value: 'training', label: '훈련장 (표적)' },
+      ] as const,
+      this.mode,
+      (m) => {
+        this.mode = m;
+        save();
+        this.restartMatch();
+      },
+    );
+    this.hud.menu.bindSelect('bots', BOT_COUNT_OPTIONS.map((n) => ({ value: n, label: `${n}명` })), ms.bots, (n) => {
+      ms.bots = n;
+      save();
+      this.restartMatch();
+    });
+    this.hud.menu.bindSelect('time-limit', TIME_LIMIT_OPTIONS.map((n) => ({ value: n, label: `${n / 60}분` })), ms.timeLimit, (n) => {
+      ms.timeLimit = n;
+      save();
+      this.restartMatch();
+    });
+    this.hud.menu.bindSelect('kill-target', KILL_TARGET_OPTIONS.map((n) => ({ value: n, label: `${n}킬` })), ms.killTarget, (n) => {
+      ms.killTarget = n;
+      save();
+      this.restartMatch();
+    });
+    this.hud.menu.setMatchOptionsVisible(this.mode === 'deathmatch');
   }
 
   /** The spawn point the player (re)spawns at; training targets are laid out in front of it. */
@@ -403,7 +560,10 @@ export class Game {
     const sz = -e.direction.z;
     const angle = Math.atan2(sx * -fz + sz * fx, sx * fx + sz * fz);
     this.hud.showDamage(e.amount, angle);
-    if (e.killed) this.audio.stopGroup('foley');
+    if (e.killed) {
+      this.audio.stopGroup('foley');
+      this.match?.recordKill(e.sourceId, 'local', e.weaponId, e.zone === 'head');
+    }
   }
 
   private frame(timestamp: number): void {
@@ -445,6 +605,10 @@ export class Game {
         if (alive) this.weapons?.step(command, tick);
         combat?.step(tick);
         this.trainingRange?.step(tick);
+        if (this.match && !this.match.over) {
+          this.squad?.step(tick, this.playerCombatant);
+          this.match.update(tick);
+        }
         // Switch requests are one-shot: apply them on the first tick only.
         command.equipSlot = -1;
         command.equipLast = false;
@@ -452,6 +616,11 @@ export class Game {
       }
       if (ticks > 0) this.input.clearLatches();
       if (combat?.respawnDue || player.position.y < this.mapDef.killPlaneY) this.respawn();
+      // Match over: freeze, release the mouse, show the results.
+      if (this.match?.over && !this.matchHud.resultsShown) {
+        this.matchHud.showResults(this.match);
+        document.exitPointerLock();
+      }
     }
     const dead = !!combat && !combat.alive;
 
@@ -475,6 +644,8 @@ export class Game {
     this.weaponAudio.update(w);
     this.impacts.update(frameTime);
     this.blood.update(frameTime, this.camera);
+    this.squad?.updateVisuals(frameTime, this.camera);
+    if (this.match) this.matchHud.update(this.match, this.scoreboardHeld && this.input.active);
     this.viewModel.update(
       frameTime,
       {

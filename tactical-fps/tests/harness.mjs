@@ -48,7 +48,7 @@ export async function startEnv() {
  * until the map is loaded and the Play button is enabled. `page.errors`
  * collects page exceptions and console errors.
  */
-export async function openGame(env, { map = 'warehouse', quality = 'low', width = 640, height = 360 } = {}) {
+export async function openGame(env, { map = 'warehouse', quality = 'low', width = 640, height = 360, mode = 'training' } = {}) {
   const context = await env.browser.newContext({ viewport: { width, height } });
   const page = await context.newPage();
   page.setDefaultTimeout(LOAD_TIMEOUT);
@@ -58,7 +58,9 @@ export async function openGame(env, { map = 'warehouse', quality = 'low', width 
     if (m.type() === 'error') page.errors.push('console.error: ' + m.text());
   });
   // quality: null = no ?quality in the link (the game picks automatically / from saved settings).
-  await page.goto(`${env.url}/?map=${map}` + (quality ? `&quality=${quality}` : ''));
+  // mode: 'training' (dummies, the default here so earlier suites test what they were written for),
+  // 'deathmatch' (bots), or null for the game's own default.
+  await page.goto(`${env.url}/?map=${map}` + (quality ? `&quality=${quality}` : '') + (mode ? `&mode=${mode}` : ''));
   await waitReady(page);
   return page;
 }
