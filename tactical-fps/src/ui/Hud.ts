@@ -186,7 +186,7 @@ export class Hud {
     this.root.classList.toggle('low-health', hp <= 25);
   }
 
-  /** Slot strip above the ammo counter: "1 AR-01  2 SR-01  3 KARAMBIT". */
+  /** Slot strip above the ammo counter: "1 AR-01  2 SR-01  3 M9 BAYONET". */
   setLoadout(names: readonly string[], active: number): void {
     this.menu.setSelectedWeapon(active);
     const strip = this.root.querySelector<HTMLDivElement>('.loadout')!;

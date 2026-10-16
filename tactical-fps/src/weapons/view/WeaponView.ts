@@ -1,6 +1,6 @@
 import type * as THREE from 'three';
 import type { ProceduralModelId, WeaponCategory, WeaponViewSpec } from '../WeaponDefinition';
-import { loadGltfWeaponView } from './GltfWeaponView';
+import { isGltfLoaded, loadedGltfWeaponView, loadGltfScene, loadGltfWeaponView } from './GltfWeaponView';
 import { KarambitView } from './KarambitView';
 import { ProceduralRifleView } from './ProceduralRifleView';
 import { SniperRifleView } from './SniperRifleView';
@@ -65,14 +65,23 @@ function createProcedural(model: ProceduralModelId): WeaponView {
 }
 
 /**
- * Builds the model that can be shown right away: the procedural model, or
- * for a GLB spec its procedural fallback (shown while the file loads).
+ * Builds the model that can be shown right away: the procedural model, the
+ * GLB if it has already loaded, else the GLB's procedural fallback.
  */
 export function createWeaponView(spec: WeaponViewSpec): WeaponView {
-  return createProcedural(spec.kind === 'procedural' ? spec.model : spec.fallback);
+  if (spec.kind === 'procedural') return createProcedural(spec.model);
+  return loadedGltfWeaponView(spec.url, spec.fit) ?? createProcedural(spec.fallback);
 }
 
-/** Resolves to the final model for a GLB spec (null for procedural specs). */
+/** Resolves to the final model for a GLB spec still loading (null if there is nothing to wait for). */
 export function loadWeaponView(spec: WeaponViewSpec): Promise<WeaponView> | null {
-  return spec.kind === 'gltf' ? loadGltfWeaponView(spec.url) : null;
+  if (spec.kind !== 'gltf' || isGltfLoaded(spec.url)) return null;
+  return loadGltfWeaponView(spec.url, spec.fit);
+}
+
+/** Downloads every GLB of the given specs once; failures leave the procedural fallback in place. */
+export async function preloadWeaponViews(specs: readonly WeaponViewSpec[]): Promise<void> {
+  const urls = specs.flatMap((s) => (s.kind === 'gltf' ? [s.url] : []));
+  const results = await Promise.allSettled(urls.map((url) => loadGltfScene(url)));
+  for (const r of results) if (r.status === 'rejected') console.warn('[weapon] could not load GLB model, keeping the placeholder', r.reason);
 }
