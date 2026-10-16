@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { HitscanSystem } from '../combat/HitscanSystem';
+import { TrainingRange } from '../combat/TrainingRange';
 import { CAMERA_CONFIG, PLAYER_CONFIG, QUALITY_PRESETS, SIM_CONFIG, type QualityLevel } from '../config';
 import { AudioEngine } from '../audio/AudioEngine';
 import { WeaponAudio } from '../audio/WeaponAudio';
@@ -8,6 +9,7 @@ import { createInputState } from '../input/InputState';
 import { KeyboardMouseInput } from '../input/KeyboardMouseInput';
 import { FirstPersonBody, type BodyState } from '../player/FirstPersonBody';
 import { PlayerController } from '../player/PlayerController';
+import { PlayerCombat, RESPAWN_DELAY, type PlayerDamageEvent } from '../player/PlayerCombat';
 import { Hud } from '../ui/Hud';
 import { createWeaponView, loadWeaponView } from '../weapons/view/WeaponView';
 import type { MenuWeapon } from '../ui/MainMenu';
@@ -19,7 +21,7 @@ import { DEFAULT_LOADOUT, SR_01 } from '../weapons/weapons';
 import { WeaponSystem, type WeaponCommand } from '../weapons/WeaponSystem';
 import type { WeaponAnimState } from '../weapons/view/WeaponView';
 import { findMap, MAPS, type MapDefinition } from '../maps';
-import { disposeMap, loadMap, type LoadedMap } from '../world/MapLoader';
+import { disposeMap, loadMap, type LoadedMap, type SpawnPoint } from '../world/MapLoader';
 import { createSkyEnvironment, HORIZON_COLOR, SkyDome } from '../world/Sky';
 import { enhanceMapMaterials } from '../world/SurfaceMaterials';
 import { FRAME_LIMIT_OPTIONS, FrameLoop, type FrameLimit } from './FrameLoop';
@@ -51,6 +53,14 @@ export class Game {
   player: PlayerController | null = null;
   hitscan: HitscanSystem | null = null;
   weapons: WeaponSystem | null = null;
+  /** Training dummies of the current map. */
+  trainingRange: TrainingRange | null = null;
+  /** The local player's health, death and respawn timer (bullets reach it through the hitscan). */
+  combat: PlayerCombat | null = null;
+  /** Spawn point used by the last (re)spawn. */
+  spawnPoint: SpawnPoint | null = null;
+  /** Last training-target hit, shown in the F3 overlay. */
+  private lastHit = '';
   readonly impacts = new ImpactEffects();
   readonly viewModel: ViewModelLayer;
   /** Local player's legs and waist, visible when looking down. */
@@ -71,6 +81,8 @@ export class Game {
 
   private readonly input: KeyboardMouseInput;
   private readonly inputState = createInputState();
+  /** What a dead player "presses": nothing. */
+  private readonly deadInput = createInputState();
   private readonly timer = new THREE.Timer();
   private readonly loop = new FrameLoop((now) => this.frame(now));
   private loadingMap = false;
@@ -180,7 +192,7 @@ export class Game {
       if (e.code === 'F3') {
         e.preventDefault();
         this.setStatsShown(!this.hud.statsVisible);
-      } else if (e.code === 'F4' && this.input.active) {
+      } else if (e.code === 'F4' && this.input.active && this.combat?.alive !== false) {
         e.preventDefault();
         this.respawn();
       }
@@ -198,6 +210,12 @@ export class Game {
     const def = findMap(id);
     if (this.loadingMap || def.id === this.mapDef.id) return;
     if (document.pointerLockElement) document.exitPointerLock();
+    this.trainingRange?.dispose();
+    this.trainingRange = null;
+    if (this.combat) this.hitscan?.unregister(this.combat);
+    this.combat = null;
+    this.spawnPoint = null;
+    this.lastHit = '';
     if (this.map) disposeMap(this.map);
     this.map = null;
     this.player = null;
@@ -257,6 +275,11 @@ export class Game {
     this.player = new PlayerController(map.collision);
     this.hitscan = new HitscanSystem(map.collision);
     this.weapons = new WeaponSystem(DEFAULT_LOADOUT, this.player, this.hitscan);
+    this.combat = new PlayerCombat(this.player);
+    this.combat.onDamage = (e) => this.onPlayerDamaged(e);
+    this.hitscan.register(this.combat);
+    this.trainingRange = new TrainingRange(map, this.homeSpawn(map), this.hitscan);
+    this.scene.add(this.trainingRange.group);
     this.showWeaponModel(this.weapons.weapon.def.view);
     this.hud.setLoadout(this.weapons.loadout.map((w) => w.def.displayName), this.weapons.slot);
     this.weapons.events = {
@@ -271,7 +294,13 @@ export class Game {
         const delay = (this.tickInFrame - this.frameShotTick) / SIM_CONFIG.tickRate;
         this.weaponAudio.onShot(weapon, result, delay, this.camera);
         this.viewModel.onShot(weapon.def.category);
-        if (result.kind !== 'miss') this.impacts.spawn(result.point, result.normal);
+        // Holes and dust only on the map: a decal would float in the air once a dummy falls.
+        if (result.kind === 'world') this.impacts.spawn(result.point, result.normal);
+        if (result.kind === 'target') {
+          const kill = !result.target.alive;
+          this.hud.showHitMarker(result.zone === 'head', kill);
+          this.lastHit = `${result.zone} ${result.damage} @ ${result.distance.toFixed(1)} m${kill ? '  KILL' : ''}`;
+        }
         if (import.meta.env.DEV && this.debugShots) console.debug('[shot]', result.kind, 'distance' in result ? result.distance.toFixed(2) : '');
       },
       onDryFire: () => this.weaponAudio.onDryFire(this.weapons!.weapon),
@@ -301,17 +330,58 @@ export class Game {
 
   respawn(): void {
     if (!this.map || !this.player) return;
-    const spawns = this.map.attackSpawns.length ? this.map.attackSpawns : this.map.defenseSpawns;
-    const spawn = spawns[Math.floor(spawns.length / 2)];
+    const spawn = this.safeSpawn(this.map);
+    this.spawnPoint = spawn ?? null;
     const pos = spawn ? spawn.position.clone() : this.map.playBounds.getCenter(new THREE.Vector3());
     // Spawn empties sit slightly above the floor; drop onto it from a little higher.
     pos.y += 0.1;
     this.player.teleport(pos, spawn?.yaw ?? 0);
     this.weapons?.resetForRespawn();
     this.body.reset();
+    this.combat?.reset();
+    this.hud.setDeath(null, RESPAWN_DELAY);
+    this.trainingRange?.reset();
     this.impacts.clear();
     this.prevPos.copy(this.player.position);
     this.prevEyeHeight = this.player.eyeHeight;
+  }
+
+  /** The spawn point the player (re)spawns at; training targets are laid out in front of it. */
+  private homeSpawn(map: LoadedMap): SpawnPoint | undefined {
+    const spawns = map.attackSpawns.length ? map.attackSpawns : map.defenseSpawns;
+    return spawns[Math.floor(spawns.length / 2)];
+  }
+
+  /**
+   * The home spawn if the player fits there, else the first spawn point of the
+   * current map whose standing capsule is free of the map geometry.
+   */
+  private safeSpawn(map: LoadedMap): SpawnPoint | undefined {
+    const home = this.homeSpawn(map);
+    const r = PLAYER_CONFIG.radius;
+    const seg = new THREE.Line3();
+    for (const s of [home, ...map.attackSpawns, ...map.defenseSpawns]) {
+      if (!s) continue;
+      const feet = s.position.y + 0.1;
+      seg.start.set(s.position.x, feet + r + 0.05, s.position.z);
+      seg.end.set(s.position.x, feet + PLAYER_CONFIG.standHeight - r, s.position.z);
+      if (!map.collision.capsuleOverlaps(seg, r - 0.02)) return s;
+    }
+    return home;
+  }
+
+  /** Hit feedback for the local player: HUD flash + direction of the shot. */
+  private onPlayerDamaged(e: PlayerDamageEvent): void {
+    const p = this.player;
+    if (!p) return;
+    // Screen angle of where the shot came from: 0 = ahead, +PI/2 = right.
+    const fx = -Math.sin(p.yaw);
+    const fz = -Math.cos(p.yaw);
+    const sx = -e.direction.x;
+    const sz = -e.direction.z;
+    const angle = Math.atan2(sx * -fz + sz * fx, sx * fx + sz * fz);
+    this.hud.showDamage(e.amount, angle);
+    if (e.killed) this.audio.stopGroup('foley');
   }
 
   private frame(timestamp: number): void {
@@ -325,6 +395,12 @@ export class Game {
     }
 
     this.input.poll(this.inputState);
+    const combat = this.combat;
+    if (combat && !combat.alive) {
+      // Dead: the view stays where it fell; mouse movement is dropped.
+      this.inputState.lookYaw = 0;
+      this.inputState.lookPitch = 0;
+    }
     const lookYaw = this.inputState.lookYaw;
     const lookPitch = this.inputState.lookPitch;
     this.weapons?.onLookInput(lookPitch);
@@ -341,23 +417,36 @@ export class Game {
         ticks++;
         this.prevPos.copy(player.position);
         this.prevEyeHeight = player.eyeHeight;
-        player.step(this.inputState, tick);
-        this.weapons?.step(command, tick);
+        const alive = !combat || combat.alive;
+        // A dead player still falls (gravity, collision) but neither moves nor shoots.
+        player.step(alive ? this.inputState : this.deadInput, tick);
+        if (alive) this.weapons?.step(command, tick);
+        combat?.step(tick);
+        this.trainingRange?.step(tick);
         // Switch requests are one-shot: apply them on the first tick only.
         command.equipSlot = -1;
         command.equipLast = false;
         this.accumulator -= tick;
       }
       if (ticks > 0) this.input.clearLatches();
-      if (player.position.y < this.mapDef.killPlaneY) this.respawn();
+      if (combat?.respawnDue || player.position.y < this.mapDef.killPlaneY) this.respawn();
     }
+    const dead = !!combat && !combat.alive;
 
     // Interpolate between the last two ticks for smooth motion at any refresh rate.
     const alpha = this.input.active ? this.accumulator * SIM_CONFIG.tickRate : 1;
-    const eye = THREE.MathUtils.lerp(this.prevEyeHeight, player.eyeHeight, alpha);
+    let eye = THREE.MathUtils.lerp(this.prevEyeHeight, player.eyeHeight, alpha);
+    let roll = 0;
+    if (dead) {
+      // Death view: the camera slumps to the ground and tilts over 0.6 s.
+      const k = THREE.MathUtils.smoothstep(combat!.deadTime, 0, 0.6);
+      eye = THREE.MathUtils.lerp(eye, 0.35, k);
+      roll = 0.35 * k;
+    }
     this.camera.position.lerpVectors(this.prevPos, player.position, alpha);
     this.camera.position.y += eye;
-    this.camera.rotation.set(player.pitch, player.yaw, 0);
+    this.camera.rotation.set(player.pitch, player.yaw, roll);
+    this.body.object.visible = !dead;
     this.updateBody(frameTime, eye);
 
     const w = this.weapons?.weapon;
@@ -378,8 +467,10 @@ export class Game {
     this.sky.follow(this.camera);
     this.renderer.clear();
     this.renderer.render(this.scene, this.camera);
-    this.viewModel.render(this.renderer);
+    // No weapon in hand while dead.
+    if (!dead) this.viewModel.render(this.renderer);
     this.hud.setHealth(player.health);
+    this.hud.setDeath(dead ? combat!.respawnIn : null, RESPAWN_DELAY);
     this.updateWeaponHud();
     this.updateStats(frameTime);
   }
@@ -465,7 +556,8 @@ export class Game {
     this.hud.setStats(
       `${this.fps.toFixed(0)} fps (limit ${this.loop.frameLimit})  ·  ${info.calls} draws  ·  ${(info.triangles / 1000).toFixed(0)}k tris  ·  ${this.quality}  ·  ${this.mapDef.id}\n` +
         `pos ${p.position.x.toFixed(2)} ${p.position.y.toFixed(2)} ${p.position.z.toFixed(2)}  ` +
-        `spd ${Math.hypot(p.velocity.x, p.velocity.z).toFixed(2)}  ${p.grounded ? 'ground' : 'air'}${p.crouching ? ' crouch' : ''}`,
+        `spd ${Math.hypot(p.velocity.x, p.velocity.z).toFixed(2)}  ${p.grounded ? 'ground' : 'air'}${p.crouching ? ' crouch' : ''}` +
+        (this.lastHit ? `\nlast hit ${this.lastHit}` : ''),
     );
   }
 

@@ -19,6 +19,17 @@ export class Hud {
   private readonly ammoReserve: HTMLSpanElement;
   private readonly weaponStatus: HTMLDivElement;
   private readonly reloadBar: HTMLDivElement;
+  private readonly hitMarker: HTMLDivElement;
+  private hitMarkerAnim: Animation | null = null;
+  private readonly vignette: HTMLDivElement;
+  private readonly damageDir: HTMLDivElement;
+  private readonly vitals: HTMLDivElement;
+  private readonly death: HTMLDivElement;
+  private readonly deathSeconds: HTMLSpanElement;
+  private readonly deathBar: HTMLDivElement;
+  private damageAnims: Animation[] = [];
+  /** Tenths of a second shown on the death panel (-1 = hidden). */
+  private lastDeathTenths = -1;
   private lastHealth = -1;
   private lastAmmoKey = '';
   private lastReload = -1;
@@ -26,9 +37,12 @@ export class Hud {
   constructor(parent: HTMLElement) {
     this.root = el('div', 'hud');
     this.root.innerHTML = `
+      <div class="damage-vignette" aria-hidden="true"></div>
+      <div class="damage-dir" aria-hidden="true"><span class="damage-arc"></span></div>
       <div class="crosshair" aria-hidden="true">
         <span class="ch-line ch-top"></span><span class="ch-line ch-bottom"></span>
         <span class="ch-line ch-left"></span><span class="ch-line ch-right"></span>
+        <div class="hitmarker"><span class="hm hm-tl"></span><span class="hm hm-tr"></span><span class="hm hm-bl"></span><span class="hm hm-br"></span></div>
       </div>
       <div class="vitals">
         <div class="vitals-label">HP</div>
@@ -44,6 +58,11 @@ export class Hud {
         <div class="weapon-status"></div>
         <div class="reload-track"><div class="reload-bar"></div></div>
       </div>
+      <div class="death" role="status" hidden>
+        <div class="death-title">사망</div>
+        <div class="death-timer">리스폰까지 <span class="death-seconds">3.0</span>초</div>
+        <div class="death-track"><div class="death-bar"></div></div>
+      </div>
       <div class="stats"></div>`;
     parent.appendChild(this.root);
 
@@ -56,6 +75,53 @@ export class Hud {
     this.ammoReserve = this.root.querySelector('.ammo-reserve')!;
     this.weaponStatus = this.root.querySelector('.weapon-status')!;
     this.reloadBar = this.root.querySelector('.reload-bar')!;
+    this.hitMarker = this.root.querySelector('.hitmarker')!;
+    this.vignette = this.root.querySelector('.damage-vignette')!;
+    this.damageDir = this.root.querySelector('.damage-dir')!;
+    this.vitals = this.root.querySelector('.vitals')!;
+    this.death = this.root.querySelector('.death')!;
+    this.deathSeconds = this.root.querySelector('.death-seconds')!;
+    this.deathBar = this.root.querySelector('.death-bar')!;
+  }
+
+  /**
+   * The player took `amount` damage from `angle` (radians, 0 = straight ahead,
+   * positive = to the right): red screen edges scaled by the damage, a marker
+   * pointing at the shooter, and a flash on the health panel.
+   */
+  showDamage(amount: number, angle: number): void {
+    for (const a of this.damageAnims) a.cancel();
+    const peak = Math.min(0.2 + (amount / 100) * 0.5, 0.65);
+    this.damageDir.style.transform = `rotate(${angle}rad)`;
+    this.damageAnims = [
+      this.vignette.animate([{ opacity: peak }, { opacity: 0 }], { duration: 550, easing: 'ease-out' }),
+      this.damageDir.animate([{ opacity: 1 }, { opacity: 1, offset: 0.4 }, { opacity: 0 }], { duration: 1100, easing: 'linear' }),
+      this.vitals.animate([{ backgroundColor: 'rgba(208, 86, 63, 0.55)' }, { backgroundColor: 'rgba(17, 19, 21, 0.62)' }], { duration: 450, easing: 'ease-out' }),
+    ];
+  }
+
+  /** Death panel with the respawn countdown; `secondsLeft` null hides it. */
+  setDeath(secondsLeft: number | null, total: number): void {
+    const tenths = secondsLeft === null ? -1 : Math.ceil(secondsLeft * 10);
+    if (tenths === this.lastDeathTenths) return;
+    this.lastDeathTenths = tenths;
+    this.death.hidden = tenths < 0;
+    this.root.classList.toggle('dead', tenths >= 0);
+    if (tenths < 0) return;
+    this.deathSeconds.textContent = (tenths / 10).toFixed(1);
+    this.deathBar.style.transform = `scaleX(${1 - Math.min(tenths / 10 / total, 1)})`;
+  }
+
+  /** Brief X around the crosshair when a shot hits a target: red for the head, bigger on a kill. */
+  showHitMarker(head: boolean, kill: boolean): void {
+    const m = this.hitMarker;
+    m.classList.toggle('head', head);
+    m.classList.toggle('kill', kill);
+    this.hitMarkerAnim?.cancel();
+    this.hitMarkerAnim = m.animate([{ opacity: 1 }, { opacity: 1, offset: 0.5 }, { opacity: 0 }], {
+      duration: kill ? 300 : 120,
+      easing: 'linear',
+    });
   }
 
   setMapOptions(maps: readonly MenuMap[], currentId: string, onChange: (id: string) => void): void {

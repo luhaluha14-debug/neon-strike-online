@@ -80,6 +80,116 @@ body {
   left: 4px;
 }
 
+/* Hit marker: an X around the crosshair, shown briefly by Hud.showHitMarker(). */
+.hitmarker {
+  position: absolute;
+  left: 0;
+  top: 0;
+  opacity: 0;
+  --hm-color: rgba(255, 255, 255, 0.95);
+}
+.hitmarker.head {
+  --hm-color: #ff5446;
+}
+.hitmarker.kill {
+  transform: scale(1.45);
+}
+.hm {
+  position: absolute;
+  width: 2px;
+  height: 7px;
+  left: -1px;
+  top: -3.5px;
+  background: var(--hm-color);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55);
+}
+.hm-tl {
+  transform: rotate(-45deg) translateY(-11px);
+}
+.hm-tr {
+  transform: rotate(45deg) translateY(-11px);
+}
+.hm-bl {
+  transform: rotate(45deg) translateY(11px);
+}
+.hm-br {
+  transform: rotate(-45deg) translateY(11px);
+}
+
+/* Taking damage: red screen edges + a marker on a ring pointing at the shooter. */
+.damage-vignette {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(170, 28, 18, 0.55) 100%);
+}
+.damage-dir {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  opacity: 0;
+}
+.damage-arc {
+  position: absolute;
+  left: -26px;
+  top: -122px;
+  width: 52px;
+  height: 14px;
+  border-top: 4px solid var(--hud-danger);
+  border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.6));
+}
+
+/* Dead: no crosshair or weapon readout, a small panel with the respawn countdown. */
+.hud.dead .crosshair,
+.hud.dead .weapon,
+.hud.dead .damage-dir {
+  visibility: hidden;
+}
+.death {
+  position: absolute;
+  left: 50%;
+  top: 36%;
+  transform: translate(-50%, -50%);
+  width: min(260px, calc(100vw - 32px));
+  padding: 14px 18px 16px;
+  background: var(--hud-bg);
+  border-left: 2px solid var(--hud-danger);
+  font-variant-numeric: tabular-nums;
+}
+.death[hidden],
+.hud:not(.playing) .death {
+  display: none;
+}
+.death-title {
+  font-size: var(--fs-xs);
+  letter-spacing: var(--tracking-caps);
+  color: var(--hud-danger);
+  font-weight: 600;
+}
+.death-timer {
+  margin-top: 6px;
+  font-size: var(--fs-md);
+  color: var(--hud-fg);
+}
+.death-seconds {
+  font-size: 22px;
+  font-weight: 600;
+}
+.death-track {
+  margin-top: 10px;
+  height: 2px;
+  background: rgba(242, 242, 240, 0.16);
+}
+.death-bar {
+  height: 100%;
+  background: var(--hud-fg);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+
 /* Health */
 .vitals {
   position: absolute;
