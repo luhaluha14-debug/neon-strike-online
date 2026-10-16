@@ -341,3 +341,43 @@
     min-height: 44px;
   }
 }
+
+/* Controls page: sensitivity slider and rebindable keys. */
+.range-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-width: 0;
+}
+.range {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--c-accent);
+}
+.range-value {
+  min-width: 3.2em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--c-text);
+}
+.bind-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(96px, 40%);
+  align-items: center;
+  gap: var(--s-3);
+  padding: 3px 0;
+}
+.bind-key {
+  min-height: 32px;
+  font-variant-numeric: tabular-nums;
+}
+.bind-key.waiting {
+  border-color: var(--c-accent);
+  color: var(--c-accent);
+}
+.bind-hint {
+  margin: var(--s-2) 0 var(--s-3);
+}
+.controls-reset {
+  margin-bottom: var(--s-5);
+}

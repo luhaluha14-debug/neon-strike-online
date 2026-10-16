@@ -1,9 +1,12 @@
 import { CAMERA_CONFIG } from '../config';
+import { defaultControls, type ActionId } from './Controls';
 import type { InputSource, InputState } from './InputState';
 
 /** PC input: WASD + mouse look via Pointer Lock. Uses `code` so layouts (e.g. Korean IME) don't matter. */
 export class KeyboardMouseInput implements InputSource {
   sensitivity = 1;
+  /** Key per action (KeyboardEvent.code); see Controls.ts. Replaced by the settings at start. */
+  bindings: Record<ActionId, string> = defaultControls().bindings;
   private keys = new Set<string>();
   private mouseButtons = 0;
   /** Keys / buttons pressed since the last tick consumed input (catches sub-frame taps). */
@@ -43,18 +46,22 @@ export class KeyboardMouseInput implements InputSource {
 
   poll(out: InputState): void {
     const k = this.keys;
-    out.moveX = (k.has('KeyD') ? 1 : 0) - (k.has('KeyA') ? 1 : 0);
-    out.moveY = (k.has('KeyW') ? 1 : 0) - (k.has('KeyS') ? 1 : 0);
     const l = this.latchedKeys;
-    out.jump = k.has('Space') || l.has('Space');
-    out.crouch = k.has('ControlLeft') || k.has('KeyC');
-    out.walk = k.has('ShiftLeft');
+    const b = this.bindings;
+    const held = (a: ActionId) => k.has(b[a]);
+    const pressed = (a: ActionId) => k.has(b[a]) || l.has(b[a]);
+    out.moveX = (held('right') ? 1 : 0) - (held('left') ? 1 : 0);
+    out.moveY = (held('forward') ? 1 : 0) - (held('back') ? 1 : 0);
+    out.jump = pressed('jump');
+    // Left Ctrl always crouches too (the browser cannot block Ctrl+W, so C is the primary key).
+    out.crouch = held('crouch') || k.has('ControlLeft');
+    out.walk = held('walk');
     out.fire = ((this.mouseButtons | this.latchedButtons) & 1) !== 0;
-    out.reload = k.has('KeyR') || l.has('KeyR');
+    out.reload = pressed('reload');
     out.equipSlot = this.requestedSlot;
-    out.equipLast = l.has('KeyQ');
+    out.equipLast = l.has(b.lastWeapon);
     out.equipCycle = Math.sign(this.wheel);
-    out.inspect = k.has('KeyF') || l.has('KeyF');
+    out.inspect = pressed('inspect');
     out.lookYaw = this.yaw;
     out.lookPitch = this.pitch;
     this.yaw = 0;
@@ -83,10 +90,10 @@ export class KeyboardMouseInput implements InputSource {
     if (!this.locked) return;
     this.keys.add(e.code);
     this.latchedKeys.add(e.code);
-    const digit = /^Digit([1-9])$/.exec(e.code);
-    if (digit) this.requestedSlot = Number(digit[1]) - 1;
-    // Stop Ctrl+W / Space scrolling etc. while playing.
-    if (e.code === 'Space' || e.ctrlKey) e.preventDefault();
+    const slot = (['slot1', 'slot2', 'slot3'] as const).findIndex((a) => this.bindings[a] === e.code);
+    if (slot >= 0) this.requestedSlot = slot;
+    // Stop Ctrl+W / Space scrolling / Tab focus etc. while playing.
+    if (e.code === 'Space' || e.code === 'Tab' || e.ctrlKey || e.altKey) e.preventDefault();
   };
 
   private handleKeyUp = (e: KeyboardEvent): void => {

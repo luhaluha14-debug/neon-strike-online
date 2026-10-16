@@ -69,7 +69,8 @@ interface Leg {
 export class FirstPersonBody {
   readonly object = new THREE.Group();
 
-  private readonly pelvis = new THREE.Group();
+  /** Hip group (follows hip height, body yaw and lean); a full-body model can hang its torso here. */
+  readonly pelvis = new THREE.Group();
   private readonly legs: Leg[];
   private readonly geometries: THREE.BufferGeometry[] = [];
   private readonly materials: THREE.Material[] = [];

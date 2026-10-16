@@ -504,7 +504,9 @@ test('real input: hit markers, body / head confirm sounds, no decals on dummies,
   assert.deepEqual(body.markers, [[false, false]]);
   assert.equal(body.sounds['hit.body'], 1);
   assert.equal(body.sounds['hit.head'], undefined);
-  assert.equal(body.sounds.impact, 1, 'the usual impact sound at the hit point');
+  // Body hits sound like a body (wet thud), not like concrete.
+  assert.equal(body.sounds['impact.flesh'], 1, 'flesh impact sound at the hit point');
+  assert.equal(body.sounds.impact, undefined, 'no concrete impact sound on a body');
   assert.equal(body.decals, decals0, 'no bullet hole decal on a dummy');
   const marker = await page.evaluate(() => {
     const m = document.querySelector('.hitmarker');

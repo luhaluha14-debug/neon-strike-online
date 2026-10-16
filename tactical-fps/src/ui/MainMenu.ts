@@ -1,5 +1,7 @@
 import './menu.css';
 
+import { ACTIONS, bindKey, defaultControls, keyLabel, RESERVED_KEYS, SENSITIVITY_MAX, SENSITIVITY_MIN, type ActionId, type ControlSettings } from '../input/Controls';
+
 export type MenuPage = 'play' | 'loadout' | 'settings' | 'controls';
 
 export interface MenuMap {
@@ -80,6 +82,26 @@ export class MainMenu {
         </nav>
         <div class="pages">
           <section class="page" id="page-play" data-page="play" role="tabpanel" aria-labelledby="tab-play">
+            <h2 class="section-title">게임</h2>
+            <label class="field">
+              <span class="field-label">모드</span>
+              <select class="select" data-setting="mode"></select>
+            </label>
+            <div class="match-options">
+              <label class="field">
+                <span class="field-label">봇 수</span>
+                <select class="select" data-setting="bots"></select>
+              </label>
+              <label class="field">
+                <span class="field-label">제한 시간</span>
+                <select class="select" data-setting="time-limit"></select>
+              </label>
+              <label class="field">
+                <span class="field-label">목표 킬</span>
+                <select class="select" data-setting="kill-target"></select>
+                <span class="field-hint">바꾸면 경기가 처음부터 다시 시작됩니다.</span>
+              </label>
+            </div>
             <h2 class="section-title">맵</h2>
             <div class="map-list" role="radiogroup" aria-label="맵 선택"></div>
             <p class="menu-status" aria-live="polite"></p>
@@ -152,6 +174,78 @@ export class MainMenu {
     this.loadingBar = q('.loading-progress .progress-bar');
 
     this.bindTabs();
+  }
+
+  /** Match options only matter in deathmatch. */
+  setMatchOptionsVisible(on: boolean): void {
+    this.root.querySelector<HTMLElement>('.match-options')!.hidden = !on;
+  }
+
+  // --- Controls page -----------------------------------------------------------
+
+  private controls: ControlSettings | null = null;
+  private onControlsChange: ((c: ControlSettings) => void) | null = null;
+  private capturing: ActionId | null = null;
+
+  /** Mouse sensitivity and key bindings; `onChange` gets the whole record after every edit. */
+  setControls(c: ControlSettings, onChange: (c: ControlSettings) => void): void {
+    this.controls = c;
+    this.onControlsChange = onChange;
+    const range = this.root.querySelector<HTMLInputElement>('input[data-setting="sensitivity"]')!;
+    range.value = String(c.sensitivity);
+    range.oninput = () => {
+      c.sensitivity = Math.min(SENSITIVITY_MAX, Math.max(SENSITIVITY_MIN, Number(range.value)));
+      this.renderControls();
+      onChange(c);
+    };
+    this.root.querySelector<HTMLButtonElement>('.controls-reset')!.onclick = () => {
+      const d = defaultControls();
+      c.sensitivity = d.sensitivity;
+      c.bindings = d.bindings;
+      range.value = String(c.sensitivity);
+      this.capturing = null;
+      this.renderControls();
+      onChange(c);
+    };
+    for (const btn of this.root.querySelectorAll<HTMLButtonElement>('.bind-key')) {
+      btn.onclick = () => {
+        this.capturing = this.capturing === btn.dataset.action ? null : (btn.dataset.action as ActionId);
+        this.renderControls();
+      };
+      btn.onblur = () => {
+        if (this.capturing === btn.dataset.action) {
+          this.capturing = null;
+          this.renderControls();
+        }
+      };
+    }
+    window.addEventListener('keydown', this.handleBindKey, true);
+    this.renderControls();
+  }
+
+  /** While a key button waits for input, the next key press becomes that action's key (Esc cancels). */
+  private handleBindKey = (e: KeyboardEvent): void => {
+    const c = this.controls;
+    if (!this.capturing || !c) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const action = this.capturing;
+    this.capturing = null;
+    if (e.code !== 'Escape' && !RESERVED_KEYS.includes(e.code) && bindKey(c, action, e.code)) this.onControlsChange?.(c);
+    this.renderControls();
+  };
+
+  private renderControls(): void {
+    const c = this.controls;
+    if (!c) return;
+    this.root.querySelector('.range-value')!.textContent = c.sensitivity.toFixed(2);
+    for (const btn of this.root.querySelectorAll<HTMLButtonElement>('.bind-key')) {
+      const a = btn.dataset.action as ActionId;
+      const waiting = this.capturing === a;
+      btn.classList.toggle('waiting', waiting);
+      btn.textContent = waiting ? '키를 누르세요…' : keyLabel(c.bindings[a]);
+      btn.setAttribute('aria-pressed', String(waiting));
+    }
   }
 
   // --- Navigation -------------------------------------------------------------
@@ -292,7 +386,7 @@ export class MainMenu {
 
   // --- Settings ---------------------------------------------------------------
 
-  bindSelect<T extends string | number>(setting: 'quality' | 'frame-limit' | 'volume', options: readonly MenuOption<T>[], current: T, onChange: (value: T) => void): void {
+  bindSelect<T extends string | number>(setting: 'quality' | 'frame-limit' | 'volume' | 'mode' | 'bots' | 'time-limit' | 'kill-target', options: readonly MenuOption<T>[], current: T, onChange: (value: T) => void): void {
     const select = this.root.querySelector<HTMLSelectElement>(`select[data-setting="${setting}"]`)!;
     select.replaceChildren(
       ...options.map((o) => {
@@ -398,18 +492,41 @@ function splitMapName(name: string): [string, string] {
 }
 
 function controlsHtml(): string {
-  const groups: [string, [string, string][]][] = [
-    ['이동', [['W A S D', '이동'], ['마우스', '시점'], ['Space', '점프'], ['Shift', '걷기 (조용히)'], ['C / Ctrl', '앉기']]],
-    ['전투', [['좌클릭', '사격 / 베기'], ['R', '재장전'], ['1 / 2 / 3', '무기 선택'], ['휠 · Q', '다음 무기 · 이전 무기'], ['F', '무기 살펴보기']]],
-    ['기타', [['Esc', '일시정지 · 메뉴'], ['F4', '스폰으로 복귀'], ['F3', '성능 정보']]],
+  const bindRows = (group: string) =>
+    ACTIONS.filter((a) => a.group === group)
+      .map(
+        (a) => `
+        <div class="bind-row">
+          <span class="field-label">${a.label}${a.alt ? ` <span class="muted">(+ ${keyLabel(a.alt)})</span>` : ''}</span>
+          <button type="button" class="btn bind-key" data-action="${a.id}" aria-pressed="false">${keyLabel(a.key)}</button>
+        </div>`,
+      )
+      .join('');
+  const fixed: [string, string][] = [
+    ['좌클릭', '사격 / 베기'],
+    ['마우스 휠', '다음 무기'],
+    ['Esc', '일시정지 · 메뉴'],
+    ['F4', '스폰으로 복귀'],
+    ['F3', '성능 정보'],
   ];
-  return groups
-    .map(
-      ([title, rows]) => `
-      <h2 class="section-title">${title}</h2>
+  return `
+      <h2 class="section-title">마우스</h2>
+      <label class="field">
+        <span class="field-label">감도</span>
+        <span class="range-row">
+          <input class="range" type="range" data-setting="sensitivity" min="${SENSITIVITY_MIN}" max="${SENSITIVITY_MAX}" step="0.05" value="1" />
+          <output class="range-value">1.00</output>
+        </span>
+        <span class="field-hint">1.00이 기본값입니다. 바로 적용되고 저장됩니다.</span>
+      </label>
+      <h2 class="section-title">이동</h2>
+      ${bindRows('이동')}
+      <h2 class="section-title">전투</h2>
+      ${bindRows('전투')}
+      <p class="field-hint bind-hint">키 버튼을 누른 뒤 원하는 키를 누르세요. 이미 쓰는 키면 두 동작의 키가 서로 바뀝니다. Esc는 취소.</p>
+      <button type="button" class="btn controls-reset">기본값으로</button>
+      <h2 class="section-title">고정 키</h2>
       <dl class="keys">
-        ${rows.map(([k, v]) => `<dt>${k.split(' / ').map((x) => `<span class="kbd">${x}</span>`).join('<span class="key-or">/</span>')}</dt><dd>${v}</dd>`).join('')}
-      </dl>`,
-    )
-    .join('');
+        ${fixed.map(([k, v]) => `<dt><span class="kbd">${k}</span></dt><dd>${v}</dd>`).join('')}
+      </dl>`;
 }
