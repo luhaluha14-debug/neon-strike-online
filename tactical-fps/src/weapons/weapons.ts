@@ -57,9 +57,8 @@ export const AR_01: WeaponDefinition = {
       muzzle: [0, 0, -0.42],
       magazine: ['Magazine', 'Magazine_Base', 'Mag_Ribs_L', 'Mag_Ribs_R'],
     },
-    // Angled across the screen so the rifle's side and both gloved hands show
-    // (a little higher than the placeholder: the GLB's pistol grip sits lower).
-    pose: { position: [0.13, -0.095, -0.44], rotation: [0.03, 0.27, -0.1], scale: 1 },
+    // Low on the right, pointing nearly straight ahead (classic CS framing): side of the rifle and the hands show.
+    pose: { position: [0.17, -0.13, -0.46], rotation: [0.02, 0.12, -0.04], scale: 1 },
   },
   sounds: {
     fire: 'ar01.shot',
@@ -132,7 +131,8 @@ export const SR_01: WeaponDefinition = {
       armPose: { rightElbow: [0.26, -0.2, 0.4] },
     },
     // Right of centre and angled so the scope, magazine and both gloved hands read.
-    pose: { position: [0.17, -0.095, -0.46], rotation: [0.02, 0.36, -0.16], scale: 1 },
+    // Low on the right with the scope in view, barrel toward the centre.
+    pose: { position: [0.2, -0.13, -0.5], rotation: [0.02, 0.16, -0.05], scale: 1 },
   },
   sounds: {
     fire: 'sr01.shot',
@@ -194,8 +194,8 @@ export const KARAMBIT: WeaponDefinition = {
       grip: { position: [0, -0.065, 0] },
       hand: { width: 0.028, depth: 0.036, index: 'trigger' },
     },
-    // Forward grip low on the right, blade up and toward the centre, edge facing away.
-    pose: { position: [0.14, -0.095, -0.33], rotation: [-0.7, 0.2, 0.3], scale: 1 },
+    // Forward grip low on the right, blade angled up toward the centre showing its flat.
+    pose: { position: [0.16, -0.115, -0.37], rotation: [-0.95, 1.1, 0.55], scale: 1 },
   },
   sounds: {
     fire: 'karambit.swing',

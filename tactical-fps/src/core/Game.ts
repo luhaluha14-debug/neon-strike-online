@@ -4,8 +4,10 @@ import { TrainingRange } from '../combat/TrainingRange';
 import { CAMERA_CONFIG, PLAYER_CONFIG, QUALITY_PRESETS, SIM_CONFIG, type QualityLevel } from '../config';
 import { AudioEngine } from '../audio/AudioEngine';
 import { WeaponAudio } from '../audio/WeaponAudio';
+import { BloodEffects } from '../fx/BloodEffects';
 import { ImpactEffects } from '../fx/ImpactEffects';
 import { createInputState } from '../input/InputState';
+import { loadControls, saveControls } from '../input/Controls';
 import { KeyboardMouseInput } from '../input/KeyboardMouseInput';
 import { FirstPersonBody, type BodyState } from '../player/FirstPersonBody';
 import { PlayerController } from '../player/PlayerController';
@@ -62,6 +64,8 @@ export class Game {
   /** Last training-target hit, shown in the F3 overlay. */
   private lastHit = '';
   readonly impacts = new ImpactEffects();
+  /** Blood mist, droplets and wall spatter on body hits. */
+  readonly blood = new BloodEffects();
   readonly viewModel: ViewModelLayer;
   /** Local player's legs and waist, visible when looking down. */
   readonly body = new FirstPersonBody();
@@ -128,6 +132,7 @@ export class Game {
     this.viewModel.initEnvironment(this.renderer);
     this.showWeaponModel(DEFAULT_LOADOUT[0].view);
     this.scene.add(this.impacts.group);
+    this.scene.add(this.blood.group);
     this.scene.add(this.body.object);
     // Sounds are synthesised in the background while the map downloads.
     this.audio = new AudioEngine(settings.volume, { srFireInterval: 60 / SR_01.fireRate });
@@ -182,6 +187,15 @@ export class Game {
       ).catch((err) => console.warn('[menu] weapon thumbnails unavailable', err));
     });
     this.input = new KeyboardMouseInput(this.renderer.domElement, (locked) => this.onLockChange(locked));
+    // Controls page: sensitivity + key bindings, applied immediately, stored apart from the settings record.
+    const controls = loadControls();
+    this.input.sensitivity = controls.sensitivity;
+    this.input.bindings = controls.bindings;
+    this.hud.menu.setControls(controls, (c) => {
+      this.input.sensitivity = c.sensitivity;
+      this.input.bindings = c.bindings;
+      saveControls(c);
+    });
     this.hud.onStart(() => this.input.requestLock());
     this.renderer.domElement.addEventListener('click', () => {
       if (this.player && !this.loadingMap && !this.input.active) this.input.requestLock();
@@ -224,6 +238,8 @@ export class Game {
     this.hitscan = null;
     this.weapons = null;
     this.impacts.clear();
+    this.blood.clear();
+    this.blood.setWorld(null);
     this.mapDef = def;
     this.settings.mapId = def.id;
     saveSettings(this.settings);
@@ -276,6 +292,7 @@ export class Game {
 
     this.player = new PlayerController(map.collision);
     this.hitscan = new HitscanSystem(map.collision);
+    this.blood.setWorld(map.collision);
     this.weapons = new WeaponSystem(DEFAULT_LOADOUT, this.player, this.hitscan);
     this.combat = new PlayerCombat(this.player);
     this.combat.onDamage = (e) => this.onPlayerDamaged(e);
@@ -291,7 +308,7 @@ export class Game {
         this.weaponAudio.onEquip(weapon);
         this.hud.setLoadout(this.weapons!.loadout.map((w) => w.def.displayName), slot);
       },
-      onShot: (result, _origin, _dir, weapon) => {
+      onShot: (result, _origin, dir, weapon) => {
         // Rounds resolved in later ticks of the same frame keep their real spacing.
         if (this.frameShotTick < 0) this.frameShotTick = this.tickInFrame;
         const delay = (this.tickInFrame - this.frameShotTick) / SIM_CONFIG.tickRate;
@@ -301,6 +318,7 @@ export class Game {
         if (result.kind === 'world') this.impacts.spawn(result.point, result.normal);
         if (result.kind === 'target') {
           const kill = !result.target.alive;
+          this.blood.spawn(result.point, dir, result.zone === 'head');
           this.hud.showHitMarker(result.zone === 'head', kill);
           this.lastHit = `${result.zone} ${result.damage} @ ${result.distance.toFixed(1)} m${kill ? '  KILL' : ''}`;
         }
@@ -345,6 +363,7 @@ export class Game {
     this.hud.setDeath(null, RESPAWN_DELAY);
     this.trainingRange?.reset();
     this.impacts.clear();
+    this.blood.clear();
     this.prevPos.copy(this.player.position);
     this.prevEyeHeight = this.player.eyeHeight;
   }
@@ -455,6 +474,7 @@ export class Game {
     const w = this.weapons?.weapon;
     this.weaponAudio.update(w);
     this.impacts.update(frameTime);
+    this.blood.update(frameTime, this.camera);
     this.viewModel.update(
       frameTime,
       {

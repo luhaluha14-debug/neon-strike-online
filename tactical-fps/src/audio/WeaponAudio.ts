@@ -32,7 +32,7 @@ export class WeaponAudio {
       this.engine.play(s.hit, { group: 'impact', gain: 0.8, rateJitter: 0.04, delay: delay + 0.03 });
       return;
     }
-    this.impact(result.point, delay, listener);
+    this.impact(result.kind === 'target' ? 'impact.flesh' : 'impact', result.point, delay, listener);
   }
 
   onDryFire(weapon: Weapon): void {
@@ -70,16 +70,16 @@ export class WeaponAudio {
     }
   }
 
-  /** Bullet impact at a world point: quieter and later with distance, panned left/right. */
-  private impact(point: THREE.Vector3, delay: number, listener: THREE.Camera): void {
+  /** Bullet impact at a point (map surface or body): quieter and later with distance, panned left/right. */
+  private impact(id: 'impact' | 'impact.flesh', point: THREE.Vector3, delay: number, listener: THREE.Camera): void {
     _dir.subVectors(point, listener.position);
     const d = _dir.length();
     if (d > 120) return;
     _dir.multiplyScalar(1 / Math.max(d, 1e-3));
     _right.set(1, 0, 0).applyQuaternion(listener.quaternion);
-    this.engine.play('impact', {
+    this.engine.play(id, {
       group: 'impact',
-      gain: 0.5 / (1 + d / 6),
+      gain: (id === 'impact.flesh' ? 0.75 : 0.5) / (1 + d / 6),
       pan: _dir.dot(_right) * 0.7,
       rateJitter: 0.06,
       delay: delay + Math.min(d / SPEED_OF_SOUND, 0.3),

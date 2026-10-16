@@ -134,7 +134,8 @@ const _invRay = new THREE.Ray();
 const _local = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
 const _dirLocal = new THREE.Vector3();
-const _flash = new THREE.Color(0xfff0dc);
+// Hit flash: a red tint on the part that was hit.
+const _flash = new THREE.Color(0xd8281c);
 
 /**
  * One training dummy. Implements the existing `Damageable` interface, so the

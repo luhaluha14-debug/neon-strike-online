@@ -20,7 +20,8 @@ export type SoundId =
   | 'equip.knife'
   | 'impact'
   | 'hit.body'
-  | 'hit.head';
+  | 'hit.head'
+  | 'impact.flesh';
 
 /** Number of pre-rendered variants per sound. */
 export const VARIANTS: Record<SoundId, number> = {
@@ -39,6 +40,7 @@ export const VARIANTS: Record<SoundId, number> = {
   impact: 4,
   'hit.body': 2,
   'hit.head': 2,
+  'impact.flesh': 3,
 };
 
 interface GunshotRecipe {
@@ -311,6 +313,25 @@ function hitHead(seed: number): Float32Array {
   return finish(out, 0.7, 1.2);
 }
 
+/** A round into a body: wet, heavy thud with a short squelch (no debris, unlike `impact`). */
+function impactFlesh(seed: number): Float32Array {
+  const rand = rng(seed);
+  const out = buffer(0.28);
+  const thud = glideSine(0.16, 150 + rand() * 30, 70, 0.03);
+  shape(thud, expEnv(0.0006, 0.035));
+  mix(out, thud, 1);
+  const body = biquad(noise(0.2, rand), 'lowpass', 700 + rand() * 200);
+  shape(body, expEnv(0.0008, 0.03));
+  mix(out, body, 1.1);
+  // Squelch: a quick narrow band falling in pitch.
+  const sq = biquad(noise(0.12, rand), 'bandpass', (t) => 1500 - 7000 * t, 4);
+  shape(sq, expEnv(0.002, 0.025, 0.004));
+  mix(out, sq, 0.7);
+  mix(out, click(rand, 2600, 0.003, 0.35, 0.02), 1, 0);
+  biquad(out, 'highpass', 60);
+  return finish(out, 0.8, 1.5);
+}
+
 /** Renders one variant of one sound. */
 export function renderSound(id: SoundId, variant: number, opts: { srFireInterval: number }): Float32Array {
   const seed = hash(id) + variant * 7919;
@@ -345,6 +366,8 @@ export function renderSound(id: SoundId, variant: number, opts: { srFireInterval
       return hitBody(seed);
     case 'hit.head':
       return hitHead(seed);
+    case 'impact.flesh':
+      return impactFlesh(seed);
   }
 }
 
