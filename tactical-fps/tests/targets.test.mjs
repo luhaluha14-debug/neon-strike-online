@@ -324,9 +324,9 @@ test('shots to take a dummy down match the weapon data (100 HP)', async () => {
     return out;
   });
   assert.deepEqual(r, {
-    'ar01/head': 1, // 128
-    'ar01/torso': 4, // 32
-    'ar01/thigh.l': 4, // 26
+    'ar01/head': 1, // 102
+    'ar01/torso': 5, // 24
+    'ar01/thigh.l': 6, // 19
     'sr01/head': 1, // 460
     'sr01/torso': 1, // 115
     'sr01/thigh.l': 2, // 98
@@ -367,8 +367,8 @@ test('a downed dummy lets shots through, lies down 3 s, rises and takes hits aga
     ['standing', 3.85],
   ]);
   assert.equal(r.again.kind, 'target');
-  assert.equal(r.again.healthDrop, 32);
-  assert.equal(r.health, 68);
+  assert.equal(r.again.healthDrop, 24);
+  assert.equal(r.health, 76);
   assert.equal(r.kills, 1);
 });
 
@@ -514,7 +514,7 @@ test('real input: hit markers, body / head confirm sounds, no decals on dummies,
   });
   assert.deepEqual(marker, { head: false, kill: false });
 
-  // One round at the head: 128 damage, kill + head marker, head sound.
+  // One round at the head: 102 damage, kill + head marker, head sound.
   await page.evaluate(`window.T.aim(${still}, 'head')`);
   await click();
   const head = await page.evaluate(() => window.T.take());
@@ -533,7 +533,7 @@ test('real input: hit markers, body / head confirm sounds, no decals on dummies,
   await page.evaluate(() => window.game.setStatsShown(true));
   await run(40);
   const stats = await page.evaluate(() => document.querySelector('.stats').textContent);
-  assert.match(stats, /last hit head 128 @ \d+\.\d m {2}KILL/);
+  assert.match(stats, /last hit head 102 @ \d+\.\d m {2}KILL/);
 
   // The dummy is down: the next round goes past it into the map (world hit, decal).
   await click();

@@ -152,11 +152,11 @@ test('60 s of play: bots move without getting stuck in walls, fight with AR-01 d
   // Every feed entry is a death; kills exclude self-inflicted ones.
   assert.equal(r.deaths, r.feed);
   assert.ok(r.kills <= r.deaths);
-  // Bot hits on the player: AR-01 rounds through the normal damage table (32 body / 26 limb / 128 head, less with falloff).
+  // Bot hits on the player: AR-01 rounds through the normal damage table (24 body / 19 limb / 102 head, less with falloff).
   for (const h of r.hits) {
     assert.equal(h.weapon, 'ar01');
     assert.match(h.source, /^bot-/);
-    const max = { head: 128, body: 32, limb: 26 }[h.zone];
+    const max = { head: 102, body: 24, limb: 19 }[h.zone];
     assert.ok(h.amount <= max && h.amount >= max * 0.8 - 1, JSON.stringify(h));
   }
 });
@@ -192,12 +192,17 @@ test('the player kills a bot through the normal hitscan: kill credited, bot resp
     const T = window.T;
     const V = T.V;
     g.restartMatch();
-    T.run(70); // spawn protection over
+    // Right after the restart (no frames run, so no other bot can have shot it yet), with its spawn protection over.
     const bot = g.squad.bots[0];
-    const eye = new V(g.player.position.x, g.player.position.y + g.player.eyeHeight, g.player.position.z);
+    bot.combat.protection = 0;
     const head = new V(bot.position.x, bot.position.y + bot.height - 0.1, bot.position.z);
-    const dir = head.clone().sub(eye).normalize();
-    // Shoot from right next to the bot so nothing is in between.
+    // Shoot from 1.5 m away, from a side with no wall in between (it may have spawned right behind cover).
+    let dir = null;
+    for (let k = 0; k < 16 && !dir; k++) {
+      const a = (k / 16) * Math.PI * 2;
+      const d = new V(Math.sin(a), 0, Math.cos(a));
+      if (g.map.collision.raycast(head.clone().addScaledVector(d, -1.5), d, 1.5) === null) dir = d;
+    }
     const origin = head.clone().addScaledVector(dir, -1.5);
     const res = g.hitscan.fire({ origin, direction: dir, damage: g.weapons.loadout[1].def.damage, sourceId: 'local', weaponId: 'sr01' });
     const after = { kind: res.kind, id: res.target?.id, alive: bot.alive, kills: g.match.scores.get('local').kills, deaths: g.match.scores.get(bot.id).deaths, feed: g.match.feed.at(-1) };
