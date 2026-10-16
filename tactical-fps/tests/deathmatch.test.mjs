@@ -161,6 +161,31 @@ test('60 s of play: bots move without getting stuck in walls, fight with AR-01 d
   }
 });
 
+test('CS-style firing: bots stop (counter-strafe) before shooting, no run-and-gun spraying', async () => {
+  const r = await page.evaluate(() => {
+    const g = window.game;
+    const T = window.T;
+    g.restartMatch();
+    // Record each bot's ground speed at the moment a round leaves the barrel.
+    const speeds = [];
+    for (const b of g.squad.bots) {
+      const ev = b.weapons.events;
+      const orig = ev.onShot;
+      ev.onShot = (...a) => {
+        speeds.push({ v: Math.hypot(b.controller.velocity.x, b.controller.velocity.z), grounded: b.controller.grounded });
+        orig?.(...a);
+      };
+    }
+    T.run(60 * 40);
+    return speeds;
+  });
+  assert.ok(r.length >= 20, `bots fought (${r.length} rounds)`);
+  for (const s of r) {
+    assert.ok(s.v < 1.2, `round fired while moving at ${s.v.toFixed(2)} m/s`);
+    assert.ok(s.grounded, 'round fired in the air');
+  }
+});
+
 test('the player kills a bot through the normal hitscan: kill credited, bot respawns 3 s later', async () => {
   const r = await page.evaluate(() => {
     const g = window.game;
