@@ -11,7 +11,7 @@ import { FirstPersonBody, type BodyState } from '../player/FirstPersonBody';
 import { PlayerController } from '../player/PlayerController';
 import { PlayerCombat, RESPAWN_DELAY, type PlayerDamageEvent } from '../player/PlayerCombat';
 import { Hud } from '../ui/Hud';
-import { createWeaponView, loadWeaponView } from '../weapons/view/WeaponView';
+import { createWeaponView, loadWeaponView, preloadWeaponViews } from '../weapons/view/WeaponView';
 import type { MenuWeapon } from '../ui/MainMenu';
 import { renderWeaponThumbnails } from '../ui/weaponThumbnails';
 import type { WeaponDefinition, WeaponViewSpec } from '../weapons/WeaponDefinition';
@@ -200,6 +200,8 @@ export class Game {
   }
 
   async start(): Promise<void> {
+    // Weapon GLBs download alongside the map; the game is ready once both are in.
+    this.weaponModels = preloadWeaponViews(DEFAULT_LOADOUT.map((d) => d.view));
     if (!(await this.loadMapInto(this.mapDef))) return;
     this.timer.connect(document);
     this.loop.start();
@@ -280,6 +282,7 @@ export class Game {
     this.hitscan.register(this.combat);
     this.trainingRange = new TrainingRange(map, this.homeSpawn(map), this.hitscan);
     this.scene.add(this.trainingRange.group);
+    await this.weaponModels;
     this.showWeaponModel(this.weapons.weapon.def.view);
     this.hud.setLoadout(this.weapons.loadout.map((w) => w.def.displayName), this.weapons.slot);
     this.weapons.events = {
@@ -504,6 +507,8 @@ export class Game {
   }
 
   private shownSpec: WeaponViewSpec | null = null;
+  /** Download of the loadout's weapon GLBs (settles even if one fails). */
+  private weaponModels: Promise<void> = Promise.resolve();
 
   /** Translates this frame's player input into a device-independent weapon command. */
   private weaponCommand(): WeaponCommand {

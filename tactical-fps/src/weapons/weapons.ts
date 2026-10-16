@@ -44,10 +44,22 @@ export const AR_01: WeaponDefinition = {
     sprayResetTime: 0.35,
   },
   view: {
-    kind: 'procedural',
-    model: 'ar01',
-    // Angled across the screen so the rifle's side and both gloved hands show.
-    pose: { position: [0.125, -0.115, -0.42], rotation: [0.03, 0.27, -0.1], scale: 1 },
+    kind: 'gltf',
+    url: '/weapons/ar01.glb',
+    fallback: 'ar01',
+    // Blender export: muzzle along +X, no anchor nodes. Values measured on the file.
+    fit: {
+      rotation: [0, Math.PI / 2, 0],
+      // Pistol grip axis and centre from the file's vertices; the hand sits just below the handguard rails.
+      grip: { position: [0, -0.1208, 0.0928], rotation: [-0.391, 0, 0] },
+      support: { position: [0, -0.024, -0.24] },
+      hand: { width: 0.034, depth: 0.045, index: 'trigger' },
+      muzzle: [0, 0, -0.42],
+      magazine: ['Magazine', 'Magazine_Base', 'Mag_Ribs_L', 'Mag_Ribs_R'],
+    },
+    // Angled across the screen so the rifle's side and both gloved hands show
+    // (a little higher than the placeholder: the GLB's pistol grip sits lower).
+    pose: { position: [0.13, -0.095, -0.44], rotation: [0.03, 0.27, -0.1], scale: 1 },
   },
   sounds: {
     fire: 'ar01.shot',
@@ -103,8 +115,22 @@ export const SR_01: WeaponDefinition = {
     sprayResetTime: 1.2,
   },
   view: {
-    kind: 'procedural',
-    model: 'sr01',
+    kind: 'gltf',
+    url: '/weapons/sr01.glb',
+    fallback: 'sr01',
+    // Blender export: muzzle along +X, no anchor nodes. Values measured on the file.
+    fit: {
+      rotation: [0, Math.PI / 2, 0],
+      // Thumbhole grip of the slab stock (4.6 cm thick): hand low on the grip, thumb through the hole.
+      grip: { position: [0, -0.115, 0.115], rotation: [-0.2, 0, 0] },
+      support: { position: [0, -0.05, -0.26] },
+      muzzle: [0, 0.028, -0.692],
+      magazine: ['Magazine', 'Magazine_Base', 'Magazine_Ribs'],
+      bolt: { nodes: ['Bolt_Cap', 'Bolt_Handle', 'Bolt_Knob', 'Bolt_Shroud'], pivot: [0, 0.028, 0.104] },
+      hand: { width: 0.06, depth: 0.05, index: 'trigger', wristLift: 0 },
+      // Forearm leaves the grip up and to the right, as on the placeholder sniper.
+      armPose: { rightElbow: [0.26, -0.2, 0.4] },
+    },
     // Right of centre and angled so the scope, magazine and both gloved hands read.
     pose: { position: [0.17, -0.095, -0.46], rotation: [0.02, 0.36, -0.16], scale: 1 },
   },
@@ -125,7 +151,8 @@ export const SR_01: WeaponDefinition = {
 /** Curved-blade knife. Melee = a weapon without ammo and a ~1.9 m reach. */
 export const KARAMBIT: WeaponDefinition = {
   id: 'karambit',
-  displayName: 'KARAMBIT',
+  // Internal id stays 'karambit' (saved data, sounds and tests refer to it); the model is the M9.
+  displayName: 'M9 BAYONET',
   category: 'melee',
   fireMode: 'auto',
   // One slash every 0.5 s while held.
@@ -158,10 +185,17 @@ export const KARAMBIT: WeaponDefinition = {
     sprayResetTime: 0.5,
   },
   view: {
-    kind: 'procedural',
-    model: 'karambit',
-    // Fist on the right, ring on top, blade sweeping down-left across the view.
-    pose: { position: [0.13, -0.05, -0.28], rotation: [0.35, 1.35, 0.1], scale: 1 },
+    kind: 'gltf',
+    url: '/weapons/m9_bayonet.glb',
+    fallback: 'karambit',
+    // Blender export: blade along +Y, edge toward -X. Turned so the edge faces forward.
+    fit: {
+      rotation: [0, -Math.PI / 2, 0],
+      grip: { position: [0, -0.065, 0] },
+      hand: { width: 0.028, depth: 0.036, index: 'trigger' },
+    },
+    // Forward grip low on the right, blade up and toward the centre, edge facing away.
+    pose: { position: [0.14, -0.095, -0.33], rotation: [-0.7, 0.2, 0.3], scale: 1 },
   },
   sounds: {
     fire: 'karambit.swing',

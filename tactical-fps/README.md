@@ -33,7 +33,7 @@ Esc로 언제든 돌아와 **계속하기**를 누를 수 있습니다. 맵 · �
 | Space | 점프 |
 | 좌클릭 | 사격 / 베기 |
 | R | 재장전 |
-| 1 / 2 / 3 | 무기 선택 (AR-01 / SR-01 / KARAMBIT) |
+| 1 / 2 / 3 | 무기 선택 (AR-01 / SR-01 / M9 BAYONET) |
 | 마우스 휠 · Q | 다음 무기 · 이전 무기 |
 | F | 무기 살펴보기 |
 | Shift | 걷기 (느리게) |
@@ -104,7 +104,9 @@ tactical-fps/
    │  ├─ ModelKit.ts            절차적 모델 도구 (상자·원통·측면 프로필 압출·캔버스 텍스처)
    │  ├─ ProceduralRifleView.ts AR-01 임시 모델
    │  ├─ SniperRifleView.ts     SR-01 (AWP 스타일 볼트액션 저격총) 임시 모델 + 볼트 애니메이션
-   │  └─ KarambitView.ts        카람빗 임시 모델 (청록/파랑 그라데이션 칼날)
+   │  ├─ GltfWeaponView.ts      Blender GLB 무기 (앵커 노드, 또는 weapons.ts의 fit 값으로 축·앵커·탄창/볼트 지정)
+   │  └─ KarambitView.ts        카람빗 임시 모델 (M9 GLB를 받기 전·로드 실패 시 대체용)
+├─ public/weapons/              ar01.glb · sr01.glb · m9_bayonet.glb (Blender에서 받은 원본 그대로)
    ├─ debug/viewModelChecks.ts  (개발용) 장갑-무기 겹침·카메라 근접 측정: 콘솔에서 vmCheck()
    ├─ combat/Damage.ts          Damageable 인터페이스 (나중에 적/봇이 구현)
    ├─ combat/HitscanSystem.ts   화면 중앙 레이캐스트: 맵 먼저 → 더 가까운 대상만 피격, 거리별 피해 감소
@@ -129,7 +131,7 @@ tactical-fps/
 | --- | --- | --- |
 | 1 | **AR-01** 돌격소총 | 600 RPM 자동, 30 / 90발, 재장전 2.2초, 몸통 32 · 머리 ×4 |
 | 2 | **SR-01** 볼트액션 저격총 (AWP 스타일) | 한 발씩(볼트 1.46초), 5 / 30발, 재장전 3.6초, 몸통 115 · 머리 ×4, 이동 중 탄퍼짐 큼, 꺼내기 1.0초 |
-| 3 | **KARAMBIT** 카람빗 | 탄약 없음, 0.5초마다 베기, 사거리 1.9 m, 40 피해 |
+| 3 | **M9 BAYONET** M9 총검 | 탄약 없음, 0.5초마다 베기, 사거리 1.9 m, 40 피해 (내부 id는 호환을 위해 `karambit` 유지) |
 
 - 이름과 모델은 모두 오리지널 임시 디자인입니다 (실제 총기·게임 이름을 쓰지 않음).
 - 모든 수치는 `src/weapons/weapons.ts` 한 곳에 있습니다. 새 무기는 같은 형식의 항목을 추가하고 `DEFAULT_LOADOUT` 에 넣으면 됩니다.
@@ -153,7 +155,7 @@ AI 봇 (예정) ──┘                 │
                                  ▼
                          Weapon (탄약·연사·재장전·꺼내기 상태, 렌더링 없음)
                                  ▼  이벤트(onShot, onEquip …)
-          Game ──▶ ViewModelLayer ──▶ WeaponView (AR-01 / SR-01 / KARAMBIT / GLB)
+          Game ──▶ ViewModelLayer ──▶ WeaponView (GLB: AR-01 / SR-01 / M9, 임시 절차적 모델은 대체용)
                          │                 └─ 앵커: Grip_R, Grip_L, Muzzle, Magazine, Bolt
                          └──▶ FirstPersonArms (앵커 + HandGripProfile 로 손 모양 생성)
 ```
@@ -164,6 +166,20 @@ AI 봇 (예정) ──┘                 │
   개발 서버에서는 콘솔에서 `game.viewModel.restPosition.set(x, y, z)` 로 바로 확인하고, `vmCheck()` 로 장갑 겹침과 카메라 근접을 측정할 수 있습니다.
 - 애니메이션 자리: 꺼내기(아래에서 올라옴), 재장전, 반동, 볼트 당기기(SR-01), 베기(카람빗), 살펴보기(F)는 간단한 임시 동작입니다.
   모델은 `animate(state)` 로 자기 부품(볼트 등)만 움직이고, 공통 동작은 `ViewModelLayer` 가 처리합니다.
+
+### 현재 GLB 모델 (public/weapons)
+
+| 무기 | 파일 | 원본 축 | 맞춤(fit, `weapons.ts`) |
+| --- | --- | --- | --- |
+| AR-01 | `ar01.glb` (M4 계열, 0.75 m, 삼각형 1.2만) | 총구 +X, 위 +Y | Y축 +90°, 권총손잡이 축(-0.391 rad)·중심은 파일 정점에서 측정, 탄창 4개 노드를 묶어 재장전 동작 |
+| SR-01 | `sr01.glb` (볼트액션, 1.25 m, 2.1만) | 총구 +X, 위 +Y | Y축 +90°, 썸홀 개머리 손잡이, 볼트 4개 노드를 총열 축 기준으로 묶어 볼트 동작, 탄창 3개 노드 |
+| M9 BAYONET | `m9_bayonet.glb` (0.33 m, 13.2만) | 칼날 +Y, 날 -X | Y축 -90° (날이 앞), 손잡이 중심에 손 |
+
+- 파일에는 손 위치 노드(`Grip_R` 등)가 없어서, 원본을 고치지 않고 `fit` 값으로 축 회전·손·총구·탄창·볼트를 지정합니다.
+  나중에 Blender에서 `Grip_R`/`Grip_L`/`Muzzle`/`Magazine`/`Bolt` 노드를 넣으면 그 노드가 우선합니다.
+- 세 파일은 게임이 준비되기 전에(맵과 함께) 한 번씩만 내려받고, 무기를 바꿀 때는 이미 받은 장면을 복제해 바로 보여 줍니다(지오메트리·재질 공유).
+- 장갑 겹침은 `vmCheck()` 기준으로 기존 테스트 허용치 안에 맞췄습니다.
+- 알려진 점: SR-01의 `Stock_Olive` 재질은 파일에 기본색이 없어(glTF 기본값) **흰색**으로 보입니다. M9는 손잡이만 정점 5.8만 개로 무겁습니다(삼각형 13만).
 
 ### Blender 모델로 교체하기
 

@@ -1,4 +1,5 @@
 import type { SoundId } from '../audio/weaponSounds';
+import type { ArmPose, HandGripProfile } from './view/HandGrip';
 // Data-only description of a weapon (guns and melee). Every weapon in the
 // game is one of these; the runtime classes never hard-code per-weapon numbers.
 
@@ -67,10 +68,35 @@ export interface ViewmodelPose {
 /** Built-in placeholder models. */
 export type ProceduralModelId = 'ar01' | 'sr01' | 'karambit';
 
-/** How the weapon looks in first person. A Blender model can replace the procedural one later. */
+type Vec3 = readonly [number, number, number];
+
+/**
+ * Fitting for a GLB exported without the game's anchor nodes or in other axes.
+ * Applied to the loaded scene at runtime; the file itself is used as exported.
+ * Everything below is in model space (after `rotation`): -Z forward, +Y up, +X right.
+ */
+export interface GltfFit {
+  /** Euler rotation (rad, XYZ) that turns the file's axes into model space. */
+  rotation?: Vec3;
+  /** Firing-hand anchor when the file has no `Grip_R` node (+Y along the grip, +Z toward the shooter). */
+  grip?: { position: Vec3; rotation?: Vec3 };
+  /** Support-hand anchor when the file has no `Grip_L` node. */
+  support?: { position: Vec3; rotation?: Vec3 };
+  /** Muzzle flash position when the file has no `Muzzle` node. */
+  muzzle?: Vec3;
+  /** File nodes gathered into the part the reload animation drops out. */
+  magazine?: readonly string[];
+  /** File nodes gathered into the bolt (cycled after each shot), pivoting on the bore axis at `pivot`. */
+  bolt?: { nodes: readonly string[]; pivot: Vec3 };
+  /** Glove shape around the grip (defaults to a rifle pistol grip). */
+  hand?: HandGripProfile;
+  armPose?: ArmPose;
+}
+
+/** How the weapon looks in first person: a built-in procedural model or a Blender GLB. */
 export type WeaponViewSpec = (
   | { kind: 'procedural'; model: ProceduralModelId }
-  | { kind: 'gltf'; url: string; fallback: ProceduralModelId }
+  | { kind: 'gltf'; url: string; fallback: ProceduralModelId; fit?: GltfFit }
 ) & { pose: ViewmodelPose };
 
 /** Sound cues of one weapon (ids from `audio/weaponSounds`). Presentation only. */
