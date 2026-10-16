@@ -154,6 +154,10 @@ export class BotModel {
     _state.velocity.copy(p.alive ? p.velocity : _state.velocity.set(0, 0, 0));
     _state.grounded = p.grounded || !p.alive;
     this.lower.update(dt, _state);
+    // Re-place it with the body's actual (lagging) yaw so the hips stay over the capsule
+    // while the body turns, rather than swinging around a point in front of them.
+    const by = this.object.rotation.y;
+    this.object.position.set(p.feet.x - Math.sin(by) * BODY_BACK, p.feet.y, p.feet.z - Math.cos(by) * BODY_BACK);
 
     // Upper body: turn from the legs toward the aim, raise / lower the rifle.
     const bodyYaw = this.object.rotation.y;

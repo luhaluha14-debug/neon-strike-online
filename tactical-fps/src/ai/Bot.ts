@@ -38,6 +38,10 @@ const THINK_INTERVAL = 0.15;
 /** Half-angle of the field of view (rad). */
 const FOV_HALF = (130 / 2) * (Math.PI / 180);
 const MEMORY = 4;
+/** Horizontal speed (m/s) below which a bot will shoot: like CS, rounds are only accurate when (nearly) stopped. */
+const FIRE_MAX_SPEED = 1.2;
+/** Above this speed a stopping bot counter-strafes (presses the opposite way) instead of just letting go. */
+const COUNTER_STRAFE_SPEED = 1.6;
 
 const _eye = new THREE.Vector3();
 const _to = new THREE.Vector3();
@@ -50,7 +54,8 @@ const _aim = new THREE.Vector3();
  * player, through the same input / WeaponCommand structs, and takes damage
  * through a PlayerCombat registered with the hitscan. Only the decisions are
  * its own: wander the nav grid, spot enemies it can actually see, engage
- * them in bursts while strafing, and search where it last saw them.
+ * them CS-style (stop, counter-strafe, short burst, then maybe a short peek
+ * step before the next one), and search where it last saw them.
  */
 export class Bot {
   readonly controller: PlayerController;
@@ -73,7 +78,8 @@ export class Bot {
   private burstLeft = 0;
   private burstPause = 0;
   private strafeDir = 1;
-  private strafeTimer = 0;
+  /** Remaining time of a short reposition step between bursts (0 = holding still to shoot). */
+  private peekTimer = 0;
   private stuckTimer = 0;
   private readonly stuckFrom = new THREE.Vector3();
   private repathTimer = 0;
@@ -116,6 +122,8 @@ export class Bot {
     this.path = [];
     this.seenFor = 0;
     this.burstLeft = 0;
+    this.burstPause = 0;
+    this.peekTimer = 0;
     this.stuckTimer = 0;
     this.stuckFrom.copy(this.controller.position);
   }
@@ -165,25 +173,29 @@ export class Bot {
 
     // --- Where to go ---
     _dir.set(0, 0, 0);
+    const speed = Math.hypot(c.velocity.x, c.velocity.z);
+    let counterStrafe = false;
     if (this.mode === 'engage' && t) {
-      const dist = Math.hypot(t.position.x - c.position.x, t.position.z - c.position.z);
-      // Strafe across the line of fire, close in from far, back off when very close.
-      this.strafeTimer -= dt;
-      if (this.strafeTimer <= 0) {
-        this.strafeDir = this.rand() < 0.5 ? -1 : 1;
-        this.strafeTimer = 0.5 + this.rand() * 0.9;
-      }
       const fx = -Math.sin(c.yaw);
       const fz = -Math.cos(c.yaw);
-      _dir.set(-fz * this.strafeDir, 0, fx * this.strafeDir);
-      if (dist > 22) _dir.add(_to.set(fx, 0, fz).multiplyScalar(0.8));
-      else if (dist < 6) _dir.add(_to.set(-fx, 0, -fz).multiplyScalar(0.6));
+      if (this.peekTimer > 0) {
+        // Short step between bursts: sideways, closing in from far, backing off when very close.
+        this.peekTimer -= dt;
+        const dist = Math.hypot(t.position.x - c.position.x, t.position.z - c.position.z);
+        _dir.set(-fz * this.strafeDir, 0, fx * this.strafeDir);
+        if (dist > 28) _dir.add(_to.set(fx, 0, fz).multiplyScalar(1.2));
+        else if (dist < 5) _dir.add(_to.set(-fx, 0, -fz).multiplyScalar(0.8));
+      } else if (speed > COUNTER_STRAFE_SPEED) {
+        // Holding still to shoot: brake by pressing against the current motion.
+        _dir.set(-c.velocity.x, 0, -c.velocity.z);
+        counterStrafe = true;
+      }
     } else {
       const next = this.nextWaypoint();
       if (next) _dir.set(next.x - c.position.x, 0, next.z - c.position.z);
     }
-    // Keep a little room from other bots.
-    for (const o of others) {
+    // Keep a little room from other bots (not while braking to shoot).
+    for (const o of counterStrafe || (this.mode === 'engage' && this.peekTimer <= 0) ? [] : others) {
       if (o === this || !o.alive) continue;
       const dx = c.position.x - o.position.x;
       const dz = c.position.z - o.position.z;
@@ -229,8 +241,9 @@ export class Bot {
     this.command.fire = false;
     if (this.mode === 'engage' && t && t.alive && this.seenFor >= this.skill.reaction && w.status === 'ready' && w.magazine > 0) {
       const err = Math.abs(wrap(wantYaw - c.yaw)) + Math.abs(wantPitch - c.pitch);
+      const steady = this.peekTimer <= 0 && c.grounded && Math.hypot(c.velocity.x, c.velocity.z) < FIRE_MAX_SPEED;
       if (this.burstPause > 0) this.burstPause -= dt;
-      else if (err < 0.06) {
+      else if (err < 0.06 && steady) {
         this.command.fire = true;
         this.burstLeft -= dt;
         if (this.burstLeft <= 0) {
@@ -238,6 +251,11 @@ export class Bot {
           this.burstLeft = 0.2 + this.rand() * 0.3;
           this.burstPause = 0.18 + this.rand() * 0.35;
           this.rollAimError();
+          // Sometimes take a quick step before the next burst (then stop again to shoot).
+          if (this.rand() < 0.35) {
+            this.peekTimer = 0.2 + this.rand() * 0.25;
+            this.strafeDir = this.rand() < 0.5 ? -1 : 1;
+          }
         }
       }
     }
