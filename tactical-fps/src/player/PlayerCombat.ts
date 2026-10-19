@@ -44,6 +44,8 @@ const _ba = new THREE.Vector3();
 export class PlayerCombat implements Damageable {
   /** Hitscan id: shots with the same sourceId never hit this body. */
   readonly id: string;
+  /** Team (team match only; undefined in free-for-all and training). */
+  team: string | undefined = undefined;
   /** Seconds since death (0 while alive). */
   deadTime = 0;
   /** Seconds of spawn protection left. */

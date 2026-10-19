@@ -22,7 +22,13 @@ export interface BotPose {
   deadTime: number;
 }
 
-/** Shared materials / geometry of every bot body in a squad (built once). */
+/** Uniform colours per team (team match); free-for-all bots keep the default olive kit. */
+const TEAM_KIT: Record<string, { fabric: number; gear: number; helmet: number; marker: number }> = {
+  blue: { fabric: 0x4f5b69, gear: 0x343d48, helmet: 0x3c4754, marker: 0x2f7bff },
+  red: { fabric: 0x76604a, gear: 0x56473a, helmet: 0x5f5040, marker: 0xd8392b },
+};
+
+/** Shared materials / geometry of every bot body in a squad (built once per kit). */
 export class BotKit {
   readonly materials: THREE.Material[] = [];
   readonly fabric: THREE.MeshStandardMaterial;
@@ -32,8 +38,11 @@ export class BotKit {
   readonly dark: THREE.MeshStandardMaterial;
   readonly glove: THREE.MeshStandardMaterial;
   readonly gun: THREE.MeshStandardMaterial;
+  /** Team colour for the helmet band and armbands (team match only), so friend and foe read apart at a glance. */
+  readonly marker: THREE.MeshStandardMaterial | null = null;
 
-  constructor() {
+  constructor(team?: string) {
+    const tk = team ? TEAM_KIT[team] : undefined;
     const tex = getArmTextures();
     const m = (color: number, roughness: number, metalness = 0, map: THREE.Texture | null = null, normalMap: THREE.Texture | null = null) => {
       const mat = new THREE.MeshStandardMaterial({ color, roughness, metalness, map, normalMap });
@@ -41,13 +50,17 @@ export class BotKit {
       this.materials.push(mat);
       return mat;
     };
-    this.fabric = m(0x5c624f, 0.92, 0, tex.fabricMap, tex.fabricNormal);
-    this.gear = m(0x3f4436, 0.85, 0, tex.fabricMap, tex.fabricNormal);
+    this.fabric = m(tk?.fabric ?? 0x5c624f, 0.92, 0, tex.fabricMap, tex.fabricNormal);
+    this.gear = m(tk?.gear ?? 0x3f4436, 0.85, 0, tex.fabricMap, tex.fabricNormal);
     this.skin = m(0x9a7a62, 0.7);
-    this.helmet = m(0x4a5040, 0.65, 0.1);
+    this.helmet = m(tk?.helmet ?? 0x4a5040, 0.65, 0.1);
     this.dark = m(0x1d1f22, 0.5, 0.2);
     this.glove = m(0x2a2a2a, 0.75, 0, tex.gloveMap, tex.gloveNormal);
     this.gun = m(0x26282b, 0.5, 0.55);
+    if (tk) {
+      this.marker = m(tk.marker, 0.6);
+      this.marker.emissive.setHex(tk.marker).multiplyScalar(0.35);
+    }
   }
 
   dispose(): void {
@@ -104,6 +117,8 @@ export class BotModel {
     this.add(sp, new THREE.BoxGeometry(0.16, 0.04, 0.03), k.dark, [0, 0.64, -0.09]);
     this.add(sp, new THREE.BoxGeometry(0.04, 0.035, 0.03), k.dark, [0, 0.74, -0.115]);
     for (const x of [-0.105, 0.105]) this.add(sp, new THREE.CylinderGeometry(0.035, 0.035, 0.03, 10), k.dark, [x, 0.635, 0.005], [1, 1, 1], [0, 0, Math.PI / 2]);
+    // Team band round the helmet.
+    if (k.marker) this.add(sp, new THREE.CylinderGeometry(0.124, 0.128, 0.03, 16, 1, true), k.marker, [0, 0.685, 0.01], [1, 1, 1.06]);
     // Shoulders.
     for (const x of [-0.2, 0.2]) this.add(sp, new THREE.SphereGeometry(0.075, 10, 8), k.fabric, [x, 0.42, 0]);
 
@@ -133,6 +148,11 @@ export class BotModel {
     this.limb(a, [-0.2, 0, 0.02], [-0.19, -0.2, -0.24], 0.05, k.fabric);
     this.limb(a, [-0.19, -0.2, -0.24], [0.08, -0.03, -0.42], 0.042, k.fabric);
     this.add(a, new THREE.SphereGeometry(0.043, 10, 8), k.glove, [0.09, -0.04, -0.43]);
+    // Team armbands on both upper arms.
+    if (k.marker) {
+      this.limb(a, [0.208, -0.07, 0.006], [0.218, -0.12, -0.01], 0.057, k.marker);
+      this.limb(a, [-0.2, -0.065, -0.05], [-0.197, -0.11, -0.1], 0.057, k.marker);
+    }
 
     this.mergeParts(sp);
     this.mergeParts(a);

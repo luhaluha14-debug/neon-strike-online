@@ -1,7 +1,8 @@
 // Free-for-all deathmatch rules: kills and deaths per combatant, a time
 // limit and a kill target. Pure logic (no rendering), driven by Game.
 
-export type GameMode = 'deathmatch' | 'training';
+/** 'deathmatch' free-for-all, 'team' 5v5 rounds (TeamMatch), 'training' dummies. */
+export type GameMode = 'deathmatch' | 'team' | 'training';
 
 export interface MatchConfig {
   /** Number of AI opponents. */

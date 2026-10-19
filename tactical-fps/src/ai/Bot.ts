@@ -15,6 +15,8 @@ export interface Combatant {
   /** Feet position. */
   readonly position: THREE.Vector3;
   readonly height: number;
+  /** Team (team match). Combatants on the bot's own team are never enemies. */
+  readonly team?: string;
 }
 
 /** Skill knobs: how fast a bot reacts and how well it aims. */
@@ -67,6 +69,12 @@ export class Bot {
   /** Current enemy (when engaging). */
   target: Combatant | null = null;
   readonly lastSeen = new THREE.Vector3();
+  /**
+   * Team match: while wandering with no enemy in sight, roam toward this
+   * area (the enemy side) instead of anywhere on the map. null = anywhere.
+   */
+  roamTarget: THREE.Vector3 | null = null;
+  private teamId: string | undefined = undefined;
 
   private path: THREE.Vector3[] = [];
   private pathIndex = 0;
@@ -110,6 +118,37 @@ export class Bot {
 
   get height(): number {
     return this.controller.height;
+  }
+
+  get team(): string | undefined {
+    return this.teamId;
+  }
+
+  /** Joins a team: its rounds then skip teammates (with friendly fire off) and it never targets them. */
+  setTeam(team: string | undefined): void {
+    this.teamId = team;
+    this.combat.team = team;
+    this.weapons.team = team;
+  }
+
+  /** Is `c` someone this bot may fight? (Not itself, not a teammate.) */
+  isEnemy(c: Combatant): boolean {
+    return c.id !== this.id && (this.teamId === undefined || c.team !== this.teamId);
+  }
+
+  /**
+   * A tick with no decisions (team match before / after a round): standing,
+   * not shooting; timers, gravity and a death fall still run.
+   */
+  hold(dt: number): void {
+    this.combat.step(dt);
+    const input = this.input;
+    input.moveX = input.moveY = 0;
+    input.jump = input.crouch = input.walk = false;
+    this.controller.step(input, dt);
+    this.command.fire = false;
+    this.command.reload = false;
+    this.weapons.step(this.command, dt);
   }
 
   /** Puts the bot at a spawn, full health, fresh magazine, nothing in mind. */
@@ -273,7 +312,7 @@ export class Bot {
     let best: Combatant | null = null;
     let bestD = Infinity;
     for (const e of enemies) {
-      if (!e.alive || e.id === this.id) continue;
+      if (!e.alive || !this.isEnemy(e)) continue;
       const d = this.canSee(e);
       if (d !== null && d < bestD) {
         best = e;
@@ -312,11 +351,26 @@ export class Bot {
     // Wander: walk to random reachable places.
     this.repathTimer -= THINK_INTERVAL;
     if (!this.nextWaypoint() || this.repathTimer <= 0) {
-      const goal = this.nav.randomCell(this.rand);
+      const goal = this.roamGoal();
       if (goal >= 0) this.path = this.nav.findPath(c.position, this.nav.center(goal)) ?? [];
       this.pathIndex = 0;
       this.repathTimer = 12;
     }
+  }
+
+  /** A random walkable cell; with a roam target, one within ~14 m of it when such a cell turns up. */
+  private roamGoal(): number {
+    const t = this.roamTarget;
+    if (!t) return this.nav.randomCell(this.rand);
+    let fallback = -1;
+    for (let k = 0; k < 24; k++) {
+      const cell = this.nav.randomCell(this.rand);
+      if (cell < 0) break;
+      if (fallback < 0) fallback = cell;
+      const p = this.nav.center(cell);
+      if (Math.hypot(p.x - t.x, p.z - t.z) < 14) return cell;
+    }
+    return fallback;
   }
 
   /** Distance to `e` if it is within range, inside the field of view and not behind a wall. */

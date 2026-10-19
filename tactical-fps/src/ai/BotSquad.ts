@@ -10,6 +10,12 @@ import type { NavGrid } from './NavGrid';
 
 const NAMES = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot', 'Golf', 'Hotel', 'India'];
 
+/** One bot of a team match roster. */
+export interface SquadMember {
+  name: string;
+  team: string;
+}
+
 export interface SquadEvents {
   /** `muzzle`: world position of the bot's rifle muzzle (flash / tracer start; the round itself starts at the eye, like the player's). */
   onShot?(bot: Bot, result: HitscanResult, origin: THREE.Vector3, dir: THREE.Vector3, weapon: Weapon, muzzle: THREE.Vector3): void;
@@ -39,22 +45,37 @@ export class BotSquad {
   readonly models: BotModel[] = [];
   readonly group = new THREE.Group();
   events: SquadEvents = {};
-  private readonly kit = new BotKit();
+  /**
+   * Free-for-all: dead bots come back after the respawn delay. Team match
+   * turns this off: deaths last until the round ends (spawnAt brings them back).
+   */
+  respawns = true;
+  /** One kit per uniform: the default olive one, or one per team. */
+  private readonly kits = new Map<string, BotKit>();
   private disposed = false;
 
+  /** `members`: a bot count (free-for-all, no teams) or a team roster. */
   constructor(
     private readonly map: LoadedMap,
     private readonly nav: NavGrid,
     private readonly hitscan: HitscanSystem,
-    count: number,
+    members: number | readonly SquadMember[],
     loadout: readonly WeaponDefinition[],
     private readonly rand: () => number = Math.random,
   ) {
     this.group.name = 'BotSquad';
-    for (let i = 0; i < count; i++) {
-      const bot = new Bot(`bot-${i + 1}`, `BOT ${NAMES[i % NAMES.length]}`, map.collision, hitscan, loadout, nav, undefined, rand);
+    const roster: readonly (SquadMember | null)[] = typeof members === 'number' ? Array.from({ length: members }, () => null) : members;
+    roster.forEach((m, i) => {
+      const bot = new Bot(`bot-${i + 1}`, m?.name ?? `BOT ${NAMES[i % NAMES.length]}`, map.collision, hitscan, loadout, nav, undefined, rand);
+      if (m) bot.setTeam(m.team);
       hitscan.register(bot.combat);
-      const model = new BotModel(this.kit);
+      const kitKey = m?.team ?? '';
+      let kit = this.kits.get(kitKey);
+      if (!kit) {
+        kit = new BotKit(m?.team);
+        this.kits.set(kitKey, kit);
+      }
+      const model = new BotModel(kit);
       model.object.name = bot.id;
       this.group.add(model.object);
       bot.combat.onDamage = (e) => {
@@ -71,7 +92,7 @@ export class BotSquad {
       };
       this.bots.push(bot);
       this.models.push(model);
-    }
+    });
   }
 
   /** Puts every bot at a spawn point, spread out and away from `avoid`. */
@@ -88,8 +109,19 @@ export class BotSquad {
     const everyone: Combatant[] = [player, ...this.bots];
     for (const b of this.bots) {
       b.step(dt, everyone, this.bots);
-      if (b.combat.respawnDue) this.respawn(b, everyone.filter((c) => c !== b && c.alive).map((c) => c.position));
+      if (this.respawns && b.combat.respawnDue) this.respawn(b, everyone.filter((c) => c !== b && c.alive).map((c) => c.position));
     }
+  }
+
+  /** A tick with every bot holding still (team match before / after a round). */
+  hold(dt: number): void {
+    for (const b of this.bots) b.hold(dt);
+  }
+
+  /** Puts a bot at a given spot (team match round start): full health, fresh magazine, nothing in mind. */
+  spawnAt(b: Bot, at: THREE.Vector3, yaw: number): void {
+    b.spawn(at, yaw);
+    this.models[this.bots.indexOf(b)]?.reset();
   }
 
   /** Per frame: bodies walk / aim / fall from their bot's state. */
@@ -113,7 +145,7 @@ export class BotSquad {
     this.disposed = true;
     for (const b of this.bots) this.hitscan.unregister(b.combat);
     for (const m of this.models) m.dispose();
-    this.kit.dispose();
+    for (const k of this.kits.values()) k.dispose();
     this.group.removeFromParent();
   }
 

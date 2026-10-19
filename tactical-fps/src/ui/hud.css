@@ -189,6 +189,25 @@ body {
   transform: scaleX(0);
   transform-origin: left;
 }
+.death-note {
+  display: none;
+  margin-top: 6px;
+  font-size: var(--fs-md);
+  color: var(--hud-fg);
+}
+/* Team match: no respawn, a small spectator note low on the screen instead. */
+.death.spectate {
+  top: auto;
+  bottom: 20%;
+  transform: translateX(-50%);
+}
+.death.spectate .death-timer,
+.death.spectate .death-track {
+  display: none;
+}
+.death.spectate .death-note {
+  display: block;
+}
 
 /* Health */
 .vitals {
