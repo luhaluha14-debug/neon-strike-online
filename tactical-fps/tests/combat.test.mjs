@@ -80,8 +80,8 @@ test('damage numbers per weapon, zone and distance match the current weapon data
   });
   // [0 m, falloff start, mid, falloff end, 2x falloff end]
   assert.deepEqual(table, {
-    // base 32, head x4, limb x0.8, 30-80 m falloff down to x0.8
-    ar01: { head: [128, 128, 115, 102, 102], body: [32, 32, 29, 26, 26], limb: [26, 26, 23, 20, 20] },
+    // base 24, head x4.25, limb x0.8, 30-80 m falloff down to x0.8
+    ar01: { head: [102, 102, 92, 82, 82], body: [24, 24, 22, 19, 19], limb: [19, 19, 17, 15, 15] },
     // base 115, head x4, limb x0.85, 120-250 m falloff down to x0.9
     sr01: { head: [460, 460, 437, 414, 414], body: [115, 115, 109, SR_BODY_END, SR_BODY_END], limb: [98, 98, 93, 88, 88] },
     // base 40, head x1.5, no falloff

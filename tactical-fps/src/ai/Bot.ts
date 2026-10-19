@@ -30,7 +30,7 @@ export interface BotSkill {
   sightRange: number;
 }
 
-export const DEFAULT_SKILL: BotSkill = { reaction: 0.45, aimStart: 0.11, aimBest: 0.022, turnSpeed: 5.5, sightRange: 70 };
+export const DEFAULT_SKILL: BotSkill = { reaction: 0.6, aimStart: 0.16, aimBest: 0.075, turnSpeed: 5.5, sightRange: 70 };
 
 type Mode = 'wander' | 'engage' | 'search';
 
@@ -260,7 +260,10 @@ export class Bot {
       }
     }
     if (w.magazine === 0 || (this.mode !== 'engage' && w.magazine < w.def.magazineSize * 0.4)) this.command.reload = true;
+    const fired = this.weapons.shotsFired;
     this.weapons.step(this.command, dt);
+    // A fresh aim error for every round, so a burst scatters around the target instead of stacking on one spot.
+    if (this.weapons.shotsFired !== fired) this.rollAimError();
   }
 
   /** Perception + decisions, a few times a second. */

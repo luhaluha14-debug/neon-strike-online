@@ -16,8 +16,9 @@ export const AR_01: WeaponDefinition = {
   reloadTime: 2.2,
   equipTime: 0.6,
   damage: {
-    base: 32,
-    headMultiplier: 4,
+    // 5 body hits to kill (24 x 4 = 96), one headshot still kills (24 x 4.25 = 102) inside the falloff start.
+    base: 24,
+    headMultiplier: 4.25,
     limbMultiplier: 0.8,
     falloffStart: 30,
     falloffEnd: 80,

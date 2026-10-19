@@ -87,8 +87,8 @@ test('the player is a hitscan target: zones, damage from the existing computeDam
     assert.equal(s.drop, Math.min(s.damage, 100), s.part);
   }
   assert.deepEqual(r.map((s) => s.zone), ['head', 'body', 'limb']);
-  // AR-01 at 8 m: 128 / 32 / 26.
-  assert.deepEqual(r.map((s) => s.damage), [128, 32, 26]);
+  // AR-01 at 8 m: 102 / 24 / 19.
+  assert.deepEqual(r.map((s) => s.damage), [102, 24, 19]);
 });
 
 test("the player's own rounds never hit the player", async () => {
@@ -105,14 +105,14 @@ test('health stops at 0; death; a dead player takes no further damage and is not
   const r = await page.evaluate(async () => {
     const T = window.T;
     T.damage = [];
-    const a = await T.shootPlayer('body'); // 32
+    const a = await T.shootPlayer('body'); // 24
     const b = await T.shootPlayer('head', 'sr01'); // 460 → 0
     const c = await T.shootPlayer('body');
     return { a, b, c, alive: window.game.combat.alive, feedback: T.damage.length };
   });
-  assert.equal(r.a.health, 68);
+  assert.equal(r.a.health, 76);
   assert.equal(r.b.health, 0, 'never below 0');
-  assert.equal(r.b.drop, 68);
+  assert.equal(r.b.drop, 76);
   assert.equal(r.alive, false);
   assert.notEqual(r.c.kind, 'target', 'shots pass a dead player');
   assert.equal(r.c.drop, 0);
@@ -207,7 +207,7 @@ test('spawn protection: no damage for 1 s after spawning, normal damage after', 
   const late = await page.evaluate(() => window.T.shootPlayer('body'));
   assert.equal(early.drop, 0);
   assert.equal(early.health, 100);
-  assert.equal(late.drop, 32);
+  assert.equal(late.drop, 24);
 });
 
 test('hit feedback: direction marker points at the shooter, red edges, health panel flash', async () => {
@@ -261,7 +261,7 @@ test('training targets are unaffected: the player shoots a dummy, the dummy (not
     const g = window.game;
     return { target: g.trainingRange.targets.find((x) => x.motion.sweep === 0).health, player: g.player.health };
   });
-  assert.equal(after.target, r.target - 32);
+  assert.equal(after.target, r.target - 24);
   assert.equal(after.player, 100);
 });
 
