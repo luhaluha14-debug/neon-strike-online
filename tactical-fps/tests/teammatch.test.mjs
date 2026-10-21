@@ -125,24 +125,41 @@ test('spawn spots fit a standing body (not inside map geometry)', async () => {
   assert.deepEqual(r.bad, []);
 });
 
-test('prep: everyone is frozen and nobody shoots; then the round goes live', async () => {
+test('prep (작전 준비, the buy time): everyone is frozen and nobody shoots; then the round goes live', async () => {
   const r = await page.evaluate(() => {
     const g = window.game;
     const T = window.T;
     const pos0 = g.squad.bots.map((b) => b.position.clone());
     const shots0 = g.squad.bots.reduce((s, b) => s + b.weapons.shotsFired, 0);
-    T.run(60); // 1 s of the 3 s prep
+    // (The real loop may have run a moment after Play before the test took over: measure from what is left.)
+    const tm = g.teamMatch;
+    const left0 = tm.phaseLeft;
+    const full = tm.config.prepTime;
+    // Count the simulation ticks spent in prep (independent of frame timing).
+    let prepTicks = 0;
+    const update = tm.update;
+    tm.update = function (dt, alive) {
+      if (this.phase === 'prep') prepTicks++;
+      return update.call(this, dt, alive);
+    };
+    T.run(60); // 1 s of the 15 s prep
     const moved = Math.max(...g.squad.bots.map((b, i) => Math.hypot(b.position.x - pos0[i].x, b.position.z - pos0[i].z)));
     const shots = g.squad.bots.reduce((s, b) => s + b.weapons.shotsFired, 0) - shots0;
     const stillPrep = g.teamMatch.phase;
-    const frames = T.until('live', 400);
-    return { moved, shots, stillPrep, frames, phase: g.teamMatch.phase, clock: g.teamMatch.roundTimeLeft };
+    const frames = T.until('live', 1200);
+    delete tm.update;
+    return { moved, shots, stillPrep, frames, left0, full, prepTicks, phase: g.teamMatch.phase, clock: g.teamMatch.roundTimeLeft };
   });
   assert.ok(r.moved < 0.05, `bots hold still in prep (${r.moved})`);
   assert.equal(r.shots, 0);
   assert.equal(r.stillPrep, 'prep');
   assert.equal(r.phase, 'live');
-  assert.ok(r.frames > 60 && r.frames < 140, `prep lasts ~3 s (${r.frames} more frames after 60)`);
+  assert.equal(r.full, 15, 'the prep phase is the 15 s buy time');
+  assert.ok(r.left0 > 13 && r.left0 <= 15, `prep had just started (${r.left0} s left)`);
+  // The prep ends on its own clock: exactly the time that was left, in 1/120 s ticks (±1 for rounding).
+  const expected = r.left0 * 120;
+  assert.ok(Math.abs(r.prepTicks - expected) <= 1, `prep runs out on its clock (${r.prepTicks} ticks, expected ${expected.toFixed(1)})`);
+  assert.ok(r.frames > 0);
   assert.ok(r.clock > 119.9, `round clock starts full (${r.clock})`);
 });
 
@@ -202,6 +219,8 @@ test('friendly fire is off: rounds pass through teammates without damage; enemy 
     g.combat.protection = 0;
     const p = g.player.position;
     const chest = new V(p.x, p.y + 1.1, p.z);
+    // Rounds as an AR-01 fires them (the bots' rifle; the player starts a team round with the knife only).
+    const rifle = ally.weapons.weapon.def.damage;
     const shotAt = (from, shooter) => {
       const dir = chest.clone().sub(from).normalize();
       return g.hitscan.fire({ origin: from, direction: dir, damage: shooter.weapons.weapon.def.damage, sourceId: shooter.id, weaponId: 'ar01', team: shooter.team });
@@ -216,11 +235,11 @@ test('friendly fire is off: rounds pass through teammates without damage; enemy 
     ally.spawn(new V(p.x, p.y, p.z - 3), 0);
     ally.combat.protection = 0;
     const allyChest = new V(ally.position.x, ally.position.y + 1.1, ally.position.z);
-    const mine = g.hitscan.fire({ origin: new V(p.x, p.y + 1.1, p.z), direction: allyChest.clone().sub(new V(p.x, p.y + 1.1, p.z)).normalize(), damage: g.weapons.weapon.def.damage, sourceId: 'local', weaponId: 'ar01', team: 'blue' });
+    const mine = g.hitscan.fire({ origin: new V(p.x, p.y + 1.1, p.z), direction: allyChest.clone().sub(new V(p.x, p.y + 1.1, p.z)).normalize(), damage: rifle, sourceId: 'local', weaponId: 'ar01', team: 'blue' });
     // An enemy right behind that teammate on the same line is still hit: the round passes through the teammate.
     enemy.spawn(new V(p.x, p.y, p.z - 6), 0);
     enemy.combat.protection = 0;
-    const through = g.hitscan.fire({ origin: new V(p.x, p.y + 1.1, p.z), direction: new V(0, 0, -1), damage: g.weapons.weapon.def.damage, sourceId: 'local', weaponId: 'ar01', team: 'blue' });
+    const through = g.hitscan.fire({ origin: new V(p.x, p.y + 1.1, p.z), direction: new V(0, 0, -1), damage: rifle, sourceId: 'local', weaponId: 'ar01', team: 'blue' });
     return {
       fromAlly: fromAlly.kind,
       hpAfterAlly,
@@ -275,7 +294,7 @@ test('a team wiped out ends the round at once; the dead stay dead; the next roun
     T.run(1);
     const ended = T.snapshot();
     const banner = document.querySelector('.team-hud .round-banner');
-    const bannerText = banner.hidden ? '' : banner.textContent;
+    const bannerText = banner.hidden ? '' : banner.querySelector('.rb-main').textContent;
     // During the result phase: nobody comes back, nobody shoots.
     const shots0 = g.squad.bots.reduce((s, b) => s + b.weapons.shotsFired, 0);
     let revived = 0;
@@ -287,7 +306,7 @@ test('a team wiped out ends the round at once; the dead stay dead; the next roun
     const playerKills = g.teamMatch.scores.get('local').kills;
     const feed = g.teamMatch.feed.length;
     // Into round 2.
-    T.until('prep', 400);
+    T.until('prep', 600);
     const next = T.snapshot();
     const bots = g.squad.bots;
     const atSpawn = (b) => g.teamSpawns[b.team].some((s) => Math.hypot(s.position.x - b.position.x, s.position.z - b.position.z) < 0.5);
@@ -307,7 +326,7 @@ test('a team wiped out ends the round at once; the dead stay dead; the next roun
       atSpawn: bots.every(atSpawn),
       playerAtSpawn: Math.hypot(g.player.position.x - g.teamSpawns.blue[0].position.x, g.player.position.z - g.teamSpawns.blue[0].position.z) < 0.5,
       playerHp: g.player.health,
-      playerMag: g.weapons.weapon.magazine,
+      playerLoadout: g.weapons.loadout.map((w) => w.def.id),
       modes: bots.map((b) => b.mode),
       fx: g.fx.active,
     };
@@ -333,7 +352,7 @@ test('a team wiped out ends the round at once; the dead stay dead; the next roun
   assert.equal(r.atSpawn, true, 'every bot back on its team spawn');
   assert.equal(r.playerAtSpawn, true);
   assert.equal(r.playerHp, 100);
-  assert.equal(r.playerMag, 30);
+  assert.deepEqual(r.playerLoadout, ['karambit'], 'gear is per round: back to the knife');
   assert.deepEqual([...new Set(r.modes)], ['wander'], 'no AI memory carried over');
   assert.equal(r.fx, 0, 'tracers / flashes cleared');
 });
@@ -357,17 +376,21 @@ test('the dead player spectates a living teammate, and comes back next round', a
     const stillDead = !g.combat.alive && g.combat.deadTime > 3;
     const deaths = g.teamMatch.scores.get('local').deaths;
     const killerKills = g.teamMatch.scores.get('bot-6').kills;
+    // (bot-6 may also have shot a BLUE bot meanwhile: the bots keep fighting.)
+    const playerDeaths = g.teamMatch.feed.filter((k) => k.victim === 'local').map((k) => k.killer);
+    const bot6Feed = g.teamMatch.feed.filter((k) => k.killer === 'bot-6').length;
     // End the round (all reds), wait for the next one.
     for (const b of g.squad.bots.filter((x) => x.team === 'red')) T.kill(b.combat, 'bot-1');
     T.until('prep', 600);
-    return { deadEarly, nearest, playerDist, note, stillDead, deaths, killerKills, aliveNext: g.combat.alive, hp: g.player.health, noteHidden: document.querySelector('.death').hidden };
+    return { deadEarly, nearest, playerDist, note, stillDead, deaths, killerKills, playerDeaths, bot6Feed, aliveNext: g.combat.alive, hp: g.player.health, noteHidden: document.querySelector('.death').hidden };
   });
   assert.equal(r.deadEarly.alive, false);
   assert.ok(r.nearest < 3, `camera sits behind a living teammate (${r.nearest.toFixed(2)} m)`);
   assert.match(r.note, /^관전 중: (Alpha|Bravo|Charlie|Delta) — 클릭으로 아군 전환$/);
   assert.equal(r.stillDead, true, 'the player is not respawned during the round');
   assert.equal(r.deaths, 1);
-  assert.equal(r.killerKills, 1, 'the RED bot that shot the player gets the kill');
+  assert.deepEqual(r.playerDeaths, ['bot-6'], 'the RED bot that shot the player gets the kill');
+  assert.equal(r.killerKills, r.bot6Feed, "its kill count matches its kill feed entries");
   assert.equal(r.aliveNext, true);
   assert.equal(r.hp, 100);
   assert.equal(r.noteHidden, true);
@@ -388,15 +411,15 @@ test('round clock: more survivors wins at time; equal survivors is a draw; a dou
     g.teamMatch.roundTimeLeft = 0.1;
     T.run(10);
     out.r1 = g.teamMatch.history.at(-1);
-    T.until('live', 800);
+    T.until('live', 2000);
     // Round 2: 4 vs 4 (one each) at time: draw.
     T.kill(g.squad.bots.find((b) => b.team === 'red').combat, 'local');
     T.kill(g.squad.bots.find((b) => b.team === 'blue').combat, 'bot-7');
     g.teamMatch.roundTimeLeft = 0.1;
     T.run(10);
     out.r2 = g.teamMatch.history.at(-1);
-    out.banner2 = document.querySelector('.team-hud .round-banner').textContent;
-    T.until('live', 800);
+    out.banner2 = document.querySelector('.team-hud .round-banner .rb-main').textContent;
+    T.until('live', 2000);
     // Round 3: everyone dies in the same tick: draw by elimination.
     for (const c of T.all()) T.kill(c.target, 'test');
     T.run(1);
@@ -424,7 +447,7 @@ test('first team to 5 round wins takes the match: results with the winner and ev
     for (const c of T.all().filter((x) => x.team === 'blue')) T.kill(c.target, 'bot-5');
     T.run(1);
     for (let i = 0; i < 5; i++) {
-      T.until('live', 1000);
+      T.until('live', 2000);
       for (const b of g.squad.bots.filter((x) => x.team === 'red')) T.kill(b.combat, 'local');
       T.run(2);
     }

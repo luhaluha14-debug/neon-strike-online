@@ -3,6 +3,7 @@
 // `roundsToWin` round wins takes the match. Pure logic (no rendering, no
 // scene), driven by Game one simulation tick at a time.
 
+import { ECONOMY, TeamEconomy, type EconomyConfig } from './Economy';
 import type { KillEvent } from './Match';
 
 export type Team = 'blue' | 'red';
@@ -20,18 +21,25 @@ export interface TeamMatchConfig {
   roundsToWin: number;
   /** Seconds of play per round. */
   roundTime: number;
-  /** Seconds everyone stands frozen at the spawn before a round goes live. */
+  /**
+   * Seconds of the pre-round phase ("작전 준비"): everyone frozen at the
+   * spawn; with an economy, this is the buy time. Separate from roundTime.
+   */
   prepTime: number;
   /** Seconds the round result is shown before the next round. */
   resultTime: number;
+  /** Round economy (money, rewards, buying in the prep phase); null = none. */
+  economy: EconomyConfig | null;
 }
 
-export const DEFAULT_TEAM_MATCH: TeamMatchConfig = { teamSize: 5, roundsToWin: 5, roundTime: 120, prepTime: 3, resultTime: 4 };
+export const DEFAULT_TEAM_MATCH: TeamMatchConfig = { teamSize: 5, roundsToWin: 5, roundTime: 120, prepTime: ECONOMY.buyTime, resultTime: 4, economy: ECONOMY };
 export const ROUNDS_TO_WIN_OPTIONS = [3, 5, 7, 10] as const;
 export const ROUND_TIME_OPTIONS = [60, 120, 180] as const;
 
 /**
- * prep   : everyone alive at the spawns, frozen (no moving / shooting).
+ * prep   : "작전 준비": everyone alive at the spawns, frozen (no moving /
+ *          shooting); the buy phase when the match has an economy. Ends
+ *          when its time runs out or when ready() is called.
  * live   : the round is played; deaths are final until the next round.
  * result : the round is decided; its result is shown, nothing counts any more.
  * over   : a team reached `roundsToWin`.
@@ -74,18 +82,36 @@ export class TeamMatch {
   roundTimeLeft: number;
   /** Seconds since the match started (kill feed timing). */
   elapsed = 0;
+  /** Money and rewards (null without an economy). Settled once per decided round, kill bonuses once per kill. */
+  readonly economy: TeamEconomy | null;
 
   constructor(
     readonly config: TeamMatchConfig,
     players: readonly { id: string; name: string; team: Team; isPlayer: boolean }[],
   ) {
     for (const p of players) this.scores.set(p.id, { ...p, kills: 0, deaths: 0 });
+    this.economy = config.economy ? new TeamEconomy(config.economy, players) : null;
     this.phaseLeft = config.prepTime;
     this.roundTimeLeft = config.roundTime;
   }
 
   get over(): boolean {
     return this.phase === 'over';
+  }
+
+  /** Buying is possible only in the prep phase of a match with an economy. */
+  get buyOpen(): boolean {
+    return this.phase === 'prep' && this.economy !== null;
+  }
+
+  /**
+   * "출격 확정": end the prep phase now. Takes effect on the next update(),
+   * i.e. at a tick boundary, when every combatant goes live together.
+   */
+  ready(): boolean {
+    if (this.phase !== 'prep') return false;
+    this.phaseLeft = 0;
+    return true;
   }
 
   /** Match winner once over (null = not over, or impossible tie). */
@@ -127,7 +153,10 @@ export class TeamMatch {
     v.deaths++;
     const k = this.scores.get(killer);
     const credited = !!k && killer !== victim && k.team !== v.team;
-    if (credited) k.kills++;
+    if (credited) {
+      k.kills++;
+      this.economy?.onKill(this.round, killer, victim);
+    }
     this.feed.push({ killer: credited ? killer : victim, victim, weaponId, head, at: this.elapsed });
   }
 
@@ -140,7 +169,7 @@ export class TeamMatch {
     this.elapsed += dt;
     switch (this.phase) {
       case 'prep':
-        this.phaseLeft -= dt;
+        this.phaseLeft = Math.max(0, this.phaseLeft - dt);
         if (this.phaseLeft <= 0) {
           this.phase = 'live';
           this.phaseLeft = 0;
@@ -176,6 +205,8 @@ export class TeamMatch {
   private endRound(winner: Team | null, reason: RoundEnd, alive: Record<Team, number>): TeamMatchEvent {
     this.history.push({ round: this.round, winner, reason, alive: { ...alive } });
     if (winner) this.roundWins[winner]++;
+    // The one place a round is decided, so its payout happens exactly once.
+    this.economy?.settle({ round: this.round, winner });
     if (winner && this.roundWins[winner] >= this.config.roundsToWin) {
       this.phase = 'over';
       this.phaseLeft = 0;

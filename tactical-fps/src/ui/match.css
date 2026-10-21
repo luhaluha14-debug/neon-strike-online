@@ -248,6 +248,18 @@
 .round-banner[hidden] {
   display: none;
 }
+.rb-sub {
+  display: block;
+  margin-top: 4px;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--hud-fg);
+  text-align: center;
+}
+.ta.money b {
+  color: var(--hud-fg);
+}
 .round-banner.blue {
   border-bottom-color: var(--team-blue);
   color: var(--team-blue);

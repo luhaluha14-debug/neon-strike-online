@@ -1,3 +1,4 @@
+import { formatMoney } from '../game/Economy';
 import type { KillEvent } from '../game/Match';
 import { TEAM_NAME, type Team, type TeamMatch, type TeamScoreLine } from '../game/TeamMatch';
 import './match.css';
@@ -21,6 +22,8 @@ export class TeamHud {
   private readonly aliveBlue: HTMLElement;
   private readonly aliveRed: HTMLElement;
   private readonly banner: HTMLElement;
+  private readonly moneyBox: HTMLElement;
+  private readonly money: HTMLElement;
   private readonly feed: HTMLElement;
   private readonly board: HTMLElement;
   private readonly results: HTMLElement;
@@ -42,6 +45,7 @@ export class TeamHud {
       <div class="team-alive" aria-label="생존 인원">
         <span class="ta blue">생존 <b class="ta-blue">5</b></span>
         <span class="ta red">생존 <b class="ta-red">5</b></span>
+        <span class="ta money" hidden>자금 <b class="ta-money">$0</b></span>
       </div>
       <div class="round-banner" role="status" hidden></div>
       <ol class="killfeed" aria-live="polite"></ol>
@@ -67,6 +71,8 @@ export class TeamHud {
     this.aliveBlue = q('.ta-blue');
     this.aliveRed = q('.ta-red');
     this.banner = q('.round-banner');
+    this.moneyBox = q('.ta.money');
+    this.money = q('.ta-money');
     this.feed = q('.killfeed');
     this.board = q('.scoreboard');
     this.results = q('.results');
@@ -86,7 +92,8 @@ export class TeamHud {
   update(m: TeamMatch, alive: Record<Team, number>, showBoard: boolean): void {
     // The clock shows the prep countdown before a round, the round clock otherwise.
     const t = Math.ceil(m.phase === 'prep' ? m.phaseLeft : m.roundTimeLeft);
-    const key = `${m.roundWins.blue}|${m.roundWins.red}|${m.round}|${t}|${alive.blue}|${alive.red}|${m.phase}`;
+    const money = m.economy?.money('local') ?? null;
+    const key = `${m.roundWins.blue}|${m.roundWins.red}|${m.round}|${t}|${alive.blue}|${alive.red}|${m.phase}|${money}`;
     if (key !== this.last) {
       this.last = key;
       this.winsBlue.textContent = String(m.roundWins.blue);
@@ -96,6 +103,8 @@ export class TeamHud {
       this.time.classList.toggle('low', m.phase === 'live' && t <= 15);
       this.aliveBlue.textContent = String(alive.blue);
       this.aliveRed.textContent = String(alive.red);
+      this.moneyBox.hidden = money === null;
+      if (money !== null) this.money.textContent = formatMoney(money);
     }
     this.setBanner(m);
     const recent = m.feed.filter((k) => m.elapsed - k.at < FEED_SECONDS).slice(-5);
@@ -140,19 +149,36 @@ export class TeamHud {
   private setBanner(m: TeamMatch): void {
     let text = '';
     let cls = '';
+    let sub = '';
     if (m.phase === 'prep') {
-      text = `라운드 ${m.round} — 준비`;
+      text = `라운드 ${m.round} — ${m.economy ? '작전 준비' : '준비'}`;
+      if (m.economy) sub = 'B: 장비 구매';
       cls = 'prep';
     } else if (m.phase === 'result' && m.lastRound) {
       const r = m.lastRound;
       text = r.winner ? `${TEAM_NAME[r.winner]} 라운드 승리${r.reason === 'time' ? ' (시간 종료)' : ''}` : `무승부${r.reason === 'time' ? ' (시간 종료)' : ''}`;
       cls = r.winner ?? 'draw';
+      // The player's round payout (settled once when the round was decided).
+      const p = m.economy?.lastPayout.get('local');
+      if (p && p.round === r.round) {
+        const why = p.reason === 'win' ? '승리 보상' : p.reason === 'draw' ? '무승부 보상' : `패배 보상 (${p.streak}연패)`;
+        sub = `${why} +${formatMoney(p.amount)}`;
+      }
     }
-    const key = `${cls}|${text}`;
+    const key = `${cls}|${text}|${sub}`;
     if (key === this.bannerKey) return;
     this.bannerKey = key;
     this.banner.hidden = !text;
-    this.banner.textContent = text;
+    const main = document.createElement('span');
+    main.className = 'rb-main';
+    main.textContent = text;
+    this.banner.replaceChildren(main);
+    if (sub) {
+      const s = document.createElement('span');
+      s.className = 'rb-sub';
+      s.textContent = sub;
+      this.banner.appendChild(s);
+    }
     this.banner.className = `round-banner ${cls}`;
   }
 

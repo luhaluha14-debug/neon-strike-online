@@ -82,6 +82,23 @@ export class WeaponSystem {
     return this.inspectRemaining > 0 ? 1 - this.inspectRemaining / INSPECT_TIME : null;
   }
 
+  /**
+   * Replaces the whole loadout (team match: the weapons bought for the round).
+   * Every weapon starts with a full magazine and reserve; `slot` is drawn
+   * (equip animation, onEquip). The same array object is kept.
+   */
+  setLoadout(defs: readonly WeaponDefinition[], slot = 0): void {
+    if (defs.length === 0) throw new Error('WeaponSystem needs at least one weapon');
+    this.loadout.splice(0, this.loadout.length, ...defs.map((d) => new Weapon(d)));
+    this.slot = Math.min(Math.max(slot, 0), this.loadout.length - 1);
+    this.lastSlot = this.slot;
+    this.recoil.setProfile(this.weapon.def.recoil);
+    this.recoil.reset();
+    this.inspectRemaining = 0;
+    this.weapon.equip();
+    this.events.onEquip?.(this.weapon, this.slot);
+  }
+
   /** Switches to a loadout slot (no-op if already held or out of range). */
   equipSlot(slot: number): boolean {
     if (slot < 0 || slot >= this.loadout.length || slot === this.slot) return false;
