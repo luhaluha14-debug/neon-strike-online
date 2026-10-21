@@ -15,6 +15,8 @@ export interface ShotRequest {
   damage: DamageProfile;
   sourceId: string;
   weaponId: string;
+  /** Shooter's team, if any (team match). */
+  team?: string;
 }
 
 const _ray = new THREE.Ray();
@@ -26,6 +28,13 @@ const _ray = new THREE.Ray();
  */
 export class HitscanSystem {
   private readonly targets = new Set<Damageable>();
+  /**
+   * Off (team match): a round passes through the shooter's teammates without
+   * hitting them, so it neither hurts nor stops on them and can still hit an
+   * enemy behind. Only applies when both the shot and the target have a team,
+   * so free-for-all and training are unaffected either way.
+   */
+  friendlyFire = true;
 
   constructor(private readonly world: CollisionWorld) {}
 
@@ -48,6 +57,7 @@ export class HitscanSystem {
     let best: { target: Damageable; distance: number; point: THREE.Vector3; normal: THREE.Vector3; zone: HitZone } | null = null;
     for (const target of this.targets) {
       if (!target.alive || target.id === shot.sourceId) continue;
+      if (!this.friendlyFire && shot.team !== undefined && target.team === shot.team) continue;
       const hit = target.raycast(_ray, best ? best.distance : limit);
       if (hit && hit.distance < limit && (!best || hit.distance < best.distance)) best = { target, ...hit };
     }

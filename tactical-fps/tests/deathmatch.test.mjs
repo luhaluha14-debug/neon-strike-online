@@ -73,7 +73,6 @@ test('bots see only what is in the open: no engagement through a wall, engagemen
     const bot = g.squad.bots[0];
     // Others out of the way (far corner, dead) so only the player matters.
     for (const b of g.squad.bots.slice(1)) b.combat.applyDamage({ amount: 999, zone: 'body', sourceId: 'test', weaponId: 'test', point: b.position, direction: new V(0, 0, 1), distance: 1 });
-    const eye = (p) => new V(p.x, p.y + 1.6, p.z);
     let wall = null;
     let open = null;
     for (let k = 0; k < 4000 && (!wall || !open); k++) {
@@ -81,9 +80,16 @@ test('bots see only what is in the open: no engagement through a wall, engagemen
       const b = nav.center(nav.randomCell());
       const d = Math.hypot(a.x - b.x, a.z - b.z);
       if (d < 6 || d > 25 || Math.abs(a.y - b.y) > 0.3) continue;
-      const dir = eye(b).sub(eye(a));
-      const len = dir.length();
-      const blocked = col.raycast(eye(a), dir.normalize(), len) !== null;
+      // Only pairs where the line at 1.6 m and the bot's own sight line (its eye to the
+      // player's chest) agree: low cover can block one and not the other.
+      const sight = (h0, h1) => {
+        const from = new V(a.x, a.y + h0, a.z);
+        const dir = new V(b.x, b.y + h1, b.z).sub(from);
+        const len = dir.length();
+        return col.raycast(from, dir.normalize(), len) !== null;
+      };
+      const blocked = sight(1.6, 1.6);
+      if (blocked !== sight(0.1 + bot.controller.eyeHeight, 1.8 * 0.8)) continue;
       if (blocked && !wall) wall = [a, b];
       if (!blocked && !open) open = [a, b];
     }
@@ -96,7 +102,13 @@ test('bots see only what is in the open: no engagement through a wall, engagemen
       g.combat.protection = 99; // the player must not die during the check
       bot.mode = 'wander';
       bot.target = null;
-      for (let i = 0; i < 40; i++) bot.step(1 / 120, [{ id: 'local', alive: true, position: g.player.position, height: 1.8 }], [bot]);
+      // Perception only: the bot is held on its spot (it would otherwise start walking a
+      // new route and could step out from behind the wall within these 0.33 s).
+      for (let i = 0; i < 40; i++) {
+        bot.step(1 / 120, [{ id: 'local', alive: true, position: g.player.position, height: 1.8 }], [bot]);
+        bot.controller.position.set(a.x, a.y + 0.1, a.z);
+        bot.controller.velocity.set(0, 0, 0);
+      }
       return bot.mode;
     };
     return { found: !!wall && !!open, behindWall: trial(wall), inOpen: trial(open) };

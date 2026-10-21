@@ -102,6 +102,17 @@ export class MainMenu {
                 <span class="field-hint">바꾸면 경기가 처음부터 다시 시작됩니다.</span>
               </label>
             </div>
+            <div class="team-options" hidden>
+              <label class="field">
+                <span class="field-label">승리 라운드</span>
+                <select class="select" data-setting="rounds-to-win"></select>
+              </label>
+              <label class="field">
+                <span class="field-label">라운드 시간</span>
+                <select class="select" data-setting="round-time"></select>
+                <span class="field-hint">BLUE(나 + 아군 봇 4) 대 RED(적 봇 5). 바꾸면 경기가 처음부터 다시 시작됩니다.</span>
+              </label>
+            </div>
             <h2 class="section-title">맵</h2>
             <div class="map-list" role="radiogroup" aria-label="맵 선택"></div>
             <p class="menu-status" aria-live="polite"></p>
@@ -179,6 +190,11 @@ export class MainMenu {
   /** Match options only matter in deathmatch. */
   setMatchOptionsVisible(on: boolean): void {
     this.root.querySelector<HTMLElement>('.match-options')!.hidden = !on;
+  }
+
+  /** Team match options only matter in the 5v5 round mode. */
+  setTeamOptionsVisible(on: boolean): void {
+    this.root.querySelector<HTMLElement>('.team-options')!.hidden = !on;
   }
 
   // --- Controls page -----------------------------------------------------------
@@ -386,7 +402,7 @@ export class MainMenu {
 
   // --- Settings ---------------------------------------------------------------
 
-  bindSelect<T extends string | number>(setting: 'quality' | 'frame-limit' | 'volume' | 'mode' | 'bots' | 'time-limit' | 'kill-target', options: readonly MenuOption<T>[], current: T, onChange: (value: T) => void): void {
+  bindSelect<T extends string | number>(setting: 'quality' | 'frame-limit' | 'volume' | 'mode' | 'bots' | 'time-limit' | 'kill-target' | 'rounds-to-win' | 'round-time', options: readonly MenuOption<T>[], current: T, onChange: (value: T) => void): void {
     const select = this.root.querySelector<HTMLSelectElement>(`select[data-setting="${setting}"]`)!;
     select.replaceChildren(
       ...options.map((o) => {

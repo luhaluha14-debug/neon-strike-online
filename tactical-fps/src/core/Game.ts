@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { BotSquad } from '../ai/BotSquad';
-import type { Combatant } from '../ai/Bot';
+import { BotSquad, type SquadMember } from '../ai/BotSquad';
+import type { Bot, Combatant } from '../ai/Bot';
 import { NavGrid } from '../ai/NavGrid';
 import { HitscanSystem } from '../combat/HitscanSystem';
 import { TrainingRange } from '../combat/TrainingRange';
@@ -18,8 +18,10 @@ import { PlayerController } from '../player/PlayerController';
 import { PlayerCombat, RESPAWN_DELAY, type PlayerDamageEvent } from '../player/PlayerCombat';
 import { Match, BOT_COUNT_OPTIONS, KILL_TARGET_OPTIONS, TIME_LIMIT_OPTIONS, type GameMode } from '../game/Match';
 import { loadMatchSettings, parseMode, saveMatchSettings, type MatchSettings } from '../game/MatchSettings';
+import { DEFAULT_TEAM_MATCH, otherTeam, ROUND_TIME_OPTIONS, ROUNDS_TO_WIN_OPTIONS, TeamMatch, TEAMS, type Team } from '../game/TeamMatch';
 import { Hud } from '../ui/Hud';
 import { MatchHud } from '../ui/MatchHud';
+import { TeamHud } from '../ui/TeamHud';
 import { createWeaponView, loadWeaponView, preloadWeaponViews } from '../weapons/view/WeaponView';
 import type { MenuWeapon } from '../ui/MainMenu';
 import { renderWeaponThumbnails } from '../ui/weaponThumbnails';
@@ -50,6 +52,16 @@ const VOLUME_OPTIONS: readonly { value: number; label: string }[] = [
 import { saveSettings, type Settings } from './Settings';
 
 const _muzzleWorld = new THREE.Vector3();
+const _specEye = new THREE.Vector3();
+const _specDir = new THREE.Vector3();
+
+/** Team match roster: the player leads BLUE with 4 bots; RED is 5 bots. */
+const TEAM_ROSTER: readonly SquadMember[] = [
+  ...['Alpha', 'Bravo', 'Charlie', 'Delta'].map((name) => ({ name, team: 'blue' })),
+  ...['Echo', 'Foxtrot', 'Golf', 'Hotel', 'India'].map((name) => ({ name, team: 'red' })),
+];
+/** Seconds after dying before the team match camera switches to a living teammate. */
+const SPECTATE_AFTER = 1.5;
 
 export class Game {
   readonly renderer: THREE.WebGLRenderer;
@@ -72,14 +84,22 @@ export class Game {
   spawnPoint: SpawnPoint | null = null;
   /** Last training-target hit, shown in the F3 overlay. */
   private lastHit = '';
-  /** 'deathmatch' (bots, match rules) or 'training' (dummies). `?mode=` overrides the saved choice. */
+  /** 'deathmatch' (bots, match rules), 'team' (5v5 rounds) or 'training' (dummies). `?mode=` overrides the saved choice. */
   mode: GameMode;
   readonly matchSettings: MatchSettings;
   /** Walkable grid of the current map (built when bots need it). */
   nav: NavGrid | null = null;
   squad: BotSquad | null = null;
   match: Match | null = null;
+  /** 5v5 round match (team mode only). */
+  teamMatch: TeamMatch | null = null;
+  /** Team match spawn spots per team (index 0 of BLUE is the player's), built once per map. */
+  teamSpawns: Record<Team, SpawnPoint[]> | null = null;
   private readonly matchHud: MatchHud;
+  private readonly teamHud: TeamHud;
+  /** Team match: which living teammate a dead player watches, and the fire button's last state (to cycle). */
+  private spectateIndex = 0;
+  private spectateFireHeld = false;
   private scoreboardHeld = false;
   /** The player as bots see it. */
   private readonly playerCombatant: Combatant;
@@ -139,6 +159,9 @@ export class Game {
       },
       get height() {
         return game.player!.height;
+      },
+      get team() {
+        return game.combat?.team;
       },
     };
     const mapDef = findMap(settings.mapId);
@@ -244,6 +267,14 @@ export class Game {
       },
       () => this.restartMatch(),
     );
+    this.teamHud = new TeamHud(
+      this.hud.root,
+      () => {
+        this.restartMatch();
+        this.input.requestLock();
+      },
+      () => this.restartMatch(),
+    );
     this.bindMatchOptions();
     this.renderer.domElement.addEventListener('click', () => {
       if (this.player && !this.loadingMap && !this.input.active) this.input.requestLock();
@@ -282,6 +313,7 @@ export class Game {
     if (document.pointerLockElement) document.exitPointerLock();
     this.teardownMode();
     this.nav = null;
+    this.teamSpawns = null;
     if (this.combat) this.hitscan?.unregister(this.combat);
     this.combat = null;
     this.spawnPoint = null;
@@ -383,8 +415,7 @@ export class Game {
       onReloadEnd: () => this.weaponAudio.onReloadEnd(this.weapons!.weapon),
     };
     this.setupMode();
-    this.respawn();
-    this.squad?.spawnAll([this.player.position]);
+    this.beginMode();
 
     // Compile shaders and bake the static shadow map before the first frame.
     this.renderer.compile(this.scene, this.camera);
@@ -408,7 +439,7 @@ export class Game {
 
   respawn(): void {
     if (!this.map || !this.player) return;
-    const spawn = this.squad ? this.deathmatchSpawn() : this.safeSpawn(this.map);
+    const spawn = this.teamMatch ? this.teamSpawns?.blue[0] : this.squad ? this.deathmatchSpawn() : this.safeSpawn(this.map);
     this.spawnPoint = spawn ?? null;
     const pos = spawn ? spawn.position.clone() : this.map.playBounds.getCenter(new THREE.Vector3());
     // Spawn empties sit slightly above the floor; drop onto it from a little higher.
@@ -433,13 +464,17 @@ export class Game {
     if (!map || !hitscan) return;
     this.teardownMode();
     const dm = this.mode === 'deathmatch';
-    if (!dm) {
+    const team = this.mode === 'team';
+    if (!dm && !team) {
       this.trainingRange = new TrainingRange(map, this.homeSpawn(map), hitscan);
       this.scene.add(this.trainingRange.group);
     } else {
+      // Built once per map and reused by every match and round.
       this.nav ??= new NavGrid(map);
       console.info(`[bots] nav grid ${this.nav.walkable.length} cells in ${this.nav.buildMs.toFixed(0)} ms`);
-      const squad = new BotSquad(map, this.nav, hitscan, this.matchSettings.bots, [AR_01]);
+      const squad = new BotSquad(map, this.nav, hitscan, team ? TEAM_ROSTER : this.matchSettings.bots, [AR_01]);
+      // Team match: deaths last until the round ends.
+      squad.respawns = !team;
       squad.events = {
         onShot: (_bot, result, origin, dir, weapon, muzzle) => {
           this.weaponAudio.onRemoteShot(weapon, origin, result, this.camera);
@@ -449,16 +484,134 @@ export class Game {
           else if (result.kind === 'target') this.blood.spawn(result.point, dir, result.zone === 'head');
         },
         onDamage: (bot, e) => {
-          if (e.killed) this.match?.recordKill(e.sourceId, bot.id, e.weaponId, e.zone === 'head');
+          if (!e.killed) return;
+          this.match?.recordKill(e.sourceId, bot.id, e.weaponId, e.zone === 'head');
+          this.teamMatch?.recordKill(e.sourceId, bot.id, e.weaponId, e.zone === 'head');
         },
       };
       this.squad = squad;
       this.scene.add(squad.group);
-      this.match = new Match(this.matchSettings, [{ id: 'local', name: 'YOU', isPlayer: true }, ...squad.bots.map((b) => ({ id: b.id, name: b.name, isPlayer: false }))]);
+      if (team) {
+        // The player is BLUE; with friendly fire off, rounds pass through teammates.
+        hitscan.friendlyFire = false;
+        if (this.combat) this.combat.team = 'blue';
+        if (this.weapons) this.weapons.team = 'blue';
+        this.teamSpawns ??= this.buildTeamSpawns(map, this.nav);
+        const ms = this.matchSettings;
+        this.teamMatch = new TeamMatch({ ...DEFAULT_TEAM_MATCH, roundsToWin: ms.roundsToWin, roundTime: ms.roundTime }, [
+          { id: 'local', name: 'YOU', team: 'blue', isPlayer: true },
+          ...squad.bots.map((b) => ({ id: b.id, name: b.name, team: b.team as Team, isPlayer: false })),
+        ]);
+      } else {
+        this.match = new Match(this.matchSettings, [{ id: 'local', name: 'YOU', isPlayer: true }, ...squad.bots.map((b) => ({ id: b.id, name: b.name, isPlayer: false }))]);
+      }
     }
     this.matchHud.setVisible(dm);
     this.matchHud.hideResults();
+    this.teamHud.setVisible(team);
+    this.teamHud.hideResults();
+    this.hud.setDeathNote(null);
     this.hud.menu.setMatchOptionsVisible(dm);
+    this.hud.menu.setTeamOptionsVisible(team);
+  }
+
+  /** Places everyone for the mode just set up: a first round (team), or spread out (deathmatch). */
+  private beginMode(): void {
+    if (this.teamMatch) {
+      this.startRound();
+      return;
+    }
+    this.respawn();
+    this.squad?.spawnAll([this.player!.position]);
+  }
+
+  /**
+   * Team match round start: every combatant back at its team's spawn, alive
+   * at full health with full ammo and no AI memory; effects cleared. The
+   * hitscan is instant and nothing is scheduled for later, so nothing from
+   * the previous round can land in this one.
+   */
+  private startRound(): void {
+    const squad = this.squad;
+    const spawns = this.teamSpawns;
+    if (!squad || !spawns) return;
+    this.respawn();
+    const next: Record<Team, number> = { blue: 1, red: 0 };
+    const centre = (t: Team) => spawns[t].reduce((a, s) => a.add(s.position), new THREE.Vector3()).multiplyScalar(1 / spawns[t].length);
+    const roam: Record<Team, THREE.Vector3> = { blue: centre('red'), red: centre('blue') };
+    for (const b of squad.bots) {
+      const t = b.team as Team;
+      const s = spawns[t][next[t]++ % spawns[t].length];
+      squad.spawnAt(b, s.position, s.yaw);
+      b.roamTarget = roam[t];
+    }
+    this.spectateIndex = 0;
+    this.hud.setDeathNote(null);
+  }
+
+  /** Living combatants per team (the player counts for BLUE). */
+  teamAlive(): Record<Team, number> {
+    const n: Record<Team, number> = { blue: 0, red: 0 };
+    if (this.combat?.alive) n.blue++;
+    for (const b of this.squad?.bots ?? []) if (b.alive && b.team) n[b.team as Team]++;
+    return n;
+  }
+
+  /**
+   * TeamMatchConfig.teamSize spawn spots per team: BLUE on the map's attack
+   * spawns, RED on the defence spawns (the two ends of the map), each spot
+   * checked to fit a standing capsule and to be on the walk grid. Missing
+   * spots are filled from walkable cells near that team's others. Everyone
+   * faces the enemy side.
+   */
+  private buildTeamSpawns(map: LoadedMap, nav: NavGrid): Record<Team, SpawnPoint[]> {
+    const size = DEFAULT_TEAM_MATCH.teamSize;
+    const lists: Record<Team, THREE.Vector3[]> = { blue: [], red: [] };
+    const source: Record<Team, SpawnPoint[]> = { blue: map.attackSpawns, red: map.defenseSpawns };
+    for (const t of TEAMS) {
+      for (const s of source[t]) if (this.spawnFits(map, s.position) && nav.nearestWalkable(s.position) >= 0) lists[t].push(s.position.clone());
+    }
+    for (const t of TEAMS) {
+      const list = lists[t];
+      // A side with no usable spawn starts on a walkable cell far from the other side.
+      if (list.length === 0) {
+        const other = lists[otherTeam(t)][0];
+        let best = -1;
+        let bestD = -1;
+        for (let k = 0; k < 64; k++) {
+          const c = nav.randomCell();
+          if (c < 0) break;
+          const d = other ? nav.center(c).distanceTo(other) : 0;
+          if (d > bestD) {
+            bestD = d;
+            best = c;
+          }
+        }
+        if (best >= 0) list.push(nav.center(best));
+      }
+      const anchor = list[0];
+      for (let k = 0; list.length < size && anchor && k < 4000; k++) {
+        const c = nav.randomCell();
+        if (c < 0) break;
+        const p = nav.center(c);
+        if (p.distanceTo(anchor) < 10 && list.every((q) => q.distanceTo(p) > 1.2) && this.spawnFits(map, p)) list.push(p);
+      }
+    }
+    const centre = (t: Team) => lists[t].reduce((a, p) => a.add(p), new THREE.Vector3()).multiplyScalar(1 / Math.max(lists[t].length, 1));
+    const out = { blue: [] as SpawnPoint[], red: [] as SpawnPoint[] };
+    for (const t of TEAMS) {
+      const target = centre(otherTeam(t));
+      out[t] = lists[t].slice(0, size).map((p) => ({ position: p, yaw: Math.atan2(-(target.x - p.x), -(target.z - p.z)) }));
+    }
+    return out;
+  }
+
+  /** A standing capsule fits at this spawn (feet 0.1 m above it, as respawn places it). */
+  private spawnFits(map: LoadedMap, pos: THREE.Vector3): boolean {
+    const r = PLAYER_CONFIG.radius;
+    const feet = pos.y + 0.1;
+    const seg = new THREE.Line3(new THREE.Vector3(pos.x, feet + r + 0.05, pos.z), new THREE.Vector3(pos.x, feet + PLAYER_CONFIG.standHeight - r, pos.z));
+    return !map.collision.capsuleOverlaps(seg, r - 0.02);
   }
 
   private teardownMode(): void {
@@ -467,14 +620,18 @@ export class Game {
     this.squad?.dispose();
     this.squad = null;
     this.match = null;
+    this.teamMatch = null;
+    // Free-for-all and training: no teams, friendly fire rules do not apply.
+    if (this.hitscan) this.hitscan.friendlyFire = true;
+    if (this.combat) this.combat.team = undefined;
+    if (this.weapons) this.weapons.team = undefined;
   }
 
   /** New match on the same map: fresh scores, everyone respawned. */
   restartMatch(): void {
     if (!this.map) return;
     this.setupMode();
-    this.respawn();
-    this.squad?.spawnAll([this.player!.position]);
+    this.beginMode();
     this.accumulator = 0;
   }
 
@@ -510,6 +667,7 @@ export class Game {
       'mode',
       [
         { value: 'deathmatch', label: '봇 데스매치 (개인전)' },
+        { value: 'team', label: '5대5 라운드전 (팀전)' },
         { value: 'training', label: '훈련장 (표적)' },
       ] as const,
       this.mode,
@@ -534,7 +692,18 @@ export class Game {
       save();
       this.restartMatch();
     });
+    this.hud.menu.bindSelect('rounds-to-win', ROUNDS_TO_WIN_OPTIONS.map((n) => ({ value: n, label: `${n}승` })), ms.roundsToWin, (n) => {
+      ms.roundsToWin = n;
+      save();
+      this.restartMatch();
+    });
+    this.hud.menu.bindSelect('round-time', ROUND_TIME_OPTIONS.map((n) => ({ value: n, label: n % 60 ? `${n}초` : `${n / 60}분` })), ms.roundTime, (n) => {
+      ms.roundTime = n;
+      save();
+      this.restartMatch();
+    });
     this.hud.menu.setMatchOptionsVisible(this.mode === 'deathmatch');
+    this.hud.menu.setTeamOptionsVisible(this.mode === 'team');
   }
 
   /** The spawn point the player (re)spawns at; training targets are laid out in front of it. */
@@ -575,6 +744,7 @@ export class Game {
     if (e.killed) {
       this.audio.stopGroup('foley');
       this.match?.recordKill(e.sourceId, 'local', e.weaponId, e.zone === 'head');
+      this.teamMatch?.recordKill(e.sourceId, 'local', e.weaponId, e.zone === 'head');
     }
   }
 
@@ -612,14 +782,23 @@ export class Game {
         this.prevPos.copy(player.position);
         this.prevEyeHeight = player.eyeHeight;
         const alive = !combat || combat.alive;
+        const tm = this.teamMatch;
+        // Team match: frozen at the spawn before a round, no shooting unless the round is live.
+        const frozen = tm?.phase === 'prep';
+        const live = !tm || tm.phase === 'live';
         // A dead player still falls (gravity, collision) but neither moves nor shoots.
-        player.step(alive ? this.inputState : this.deadInput, tick);
-        if (alive) this.weapons?.step(command, tick);
+        player.step(alive && !frozen ? this.inputState : this.deadInput, tick);
+        if (alive) this.weapons?.step(live ? command : { ...command, fire: false }, tick);
         combat?.step(tick);
         this.trainingRange?.step(tick);
         if (this.match && !this.match.over) {
           this.squad?.step(tick, this.playerCombatant);
           this.match.update(tick);
+        }
+        if (tm) {
+          if (tm.phase === 'live') this.squad?.step(tick, this.playerCombatant);
+          else this.squad?.hold(tick);
+          if (tm.update(tick, this.teamAlive()) === 'round-start') this.startRound();
         }
         // Switch requests are one-shot: apply them on the first tick only.
         command.equipSlot = -1;
@@ -627,10 +806,16 @@ export class Game {
         this.accumulator -= tick;
       }
       if (ticks > 0) this.input.clearLatches();
-      if (combat?.respawnDue || player.position.y < this.mapDef.killPlaneY) this.respawn();
+      // Team match: no respawn during a round (the next round brings everyone back).
+      const fellOut = player.position.y < this.mapDef.killPlaneY && (!this.teamMatch || !!combat?.alive);
+      if ((combat?.respawnDue && !this.teamMatch) || fellOut) this.respawn();
       // Match over: freeze, release the mouse, show the results.
       if (this.match?.over && !this.matchHud.resultsShown) {
         this.matchHud.showResults(this.match);
+        document.exitPointerLock();
+      }
+      if (this.teamMatch?.over && !this.teamHud.resultsShown) {
+        this.teamHud.showResults(this.teamMatch);
         document.exitPointerLock();
       }
     }
@@ -649,6 +834,7 @@ export class Game {
     this.camera.position.lerpVectors(this.prevPos, player.position, alpha);
     this.camera.position.y += eye;
     this.camera.rotation.set(player.pitch, player.yaw, roll);
+    if (dead && this.teamMatch) this.spectate(combat!.deadTime);
     this.body.object.visible = !dead;
     this.updateBody(frameTime, eye);
 
@@ -659,6 +845,7 @@ export class Game {
     this.squad?.updateVisuals(frameTime);
     this.fx.update(frameTime, this.camera);
     if (this.match) this.matchHud.update(this.match, this.scoreboardHeld && this.input.active);
+    if (this.teamMatch) this.teamHud.update(this.teamMatch, this.teamAlive(), this.scoreboardHeld && this.input.active);
     this.viewModel.update(
       frameTime,
       {
@@ -677,9 +864,36 @@ export class Game {
     // No weapon in hand while dead.
     if (!dead) this.viewModel.render(this.renderer);
     this.hud.setHealth(player.health);
-    this.hud.setDeath(dead ? combat!.respawnIn : null, RESPAWN_DELAY);
+    if (this.teamMatch) this.hud.setDeath(dead ? 0 : null, 1);
+    else this.hud.setDeath(dead ? combat!.respawnIn : null, RESPAWN_DELAY);
     this.updateWeaponHud();
     this.updateStats(frameTime);
+  }
+
+  /**
+   * Team match, dead player: after a moment the camera follows a living
+   * teammate from just behind its shoulder (fire cycles teammates), so the
+   * rest of the round can be watched. With no teammate left the death view stays.
+   */
+  private spectate(deadTime: number): void {
+    const fire = this.inputState.fire;
+    const pressed = fire && !this.spectateFireHeld;
+    this.spectateFireHeld = fire;
+    const allies = (this.squad?.bots ?? []).filter((b) => b.alive && b.team === this.combat?.team);
+    if (deadTime < SPECTATE_AFTER || allies.length === 0 || !this.map) {
+      this.hud.setDeathNote(allies.length ? '사망 — 라운드가 끝나면 다시 시작합니다' : '사망 — 남은 아군 없음');
+      return;
+    }
+    if (pressed) this.spectateIndex++;
+    const b: Bot = allies[this.spectateIndex % allies.length];
+    const c = b.controller;
+    _specEye.set(c.position.x, c.position.y + c.eyeHeight, c.position.z);
+    // Back along the bot's view and a little up, stopping short of walls.
+    _specDir.set(Math.sin(c.yaw) * Math.cos(c.pitch), 0.25, Math.cos(c.yaw) * Math.cos(c.pitch)).normalize();
+    const hit = this.map.collision.raycast(_specEye, _specDir, 2.4);
+    this.camera.position.copy(_specEye).addScaledVector(_specDir, hit === null ? 2.4 : Math.max(hit - 0.2, 0.1));
+    this.camera.rotation.set(c.pitch * 0.6 - 0.12, c.yaw, 0);
+    this.hud.setDeathNote(`관전 중: ${b.name} — 클릭으로 아군 전환`);
   }
 
   /** Poses the lower body from the interpolated camera (same smoothing as the view). */

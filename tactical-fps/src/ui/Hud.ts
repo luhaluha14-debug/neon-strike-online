@@ -62,6 +62,7 @@ export class Hud {
         <div class="death-title">사망</div>
         <div class="death-timer">리스폰까지 <span class="death-seconds">3.0</span>초</div>
         <div class="death-track"><div class="death-bar"></div></div>
+        <div class="death-note"></div>
       </div>
       <div class="stats"></div>`;
     parent.appendChild(this.root);
@@ -110,6 +111,16 @@ export class Hud {
     if (tenths < 0) return;
     this.deathSeconds.textContent = (tenths / 10).toFixed(1);
     this.deathBar.style.transform = `scaleX(${1 - Math.min(tenths / 10 / total, 1)})`;
+  }
+
+  /**
+   * Team match: no respawn countdown; the panel shows `note` (who is being
+   * spectated) at the bottom instead. null = the normal countdown panel.
+   */
+  setDeathNote(note: string | null): void {
+    this.death.classList.toggle('spectate', note !== null);
+    const el = this.death.querySelector<HTMLElement>('.death-note')!;
+    if (el.textContent !== (note ?? '')) el.textContent = note ?? '';
   }
 
   /** Brief X around the crosshair when a shot hits a target: red for the head, bigger on a kill. */

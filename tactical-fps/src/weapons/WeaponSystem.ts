@@ -51,6 +51,8 @@ export class WeaponSystem {
   events: WeaponEvents = {};
   /** Shots fired since start (debug/tests). */
   shotsFired = 0;
+  /** Shooter's team (team match); passed with every round so friendly fire can be filtered. */
+  team: string | undefined = undefined;
   /** Seconds left on the cosmetic inspect animation (0 = not inspecting). */
   inspectRemaining = 0;
 
@@ -146,6 +148,7 @@ export class WeaponSystem {
       damage: def.damage,
       sourceId: this.ownerId,
       weaponId: def.id,
+      team: this.team,
     });
     this.shotsFired++;
     this.recoil.onShot();
