@@ -17,6 +17,15 @@ export interface ViewModelMotion {
 /** Duration of the placeholder melee slash (s). */
 const SLASH_TIME = 0.32;
 
+/** View kick, muzzle flash size and flash light per weapon category (one shot). */
+const SHOT_FEEL: Record<Exclude<WeaponCategory, 'melee'>, { kick: number; flash: number; light: number }> = {
+  rifle: { kick: 1.0, flash: 1.1, light: 1.6 },
+  sniper: { kick: 1.9, flash: 1.9, light: 2.6 },
+  smg: { kick: 0.75, flash: 0.9, light: 1.3 },
+  shotgun: { kick: 2.2, flash: 2.0, light: 2.8 },
+  pistol: { kick: 1.1, flash: 0.8, light: 1.2 },
+};
+
 /**
  * Renders the held weapon in its own scene after the world, with the depth
  * buffer cleared, so it never clips into walls and can use its own FOV.
@@ -144,13 +153,14 @@ export class ViewModelLayer {
   /** Visual feedback for one shot/attack; melee motion comes from `sinceShot` instead. */
   onShot(category: WeaponCategory): void {
     if (category === 'melee') return;
-    this.kickVel += category === 'sniper' ? 1.9 : 1.0;
+    const k = SHOT_FEEL[category];
+    this.kickVel += k.kick;
     if (this.view?.muzzle) {
       this.flashTime = 0.05;
       this.flash.rotation.z = Math.random() * Math.PI;
-      this.flash.scale.setScalar((category === 'sniper' ? 1.9 : 1.1) + Math.random() * 0.6);
+      this.flash.scale.setScalar(k.flash + Math.random() * 0.6);
       this.view.muzzle.getWorldPosition(this.flashLight.position);
-      this.flashPeak = category === 'sniper' ? 2.6 : 1.6;
+      this.flashPeak = k.light;
     }
   }
 

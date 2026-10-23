@@ -127,6 +127,15 @@ export class Weapon {
     this.reloadRemaining = 0;
   }
 
+  /** Cancels an unfinished reload / draw (ammo unchanged): ready to fire again. */
+  clearTransient(): void {
+    this.status = 'ready';
+    this.reloadRemaining = 0;
+    this.equipRemaining = 0;
+    this.cooldown = 0;
+    this.timeSinceShot = Infinity;
+  }
+
   /** Refills everything (respawn / new round). */
   resetAmmo(): void {
     this.magazine = this.def.magazineSize;

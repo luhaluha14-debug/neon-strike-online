@@ -8,6 +8,10 @@ import { biquad, buffer, expEnv, finish, glideSine, mix, noise, ring, rng, shape
 export type SoundId =
   | 'ar01.shot'
   | 'sr01.shot'
+  | 'smg01.shot'
+  | 'sg01.shot'
+  | 'sg01.pump'
+  | 'pis01.shot'
   | 'sr01.bolt'
   | 'karambit.swing'
   | 'karambit.hit'
@@ -21,12 +25,24 @@ export type SoundId =
   | 'impact'
   | 'hit.body'
   | 'hit.head'
-  | 'impact.flesh';
+  | 'impact.flesh'
+  | 'grenade.pin'
+  | 'grenade.bounce'
+  | 'flash.bang'
+  | 'smoke.pop'
+  | 'c4.beep'
+  | 'c4.press'
+  | 'c4.explode'
+  | 'c4.defused';
 
 /** Number of pre-rendered variants per sound. */
 export const VARIANTS: Record<SoundId, number> = {
   'ar01.shot': 4,
   'sr01.shot': 3,
+  'smg01.shot': 4,
+  'sg01.shot': 3,
+  'sg01.pump': 1,
+  'pis01.shot': 3,
   'sr01.bolt': 1,
   'karambit.swing': 3,
   'karambit.hit': 2,
@@ -41,6 +57,14 @@ export const VARIANTS: Record<SoundId, number> = {
   'hit.body': 2,
   'hit.head': 2,
   'impact.flesh': 3,
+  'grenade.pin': 1,
+  'grenade.bounce': 3,
+  'flash.bang': 2,
+  'smoke.pop': 1,
+  'c4.beep': 1,
+  'c4.press': 2,
+  'c4.explode': 2,
+  'c4.defused': 1,
 };
 
 interface GunshotRecipe {
@@ -83,6 +107,48 @@ const SR01_SHOT: GunshotRecipe = {
     [0.11, 0.16],
     [0.24, 0.09],
     [0.41, 0.04],
+  ],
+};
+
+/** 9 mm SMG: lighter, snappier blast than the rifle, short tail. */
+const SMG01_SHOT: GunshotRecipe = {
+  length: 0.7,
+  crack: { highpass: 2800, tau: 0.0028, gain: 0.55 },
+  body: { lowpass: 2400, tau: 0.014, gain: 0.85 },
+  thump: { f0: 210, f1: 110, tau: 0.02, gain: 0.2 },
+  mech: { freq: 3800, delay: 0.008, tau: 0.007, gain: 0.18 },
+  tail: { lowpass: 1050, attack: 0.02, tau: 0.14, gain: 0.15 },
+  reflections: [
+    [0.065, 0.1],
+    [0.13, 0.05],
+  ],
+};
+
+/** 12 gauge: heavy, wide, boomy blast with a long tail. */
+const SG01_SHOT: GunshotRecipe = {
+  length: 1.6,
+  crack: { highpass: 1600, tau: 0.006, gain: 0.8 },
+  body: { lowpass: 1300, tau: 0.05, gain: 1.0 },
+  thump: { f0: 120, f1: 55, tau: 0.06, gain: 0.4 },
+  mech: { freq: 2200, delay: 0.02, tau: 0.012, gain: 0.08 },
+  tail: { lowpass: 650, attack: 0.04, tau: 0.42, gain: 0.3 },
+  reflections: [
+    [0.1, 0.16],
+    [0.22, 0.08],
+  ],
+};
+
+/** 9 mm pistol: sharp crack, small body. */
+const PIS01_SHOT: GunshotRecipe = {
+  length: 0.6,
+  crack: { highpass: 3000, tau: 0.0025, gain: 0.65 },
+  body: { lowpass: 2600, tau: 0.012, gain: 0.75 },
+  thump: { f0: 230, f1: 120, tau: 0.016, gain: 0.16 },
+  mech: { freq: 4200, delay: 0.006, tau: 0.006, gain: 0.2 },
+  tail: { lowpass: 1100, attack: 0.02, tau: 0.12, gain: 0.13 },
+  reflections: [
+    [0.06, 0.09],
+    [0.12, 0.04],
   ],
 };
 
@@ -240,6 +306,18 @@ function arCharge(seed: number): Float32Array {
   return finish(out, 0.7, 1.2);
 }
 
+/** Pump-action: fore-end back (slide + catch), then forward (slide + lock). */
+function sgPump(seed: number): Float32Array {
+  const rand = rng(seed);
+  const out = buffer(0.55);
+  mix(out, slide(rand, 0.12, 1700, 0.45), 1, 0.12);
+  mix(out, click(rand, 1400, 0.014, 0.9), 1, 0.24);
+  mix(out, slide(rand, 0.1, 2000, 0.4), 1, 0.3);
+  mix(out, click(rand, 1900, 0.012, 1), 1, 0.4);
+  biquad(out, 'highpass', 180);
+  return finish(out, 0.75, 1.1);
+}
+
 function srChamber(seed: number): Float32Array {
   const rand = rng(seed);
   const out = buffer(0.2);
@@ -332,6 +410,103 @@ function impactFlesh(seed: number): Float32Array {
   return finish(out, 0.8, 1.5);
 }
 
+/** Grenade drawn: pin pulled, spoon held (two light metal clicks). */
+function grenadePin(seed: number): Float32Array {
+  const rand = rng(seed);
+  const out = buffer(0.3);
+  mix(out, click(rand, 3100, 0.006, 0.7), 1, 0.02);
+  mix(out, ring(0.2, [[4200, 0.18, 0.05], [6900, 0.1, 0.04]]), 1, 0.03);
+  mix(out, click(rand, 2400, 0.008, 0.6), 1, 0.14);
+  return finish(out, 0.55, 1.1);
+}
+
+/** Metal canister hitting the floor or a wall: a short clink with a dull knock. */
+function grenadeBounce(seed: number): Float32Array {
+  const rand = rng(seed);
+  const out = buffer(0.25);
+  const f = 1700 + rand() * 500;
+  mix(out, ring(0.25, [[f, 0.35, 0.045], [f * 2.7, 0.18, 0.03]]), 1, 0);
+  const knock = biquad(noise(0.05, rand), 'lowpass', 900);
+  shape(knock, expEnv(0.0004, 0.01));
+  mix(out, knock, 0.8);
+  return finish(out, 0.6, 1.1);
+}
+
+/** Flashbang: a sharp, very loud crack with a bright ring and a short rumble. */
+function flashBang(seed: number): Float32Array {
+  const rand = rng(seed);
+  const out = buffer(1.4);
+  const crack = biquad(noise(0.08, rand), 'highpass', 1800);
+  shape(crack, expEnv(0.0002, 0.012));
+  mix(out, crack, 1.3);
+  const body = biquad(noise(0.6, rand), 'lowpass', 1600);
+  shape(body, expEnv(0.001, 0.07));
+  mix(out, body, 1.1);
+  const boom = glideSine(0.5, 120, 45, 0.08);
+  shape(boom, expEnv(0.002, 0.12));
+  mix(out, boom, 0.6);
+  const tail = biquad(noise(1.3, rand), 'lowpass', 700);
+  shape(tail, expEnv(0.03, 0.35));
+  mix(out, tail, 0.25);
+  return finish(out, 0.95, 1.6);
+}
+
+/** Smoke grenade: a dull pop, then a long hiss of gas venting. */
+function smokePop(seed: number): Float32Array {
+  const rand = rng(seed);
+  const out = buffer(2.4);
+  const pop = biquad(noise(0.1, rand), 'lowpass', 900);
+  shape(pop, expEnv(0.0005, 0.02));
+  mix(out, pop, 1);
+  const hiss = biquad(noise(2.3, rand), 'bandpass', (t) => 3800 - 900 * t, 0.9);
+  shape(hiss, (t) => Math.min(t / 0.08, 1) * Math.exp(-t / 0.9));
+  mix(out, hiss, 0.55, 0.05);
+  return finish(out, 0.7, 1.1);
+}
+
+/** Armed C4: one short electronic beep. */
+function c4Beep(): Float32Array {
+  const out = buffer(0.14);
+  mix(out, shape(ring(0.12, [[2650, 0.5, 1], [5300, 0.08, 1]]), (t) => (t < 0.09 ? Math.min(t / 0.004, 1) : Math.max(0, 1 - (t - 0.09) / 0.02))));
+  return finish(out, 0.5, 1);
+}
+
+/** Keypad press while planting / defusing: a tiny plastic click and tone. */
+function c4Press(seed: number): Float32Array {
+  const rand = rng(seed);
+  const out = buffer(0.12);
+  mix(out, click(rand, 3500, 0.004, 0.6), 1, 0);
+  mix(out, shape(ring(0.08, [[1800 + rand() * 600, 0.25, 1]]), (t) => Math.max(0, 1 - t / 0.07)), 1, 0.01);
+  return finish(out, 0.45, 1);
+}
+
+/** C4 explosion: crack, heavy blast body, deep boom and a long rumbling tail. */
+function c4Explode(seed: number): Float32Array {
+  const rand = rng(seed);
+  const out = buffer(2.6);
+  const crack = biquad(noise(0.1, rand), 'highpass', 1200);
+  shape(crack, expEnv(0.0003, 0.02));
+  mix(out, crack, 1.2);
+  const body = biquad(noise(1, rand), 'lowpass', 1100);
+  shape(body, expEnv(0.002, 0.16));
+  mix(out, body, 1.4);
+  const boom = glideSine(1.2, 70, 28, 0.3);
+  shape(boom, expEnv(0.004, 0.35));
+  mix(out, boom, 0.9);
+  const tail = biquad(noise(2.5, rand), 'lowpass', 400);
+  shape(tail, expEnv(0.05, 0.7));
+  mix(out, tail, 0.45);
+  return finish(out, 0.98, 1.8);
+}
+
+/** Defused: two falling tones. */
+function c4Defused(): Float32Array {
+  const out = buffer(0.5);
+  mix(out, shape(ring(0.2, [[1900, 0.4, 1]]), (t) => Math.max(0, 1 - t / 0.18)), 1, 0);
+  mix(out, shape(ring(0.25, [[1250, 0.4, 1]]), (t) => Math.max(0, 1 - t / 0.23)), 1, 0.2);
+  return finish(out, 0.5, 1);
+}
+
 /** Renders one variant of one sound. */
 export function renderSound(id: SoundId, variant: number, opts: { srFireInterval: number }): Float32Array {
   const seed = hash(id) + variant * 7919;
@@ -340,6 +515,14 @@ export function renderSound(id: SoundId, variant: number, opts: { srFireInterval
       return gunshot(AR01_SHOT, seed);
     case 'sr01.shot':
       return gunshot(SR01_SHOT, seed);
+    case 'smg01.shot':
+      return gunshot(SMG01_SHOT, seed);
+    case 'sg01.shot':
+      return gunshot(SG01_SHOT, seed);
+    case 'sg01.pump':
+      return sgPump(seed);
+    case 'pis01.shot':
+      return gunshot(PIS01_SHOT, seed);
     case 'sr01.bolt':
       return srBolt(seed, opts.srFireInterval);
     case 'karambit.swing':
@@ -368,6 +551,22 @@ export function renderSound(id: SoundId, variant: number, opts: { srFireInterval
       return hitHead(seed);
     case 'impact.flesh':
       return impactFlesh(seed);
+    case 'grenade.pin':
+      return grenadePin(seed);
+    case 'grenade.bounce':
+      return grenadeBounce(seed);
+    case 'flash.bang':
+      return flashBang(seed);
+    case 'smoke.pop':
+      return smokePop(seed);
+    case 'c4.beep':
+      return c4Beep();
+    case 'c4.press':
+      return c4Press(seed);
+    case 'c4.explode':
+      return c4Explode(seed);
+    case 'c4.defused':
+      return c4Defused();
   }
 }
 

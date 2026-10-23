@@ -3,9 +3,15 @@ import { BotSquad, type SquadMember } from '../ai/BotSquad';
 import { preloadAgentModels } from '../ai/AgentModel';
 import type { Bot, Combatant } from '../ai/Bot';
 import { NavGrid } from '../ai/NavGrid';
+import { TacticalDirector } from '../ai/TacticalDirector';
+import { TacticalMap } from '../ai/TacticalMap';
 import { HitscanSystem } from '../combat/HitscanSystem';
+import { GrenadeSystem, type FlashObserver, type GrenadeKind } from '../combat/Grenades';
+import { GrenadeEffects } from '../fx/GrenadeEffects';
+import { BombEffects } from '../fx/BombEffects';
+import { BombObjective, type BombActor } from '../game/BombObjective';
 import { TrainingRange } from '../combat/TrainingRange';
-import { CAMERA_CONFIG, PLAYER_CONFIG, QUALITY_PRESETS, SIM_CONFIG, type QualityLevel } from '../config';
+import { BOMB_CONFIG, CAMERA_CONFIG, GRENADE_CONFIG, PLAYER_CONFIG, QUALITY_PRESETS, SIM_CONFIG, type QualityLevel } from '../config';
 import { AudioEngine } from '../audio/AudioEngine';
 import { WeaponAudio } from '../audio/WeaponAudio';
 import { BloodEffects } from '../fx/BloodEffects';
@@ -18,13 +24,13 @@ import { FirstPersonBody, type BodyState } from '../player/FirstPersonBody';
 import { PlayerController } from '../player/PlayerController';
 import { PlayerCombat, RESPAWN_DELAY, type PlayerDamageEvent } from '../player/PlayerCombat';
 import { Match, BOT_COUNT_OPTIONS, KILL_TARGET_OPTIONS, TIME_LIMIT_OPTIONS, type GameMode } from '../game/Match';
-import { loadMatchSettings, parseMode, saveMatchSettings, type MatchSettings } from '../game/MatchSettings';
+import { loadMatchSettings, parseMode, parseObjective, saveMatchSettings, type MatchSettings } from '../game/MatchSettings';
 import { DEFAULT_TEAM_MATCH, otherTeam, ROUND_TIME_OPTIONS, ROUNDS_TO_WIN_OPTIONS, TeamMatch, TEAMS, type Team } from '../game/TeamMatch';
 import { Hud } from '../ui/Hud';
 import { MatchHud } from '../ui/MatchHud';
-import { TeamHud } from '../ui/TeamHud';
+import { TeamHud, type BombHudState } from '../ui/TeamHud';
 import { BuyMenu } from '../ui/BuyMenu';
-import { BuyLoadout, type BuyResult } from '../game/Economy';
+import { BuyLoadout, LOADOUT_RULES, type BuyResult } from '../game/Economy';
 import { CATALOG } from '../weapons/catalog';
 import { loadGltfScene } from '../weapons/view/GltfWeaponView';
 import { createWeaponView, loadWeaponView, preloadWeaponViews } from '../weapons/view/WeaponView';
@@ -33,7 +39,7 @@ import { renderWeaponThumbnails } from '../ui/weaponThumbnails';
 import type { WeaponDefinition, WeaponViewSpec } from '../weapons/WeaponDefinition';
 import { ViewModelLayer } from '../weapons/view/ViewModelLayer';
 import type { Weapon } from '../weapons/Weapon';
-import { AR_01, DEFAULT_LOADOUT, SR_01 } from '../weapons/weapons';
+import { AR_01, DEFAULT_LOADOUT, SR_01, WEAPONS } from '../weapons/weapons';
 import { WeaponSystem, type WeaponCommand } from '../weapons/WeaponSystem';
 import type { WeaponAnimState } from '../weapons/view/WeaponView';
 import { findMap, MAPS, type MapDefinition } from '../maps';
@@ -59,6 +65,9 @@ import { saveSettings, type Settings } from './Settings';
 const _muzzleWorld = new THREE.Vector3();
 const _specEye = new THREE.Vector3();
 const _specDir = new THREE.Vector3();
+const _throwEye = new THREE.Vector3();
+const _throwDir = new THREE.Vector3();
+const GRENADE_NAMES: Record<GrenadeKind, string> = { flash: 'FLASH-01', smoke: 'SMOKE-01' };
 
 /** Team match roster: the player leads BLUE with 4 bots; RED is 5 bots. */
 const TEAM_ROSTER: readonly SquadMember[] = [
@@ -113,6 +122,31 @@ export class Game {
   buyMenuOpen = false;
   /** Team match: number key (0 = "1") of each entry of the player's loadout; null outside the team match. */
   private playerSlotKeys: number[] | null = null;
+  /** Looking through a weapon scope this frame (derived every frame from button, weapon and state). */
+  scoped = false;
+  /** Thrown utility on the current map (FLASH-01 / SMOKE-01 of the team match). */
+  grenades: GrenadeSystem | null = null;
+  readonly grenadeFx = new GrenadeEffects();
+  /** Bomb objective bot tactics: the map's sites analysed once per map, and the plan of the current match. */
+  tacticalMap: TacticalMap | null = null;
+  director: TacticalDirector | null = null;
+  /** Seconds since the current round went live (director). */
+  private liveTime = 0;
+  /** `?seed=N`: bots' random choices from a fixed seed (reproducible runs); null = Math.random. */
+  private readonly seed: number | null;
+  /** C4 objective of the team match (objective 'bomb' on a map with bomb sites). */
+  bomb: BombObjective | null = null;
+  readonly bombFx = new BombEffects();
+  /** Grenade in the player's hand instead of the weapon (null = the weapon). */
+  heldGrenade: GrenadeKind | null = null;
+  /** Seconds left drawing the grenade; the trigger's state on the last tick (a throw needs a fresh press). */
+  private grenadeDraw = 0;
+  private grenadeTriggerHeld = true;
+  /** The player's flash blindness left (s). */
+  flashBlind = 0;
+  /** First-person grenade (temporary procedural model), drawn in place of the weapon. */
+  private readonly handScene = new THREE.Scene();
+  private readonly handGrenade: THREE.Mesh;
   /** Team match: which living teammate a dead player watches, and the fire button's last state (to cycle). */
   private spectateIndex = 0;
   private spectateFireHeld = false;
@@ -163,6 +197,10 @@ export class Game {
     this.settings = settings;
     this.matchSettings = loadMatchSettings();
     this.mode = parseMode(new URLSearchParams(location.search).get('mode')) ?? this.matchSettings.mode;
+    const seedParam = new URLSearchParams(location.search).get('seed');
+    this.seed = seedParam !== null && Number.isFinite(Number(seedParam)) ? Number(seedParam) : null;
+    // `?objective=elimination|bomb` overrides the saved team match objective for this visit.
+    this.matchSettings.objective = parseObjective(new URLSearchParams(location.search).get('objective')) ?? this.matchSettings.objective;
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const game = this;
     this.playerCombatant = {
@@ -211,7 +249,16 @@ export class Game {
     this.scene.add(this.impacts.group);
     this.scene.add(this.blood.group);
     this.scene.add(this.fx.group);
+    this.scene.add(this.grenadeFx.group);
+    this.scene.add(this.bombFx.group);
     this.scene.add(this.body.object);
+    this.handGrenade = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.032, 0.032, 0.1, 14),
+      new THREE.MeshStandardMaterial({ color: 0x6f7780, roughness: 0.55, metalness: 0.1 }),
+    );
+    const handKey = new THREE.DirectionalLight(0xfff1dc, 2.2);
+    handKey.position.set(0.6, 1, 0.4);
+    this.handScene.add(this.handGrenade, handKey, new THREE.HemisphereLight(0xc9d4de, 0x4a4238, 1.6));
     // Sounds are synthesised in the background while the map downloads.
     this.audio = new AudioEngine(settings.volume, { srFireInterval: 60 / SR_01.fireRate });
     this.weaponAudio = new WeaponAudio(this.audio);
@@ -331,7 +378,8 @@ export class Game {
 
   async start(): Promise<void> {
     // Weapon GLBs download alongside the map; the game is ready once both are in.
-    this.weaponModels = preloadWeaponViews(DEFAULT_LOADOUT.map((d) => d.view));
+    // Every weapon model (the team match buy menu can issue any of them).
+    this.weaponModels = preloadWeaponViews(Object.values(WEAPONS).map((d) => d.view));
     // Bot character models (small): in before the first match is set up.
     this.agentModels = preloadAgentModels();
     if (!(await this.loadMapInto(this.mapDef))) return;
@@ -346,11 +394,14 @@ export class Game {
     if (document.pointerLockElement) document.exitPointerLock();
     this.teardownMode();
     this.nav = null;
+    this.tacticalMap = null;
     this.teamSpawns = null;
     if (this.combat) this.hitscan?.unregister(this.combat);
     this.combat = null;
     this.spawnPoint = null;
     this.lastHit = '';
+    this.grenades = null;
+    this.grenadeFx.clear();
     if (this.map) disposeMap(this.map);
     this.map = null;
     this.player = null;
@@ -411,6 +462,7 @@ export class Game {
 
     this.player = new PlayerController(map.collision);
     this.hitscan = new HitscanSystem(map.collision);
+    this.grenades = this.createGrenades(map);
     this.blood.setWorld(map.collision);
     this.weapons = new WeaponSystem(DEFAULT_LOADOUT, this.player, this.hitscan);
     this.combat = new PlayerCombat(this.player);
@@ -425,12 +477,16 @@ export class Game {
         this.weaponAudio.onEquip(weapon);
         this.updateLoadoutHud(slot);
       },
-      onShot: (result, _origin, dir, weapon) => {
+      onShot: (result, _origin, dir, weapon, pellet) => {
         // Rounds resolved in later ticks of the same frame keep their real spacing.
         if (this.frameShotTick < 0) this.frameShotTick = this.tickInFrame;
         const delay = (this.tickInFrame - this.frameShotTick) / SIM_CONFIG.tickRate;
-        this.weaponAudio.onShot(weapon, result, delay, this.camera);
-        this.viewModel.onShot(weapon.def.category);
+        // A shotgun round: one blast, one kick; every pellet keeps its own hit, tracer and impact.
+        // (No pellet index = a single-bullet round.)
+        if (!pellet) {
+          this.weaponAudio.onShot(weapon, result, delay, this.camera);
+          this.viewModel.onShot(weapon.def.category);
+        }
         if (weapon.def.category !== 'melee' && this.viewModel.muzzleInWorld(this.camera, _muzzleWorld)) {
           this.fx.tracer(_muzzleWorld, result.kind === 'miss' ? result.end : result.point);
         }
@@ -471,17 +527,24 @@ export class Game {
     return true;
   }
 
-  respawn(): void {
+  /**
+   * Puts the player at a spawn, alive. `keepWeapons` (team match survivor):
+   * the weapons keep their magazines and reserves; otherwise every weapon is
+   * refilled.
+   */
+  respawn(keepWeapons = false): void {
     if (!this.map || !this.player) return;
-    const spawn = this.teamMatch ? this.teamSpawns?.blue[0] : this.squad ? this.deathmatchSpawn() : this.safeSpawn(this.map);
+    const spawn = this.teamMatch ? (this.teamSpawns ? this.spawnsOf('blue')[0] : undefined) : this.squad ? this.deathmatchSpawn() : this.safeSpawn(this.map);
     this.spawnPoint = spawn ?? null;
     const pos = spawn ? spawn.position.clone() : this.map.playBounds.getCenter(new THREE.Vector3());
     // Spawn empties sit slightly above the floor; drop onto it from a little higher.
     pos.y += 0.1;
     this.player.teleport(pos, spawn?.yaw ?? 0);
-    this.weapons?.resetForRespawn();
+    if (keepWeapons) this.weapons?.clearTransient();
+    else this.weapons?.resetForRespawn();
     this.body.reset();
-    this.combat?.reset();
+    // A team match survivor keeps the armour left on the vest (LOADOUT_RULES).
+    this.combat?.reset(keepWeapons && LOADOUT_RULES.keepOnSurvive.armor);
     this.hud.setDeath(null, RESPAWN_DELAY);
     this.trainingRange?.reset();
     this.impacts.clear();
@@ -506,7 +569,9 @@ export class Game {
       // Built once per map and reused by every match and round.
       this.nav ??= new NavGrid(map);
       console.info(`[bots] nav grid ${this.nav.walkable.length} cells in ${this.nav.buildMs.toFixed(0)} ms`);
-      const squad = new BotSquad(map, this.nav, hitscan, team ? TEAM_ROSTER : this.matchSettings.bots, [AR_01], Math.random, this.matchSettings.botLook);
+      // A fresh seeded stream per match: the same seed replays the same bot choices.
+      const rand = this.seed === null ? Math.random : seededRandom(this.seed);
+      const squad = new BotSquad(map, this.nav, hitscan, team ? TEAM_ROSTER : this.matchSettings.bots, [AR_01], rand, this.matchSettings.botLook);
       // Team match: deaths last until the round ends.
       squad.respawns = !team;
       squad.events = {
@@ -523,6 +588,7 @@ export class Game {
           this.teamMatch?.recordKill(e.sourceId, bot.id, e.weaponId, e.zone === 'head');
         },
       };
+      for (const b of squad.bots) b.sightBlocked = (a, c) => this.grenades?.sightBlocked(a, c) ?? false;
       this.squad = squad;
       this.scene.add(squad.group);
       if (team) {
@@ -532,10 +598,24 @@ export class Game {
         if (this.weapons) this.weapons.team = 'blue';
         this.teamSpawns ??= this.buildTeamSpawns(map, this.nav);
         const ms = this.matchSettings;
-        this.teamMatch = new TeamMatch({ ...DEFAULT_TEAM_MATCH, roundsToWin: ms.roundsToWin, roundTime: ms.roundTime }, [
+        this.teamMatch = new TeamMatch({
+            ...DEFAULT_TEAM_MATCH,
+            roundsToWin: ms.roundsToWin,
+            roundTime: ms.roundTime,
+            // A map without bomb sites can only be played to elimination.
+            objective: ms.objective === 'bomb' && map.bombSites.length > 0 ? 'bomb' : 'elimination',
+          }, [
           { id: 'local', name: 'YOU', team: 'blue', isPlayer: true },
           ...squad.bots.map((b) => ({ id: b.id, name: b.name, team: b.team as Team, isPlayer: false })),
         ]);
+        if (this.teamMatch.bombMode) {
+          this.bomb = new BombObjective(map.bombSites);
+          this.tacticalMap ??= new TacticalMap(map, this.nav, map.bombSites);
+          console.info(`[bots] tactical map: ${this.tacticalMap.sites.map((s) => `${s.name} ${s.plantSpots.length} plant / ${s.entrances.length} ways in / ${s.holds.length} holds`).join(', ')} in ${this.tacticalMap.buildMs.toFixed(0)} ms`);
+          const director = new TacticalDirector(this.tacticalMap, rand);
+          this.director = director;
+          for (const b of squad.bots) b.onSpot = (e) => director.report(b.team as Team, e.position);
+        }
       } else {
         this.match = new Match(this.matchSettings, [{ id: 'local', name: 'YOU', isPlayer: true }, ...squad.bots.map((b) => ({ id: b.id, name: b.name, isPlayer: false }))]);
       }
@@ -567,27 +647,211 @@ export class Game {
    * hitscan is instant and nothing is scheduled for later, so nothing from
    * the previous round can land in this one.
    */
-  private startRound(): void {
+  private startRound(carryOver = false): void {
     const squad = this.squad;
     const spawns = this.teamSpawns;
     if (!squad || !spawns) return;
-    // Gear is for one round: back to the knife (money carries over), then a fresh spawn.
     this.closeBuyMenu(false, true);
-    this.buyLoadout.reset();
-    this.applyBuyLoadout();
+    // Gear between rounds (LOADOUT_RULES): a survivor keeps weapons (with their ammo);
+    // otherwise, at the start of a match and at the half-time side swap, back to the default issue.
+    // Money carries over (the swap resets it: TeamMatch).
+    const tm = this.teamMatch;
+    const swapped = !!tm && tm.swappedAtRound === tm.round;
+    const kept = this.buyLoadout.carryOver(carryOver && !swapped && !!this.combat?.alive);
+    if (kept) this.playerSlotKeys = this.buyLoadout.weapons().map((e) => e.slotKey);
+    else this.applyBuyLoadout();
     this.buyMenu.clearFeedback();
-    this.respawn();
+    this.clearGrenades();
+    this.respawn(kept);
     const next: Record<Team, number> = { blue: 1, red: 0 };
-    const centre = (t: Team) => spawns[t].reduce((a, s) => a.add(s.position), new THREE.Vector3()).multiplyScalar(1 / spawns[t].length);
+    const centre = (t: Team) => this.spawnsOf(t).reduce((a, s) => a.add(s.position), new THREE.Vector3()).multiplyScalar(1 / this.spawnsOf(t).length);
     const roam: Record<Team, THREE.Vector3> = { blue: centre('red'), red: centre('blue') };
     for (const b of squad.bots) {
       const t = b.team as Team;
-      const s = spawns[t][next[t]++ % spawns[t].length];
+      const list = this.spawnsOf(t);
+      const s = list[next[t]++ % list.length];
       squad.spawnAt(b, s.position, s.yaw);
       b.roamTarget = roam[t];
+      b.useKey = false;
     }
+    this.resetBomb();
+    TacticalDirector.clear(squad.bots);
+    this.director?.newRound();
+    this.liveTime = 0;
     this.spectateIndex = 0;
     this.hud.setDeathNote(null);
+  }
+
+  /**
+   * Spawn spots of `team` this round. teamSpawns.blue holds the map's attack
+   * side, .red its defence side; with the bomb objective a team uses the
+   * side it plays this round (they swap at half time).
+   */
+  private spawnsOf(team: Team): SpawnPoint[] {
+    const s = this.teamSpawns!;
+    const attack = this.teamMatch?.bombMode ? this.teamMatch.attackers : 'blue';
+    return team === attack ? s.blue : s.red;
+  }
+
+  /** Round start: the C4 goes to one attacker (rotating through the side each round, so it is reproducible). */
+  private resetBomb(): void {
+    const tm = this.teamMatch;
+    const bomb = this.bomb;
+    this.bombFx.clear();
+    if (!tm || !bomb || !this.player) return;
+    const carriers: { id: string; position: THREE.Vector3 }[] = [];
+    if (tm.attackers === 'blue') carriers.push({ id: 'local', position: this.player.position });
+    for (const b of this.squad?.bots ?? []) if (b.team === tm.attackers) carriers.push({ id: b.id, position: b.position });
+    const pick = carriers[(tm.round - 1) % carriers.length];
+    bomb.reset(pick?.id ?? null, pick?.position ?? this.player.position);
+  }
+
+  /** Everyone as the bomb objective sees them this tick. */
+  private bombActors(tm: TeamMatch): BombActor[] {
+    const out: BombActor[] = [];
+    const p = this.player;
+    const c = this.combat;
+    if (p && c) {
+      out.push({
+        id: 'local',
+        side: tm.attackers === 'blue' ? 'attack' : 'defense',
+        alive: c.alive,
+        position: p.position,
+        speed: Math.hypot(p.velocity.x, p.velocity.z),
+        use: this.inputState.use && this.input.active && !this.buyMenuOpen,
+        hits: c.hits,
+      });
+    }
+    for (const b of this.squad?.bots ?? []) {
+      out.push({
+        id: b.id,
+        side: b.team === tm.attackers ? 'attack' : 'defense',
+        alive: b.alive,
+        position: b.position,
+        speed: Math.hypot(b.controller.velocity.x, b.controller.velocity.z),
+        use: b.useKey,
+        hits: b.combat.hits,
+      });
+    }
+    return out;
+  }
+
+  /** Bomb objective: the team plans (a couple of times a second) from what each team may know. */
+  private stepDirector(tick: number, tm: TeamMatch): void {
+    const d = this.director;
+    const bomb = this.bomb;
+    const squad = this.squad;
+    if (!d || !bomb || !squad) return;
+    this.liveTime += tick;
+    const centre = (t: Team) => this.spawnsOf(t).reduce((a, s) => a.add(s.position), new THREE.Vector3()).multiplyScalar(1 / Math.max(this.spawnsOf(t).length, 1));
+    d.update(tick, { attackers: tm.attackers, bots: squad.bots, bomb, liveTime: this.liveTime, attackSpawn: centre(tm.attackers), defenseSpawn: centre(tm.defenders) });
+  }
+
+  /** One tick of the C4 objective in a live round: plant / defuse / pickup / timer, and what they decide. */
+  private stepBomb(tick: number): void {
+    const tm = this.teamMatch;
+    const bomb = this.bomb;
+    if (!tm || !bomb || tm.phase !== 'live') return;
+    for (const e of bomb.step(tick, this.bombActors(tm))) {
+      switch (e.type) {
+        case 'plant-start':
+        case 'defuse-start':
+          this.bombSound('c4.press', e.id);
+          break;
+        case 'plant-cancel':
+        case 'defuse-cancel': {
+          // A bot lets go of the key for a tick so it can start again.
+          const b = this.squad?.bots.find((x) => x.id === e.id);
+          if (b) b.releaseUse = true;
+          break;
+        }
+        case 'planted':
+          tm.bombPlanted(e.id);
+          this.bombSound('c4.press', e.id);
+          break;
+        case 'defused':
+          this.weaponAudio.world('c4.defused', bomb.position, 0.8, this.camera, 80);
+          tm.bombDefused(e.id, this.teamAlive());
+          break;
+        case 'exploded':
+          this.explodeBomb(e.at);
+          tm.bombExploded(this.teamAlive());
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
+  private bombSound(id: 'c4.press', who: string): void {
+    if (who === 'local') this.weaponAudio.local(id, 0.6);
+    else if (this.bomb) this.weaponAudio.world(id, this.bomb.position, 0.6, this.camera, 40);
+  }
+
+  /** The C4 goes off: everyone within BOMB_CONFIG.explosionRadius takes damage falling off with distance (walls do not shield). */
+  private explodeBomb(at: THREE.Vector3): void {
+    this.bombFx.explode(at);
+    this.weaponAudio.world('c4.explode', at, 1, this.camera, 400);
+    const victims: { combat: PlayerCombat; pos: THREE.Vector3 }[] = [];
+    if (this.combat && this.player) victims.push({ combat: this.combat, pos: this.player.position });
+    for (const b of this.squad?.bots ?? []) victims.push({ combat: b.combat, pos: b.position });
+    for (const v of victims) {
+      if (!v.combat.alive) continue;
+      const centre = new THREE.Vector3(v.pos.x, v.pos.y + 1, v.pos.z);
+      const d = centre.distanceTo(at);
+      if (d >= BOMB_CONFIG.explosionRadius) continue;
+      const amount = Math.round(BOMB_CONFIG.explosionDamage * (1 - d / BOMB_CONFIG.explosionRadius));
+      // No kill credit for the bomb (as in CS): the source is the C4, not the planter.
+      v.combat.applyDamage({ amount, zone: 'body', sourceId: 'c4', weaponId: 'c4', point: at.clone(), direction: centre.sub(at).normalize(), distance: d });
+    }
+  }
+
+  /** What the player may know about the bomb (attackers know the carrier; everyone hears the plant). */
+  private bombHud(): BombHudState | null {
+    const tm = this.teamMatch;
+    const bomb = this.bomb;
+    const p = this.player;
+    if (!tm || !bomb || !p) return null;
+    const attacker = tm.attackers === 'blue';
+    const alive = !!this.combat?.alive;
+    const out: BombHudState = { side: attacker ? '공격 · C4 설치' : '방어 · C4 저지', status: '', cls: '', timer: null, hint: '', progress: null };
+    switch (bomb.state) {
+      case 'carried':
+        if (attacker) {
+          out.cls = 'carry';
+          out.status = bomb.carrier === 'local' ? 'C4 보유' : `C4: ${tm.name(bomb.carrier ?? '')} 보유`;
+          if (bomb.carrier === 'local' && alive && tm.phase === 'live') {
+            const site = bomb.siteAt(p.position);
+            out.hint = site ? `${site} 사이트 — E 길게: C4 설치` : 'A / B 사이트에서 E 길게: C4 설치';
+          }
+        }
+        break;
+      case 'dropped':
+        if (attacker) {
+          out.cls = 'dropped';
+          out.status = 'C4 떨어짐 — 주워서 운반';
+        }
+        break;
+      case 'planted': {
+        out.cls = 'planted';
+        out.status = `C4 설치됨 · ${bomb.site} 사이트`;
+        out.timer = bomb.timeLeft;
+        const near = Math.hypot(p.position.x - bomb.position.x, p.position.z - bomb.position.z) <= BOMB_CONFIG.defuseRange;
+        if (!attacker && alive && tm.phase === 'live') out.hint = near ? `E 길게: C4 해체 (${BOMB_CONFIG.defuseTime}초)` : `${bomb.site} 사이트로 가서 해체`;
+        break;
+      }
+      case 'defused':
+        out.cls = 'defused';
+        out.status = 'C4 해체됨';
+        break;
+      case 'exploded':
+        out.cls = 'exploded';
+        out.status = 'C4 폭파';
+        break;
+    }
+    if (bomb.planting?.id === 'local') out.progress = { label: 'C4 설치 중', value: bomb.plantProgress ?? 0 };
+    if (bomb.defusing?.id === 'local') out.progress = { label: 'C4 해체 중', value: bomb.defuseProgress ?? 0 };
+    return out;
   }
 
   /** Living combatants per team (the player counts for BLUE). */
@@ -656,6 +920,11 @@ export class Game {
   }
 
   private teardownMode(): void {
+    this.clearGrenades();
+    this.director = null;
+    this.bomb = null;
+    this.bombFx.clear();
+    this.teamHud.setBomb(null);
     this.trainingRange?.dispose();
     this.trainingRange = null;
     this.squad?.dispose();
@@ -750,6 +1019,19 @@ export class Game {
       this.restartMatch();
     });
     this.hud.menu.bindSelect(
+      'objective',
+      [
+        { value: 'bomb', label: 'C4 폭파 (공격 / 방어)' },
+        { value: 'elimination', label: '전멸전' },
+      ] as const,
+      ms.objective,
+      (v) => {
+        ms.objective = v;
+        save();
+        this.restartMatch();
+      },
+    );
+    this.hud.menu.bindSelect(
       'bot-look',
       [
         { value: 'procedural', label: '기본 (애니메이션)' },
@@ -832,6 +1114,30 @@ export class Game {
       this.inputState.lookYaw = 0;
       this.inputState.lookPitch = 0;
     }
+    this.updateGrenadeHand(!combat || combat.alive);
+    // Scope (SR-01): right button held with the weapon ready, playing, alive; look slowed while zoomed.
+    const held = this.weapons?.weapon;
+    const scope = held?.def.scope;
+    this.scoped =
+      !this.heldGrenade &&
+      !!scope &&
+      !!held &&
+      this.inputState.aim &&
+      this.input.active &&
+      !this.buyMenuOpen &&
+      (!combat || combat.alive) &&
+      held.status === 'ready' &&
+      held.timeSinceShot >= held.fireInterval * 0.85;
+    if (this.scoped && scope) {
+      this.inputState.lookYaw *= scope.sensitivity;
+      this.inputState.lookPitch *= scope.sensitivity;
+    }
+    const fov = this.scoped && scope ? scopedFov(CAMERA_CONFIG.fov, scope.zoom) : CAMERA_CONFIG.fov;
+    if (this.camera.fov !== fov) {
+      this.camera.fov = fov;
+      this.camera.updateProjectionMatrix();
+    }
+    this.hud.setScoped(this.scoped);
     const lookYaw = this.inputState.lookYaw;
     const lookPitch = this.inputState.lookPitch;
     this.weapons?.onLookInput(lookPitch);
@@ -856,7 +1162,16 @@ export class Game {
         const live = !tm || tm.phase === 'live';
         // A dead player still falls (gravity, collision) but neither moves nor shoots.
         player.step(alive && !frozen ? this.inputState : this.deadInput, tick);
-        if (alive) this.weapons?.step(live ? command : { ...command, fire: false }, tick);
+        if (this.heldGrenade) {
+          // Grenade in hand: the weapon is put away (no fire, no reload); a fresh press throws once the round is live.
+          if (alive) this.weapons?.step({ fire: false, reload: false }, tick);
+          this.stepGrenadeHand(tick, alive && live, command.fire);
+        } else if (alive) {
+          this.weapons?.step(live ? command : { ...command, fire: false }, tick);
+        }
+        if (!this.heldGrenade) this.grenadeTriggerHeld = command.fire;
+        this.grenades?.step(tick);
+        this.flashBlind = Math.max(0, this.flashBlind - tick);
         combat?.step(tick);
         this.trainingRange?.step(tick);
         if (this.match && !this.match.over) {
@@ -864,9 +1179,12 @@ export class Game {
           this.match.update(tick);
         }
         if (tm) {
-          if (tm.phase === 'live') this.squad?.step(tick, this.playerCombatant);
-          else this.squad?.hold(tick);
-          if (tm.update(tick, this.teamAlive()) === 'round-start') this.startRound();
+          if (tm.phase === 'live') {
+            this.stepDirector(tick, tm);
+            this.squad?.step(tick, this.playerCombatant);
+          } else this.squad?.hold(tick);
+          this.stepBomb(tick);
+          if (tm.update(tick, this.teamAlive()) === 'round-start') this.startRound(true);
         }
         // Switch requests are one-shot: apply them on the first tick only.
         command.equipSlot = -1;
@@ -913,6 +1231,9 @@ export class Game {
     this.blood.update(frameTime, this.camera);
     this.squad?.updateVisuals(frameTime);
     this.fx.update(frameTime, this.camera);
+    this.grenadeFx.update(frameTime, this.grenades);
+    if (this.bombFx.update(frameTime, this.bomb) && this.bomb) this.weaponAudio.world('c4.beep', this.bomb.position, 0.45, this.camera, 70);
+    if (this.teamMatch) this.teamHud.setBomb(this.bombHud());
     if (this.match) this.matchHud.update(this.match, this.scoreboardHeld && this.input.active);
     if (this.teamMatch) this.teamHud.update(this.teamMatch, this.teamAlive(), this.scoreboardHeld && this.input.active);
     this.viewModel.update(
@@ -930,9 +1251,17 @@ export class Game {
     this.sky.follow(this.camera);
     this.renderer.clear();
     this.renderer.render(this.scene, this.camera);
-    // No weapon in hand while dead.
-    if (!dead) this.viewModel.render(this.renderer);
+    // No weapon in hand while dead; none while looking through the scope; the grenade instead of the weapon.
+    if (!dead && this.heldGrenade) this.renderHandGrenade();
+    else if (!dead && !this.scoped) this.viewModel.render(this.renderer);
+    // Flash: white screen, full until the last `fade` seconds; smoke: grey veil with the eye inside a cloud.
+    this.hud.setFlash(this.flashBlind / GRENADE_CONFIG.flash.fade);
+    this.hud.setSmoke(this.grenades ? this.grenades.densityAt(this.camera.position) * 0.85 : 0);
+    const nades = this.buyLoadout.grenades;
+    if (this.teamMatch) this.hud.setUtility(nades.flash, nades.smoke, this.heldGrenade);
+    else this.hud.setUtility(0, 0, null);
     this.hud.setHealth(player.health);
+    this.hud.setArmor(this.combat?.armor ?? 0);
     if (this.teamMatch) this.hud.setDeath(dead ? 0 : null, 1);
     else this.hud.setDeath(dead ? combat!.respawnIn : null, RESPAWN_DELAY);
     this.updateWeaponHud();
@@ -1024,12 +1353,125 @@ export class Game {
     };
   }
 
+  /** Grenades for a map: who a flash reaches (the player and the bots, alive), and their sounds / effects. */
+  private createGrenades(map: LoadedMap): GrenadeSystem {
+    const g = new GrenadeSystem(map.collision);
+    g.flashTargets = () => {
+      const out: FlashObserver[] = [];
+      const p = this.player;
+      if (p && this.combat?.alive) {
+        out.push({
+          id: 'local',
+          eye: new THREE.Vector3(p.position.x, p.position.y + p.eyeHeight, p.position.z),
+          view: viewDir(p.yaw, p.pitch, new THREE.Vector3()),
+          blind: (t) => (this.flashBlind = Math.max(this.flashBlind, t)),
+        });
+      }
+      for (const b of this.squad?.bots ?? []) {
+        if (!b.alive) continue;
+        const c = b.controller;
+        out.push({
+          id: b.id,
+          eye: new THREE.Vector3(c.position.x, c.position.y + c.eyeHeight, c.position.z),
+          view: viewDir(c.yaw, c.pitch, new THREE.Vector3()),
+          blind: (t) => b.blind(t),
+        });
+      }
+      return out;
+    };
+    g.events = {
+      onBounce: (n, speed) => this.weaponAudio.world('grenade.bounce', n.position, Math.min(speed / 8, 1) * 0.6, this.camera, 60),
+      onFlash: (n) => {
+        this.grenadeFx.flash(n.position);
+        this.weaponAudio.world('flash.bang', n.position, 1, this.camera, 200);
+      },
+      onSmoke: (n) => this.weaponAudio.world('smoke.pop', n.position, 0.8, this.camera, 120),
+    };
+    return g;
+  }
+
+  /** Round change / new match: no grenade, cloud or blindness carries over. */
+  private clearGrenades(): void {
+    this.grenades?.clear();
+    this.grenadeFx.clear();
+    this.flashBlind = 0;
+    this.putGrenadeAway(false);
+  }
+
+  /**
+   * Per frame: the utility key takes out a grenade (FLASH-01 first, then
+   * SMOKE-01 on the next press), a weapon key / Q / the wheel puts it away,
+   * and it goes when there is none left or the player is dead.
+   */
+  private updateGrenadeHand(alive: boolean): void {
+    const i = this.inputState;
+    const nades = this.buyLoadout.grenades;
+    if (!this.teamMatch || !alive) {
+      this.putGrenadeAway(false);
+      return;
+    }
+    if (this.heldGrenade && (i.equipSlot >= 0 || i.equipLast || i.equipCycle !== 0)) {
+      // The weapon key itself draws (or keeps) the weapon; just stop holding the grenade.
+      this.putGrenadeAway(true);
+    }
+    if (i.utility) {
+      const order: GrenadeKind[] = this.heldGrenade === 'flash' ? ['smoke', 'flash'] : ['flash', 'smoke'];
+      const next = order.find((k) => nades[k] > 0) ?? null;
+      if (next && next !== this.heldGrenade) {
+        this.heldGrenade = next;
+        this.grenadeDraw = GRENADE_CONFIG.drawTime;
+        this.grenadeTriggerHeld = true;
+        this.weaponAudio.local('grenade.pin', 0.6);
+      }
+    }
+    if (this.heldGrenade && nades[this.heldGrenade] <= 0) this.putGrenadeAway(true);
+  }
+
+  /** One tick with a grenade in hand: drawing, then a fresh trigger press throws it (live round only). */
+  private stepGrenadeHand(tick: number, canThrow: boolean, fire: boolean): void {
+    const kind = this.heldGrenade;
+    const p = this.player;
+    this.grenadeDraw = Math.max(0, this.grenadeDraw - tick);
+    const pressed = fire && !this.grenadeTriggerHeld;
+    this.grenadeTriggerHeld = fire;
+    if (!kind || !p || !this.grenades || !pressed || !canThrow || this.grenadeDraw > 0) return;
+    if (!this.buyLoadout.useGrenade(kind)) return;
+    _throwEye.set(p.position.x, p.position.y + p.eyeHeight, p.position.z);
+    viewDir(p.yaw, p.pitch, _throwDir);
+    this.grenades.throw(kind, 'local', _throwEye, _throwDir, p.velocity);
+    // Back to the weapon after a throw.
+    this.putGrenadeAway(true);
+  }
+
+  /** Stops holding a grenade; `redraw`: the weapon comes back up with its draw. */
+  private putGrenadeAway(redraw: boolean): void {
+    if (!this.heldGrenade) return;
+    this.heldGrenade = null;
+    this.grenadeDraw = 0;
+    if (redraw) this.weapons?.redraw();
+  }
+
+  /** The grenade in the right hand, rising into view while drawn. */
+  private renderHandGrenade(): void {
+    const k = 1 - this.grenadeDraw / GRENADE_CONFIG.drawTime;
+    const m = this.handGrenade;
+    m.position.set(0.16, -0.15 - (1 - k) * 0.18, -0.4);
+    m.rotation.set(0.25, 0.3, -0.15);
+    (m.material as THREE.MeshStandardMaterial).color.setHex(this.heldGrenade === 'smoke' ? 0x7d8a70 : 0x9aa3ad);
+    this.renderer.clearDepth();
+    this.renderer.render(this.handScene, this.viewModel.camera);
+  }
+
   /** Dev aid: `game.debugShots = true` in the console logs every shot result. */
   debugShots = false;
 
   private updateWeaponHud(): void {
     const w = this.weapons?.weapon;
     if (!w) return;
+    if (this.heldGrenade) {
+      this.hud.setWeapon(GRENADE_NAMES[this.heldGrenade], null, 0, 0, null);
+      return;
+    }
     this.hud.setWeapon(
       w.def.displayName,
       w.usesAmmo ? w.magazine : null,
@@ -1111,9 +1553,10 @@ export class Game {
       this.buyMenu.feedback(r.message, false);
       return r;
     }
-    const r = this.buyLoadout.buy(id, eco, 'local');
+    const r = this.buyLoadout.buy(id, eco, 'local', { armor: this.combat.armor });
     this.buyMenu.feedback(r.message, r.ok);
-    if (r.ok && r.item) this.applyBuyLoadout(r.item.id);
+    if (r.ok && r.armor !== undefined) this.combat.armor = r.armor;
+    else if (r.ok && r.item?.weapon) this.applyBuyLoadout(r.item.id);
     return r;
   }
 
@@ -1179,7 +1622,7 @@ export class Game {
   private updateBuyMenu(): void {
     const tm = this.teamMatch;
     if (!tm?.economy) return;
-    this.buyMenu.update({ timeLeft: tm.phaseLeft, money: tm.economy.money('local'), loadout: this.buyLoadout });
+    this.buyMenu.update({ timeLeft: tm.phaseLeft, money: tm.economy.money('local'), loadout: this.buyLoadout, armor: this.combat?.armor ?? 0 });
   }
 
   /** HUD slot strip; in the team match the numbers are the keys (1 primary, 2 secondary, 3 knife). */
@@ -1206,6 +1649,11 @@ export class Game {
       this.buyMenu.setThumbnail(id, url);
     })
       .then(async () => {
+        // Buy-menu-only weapons (not in the standard loadout), once their GLB is in.
+        const extra = CATALOG.flatMap((i) => (i.weapon && !DEFAULT_LOADOUT.includes(i.weapon) ? [i.weapon] : []));
+        await this.weaponModels;
+        await renderWeaponThumbnails(this.renderer, env, extra, (id, url) => this.buyMenu.setThumbnail(id, url));
+        // Locked weapons that already have a model (catalog previews).
         const previews = CATALOG.filter((i) => i.preview?.kind === 'gltf');
         const ready = await Promise.all(
           previews.map((i) =>
@@ -1230,6 +1678,28 @@ export class Game {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.viewModel.setAspect(this.camera.aspect);
   };
+}
+
+/** Small seeded PRNG (mulberry32) for reproducible bot behaviour (`?seed=`). */
+function seededRandom(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Unit view direction for a yaw / pitch (the camera's -Z). */
+function viewDir(yaw: number, pitch: number, out: THREE.Vector3): THREE.Vector3 {
+  return out.set(-Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch));
+}
+
+/** Vertical field of view (degrees) that magnifies `base` by `zoom`. */
+function scopedFov(base: number, zoom: number): number {
+  return (2 * Math.atan(Math.tan((base * Math.PI) / 360) / zoom) * 180) / Math.PI;
 }
 
 /** Weapon card data straight from the weapon definition (no invented stats). */

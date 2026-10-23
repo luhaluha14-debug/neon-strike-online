@@ -27,7 +27,8 @@ async function openBuy() {
 
 before(async () => {
   env = await startEnv();
-  page = await openGame(env, { map: 'warehouse', mode: 'team' });
+  // Elimination rules (round won by wiping out the other team / most survivors at time); the C4 rules: bomb.test.mjs.
+  page = await openGame(env, { map: 'warehouse', mode: 'team', objective: 'elimination' });
   await page.click('.play-button');
   await waitLocked();
   await page.mouse.move(0, 0);
@@ -141,7 +142,10 @@ test('buy menu: B opens it without pausing, the mouse is free, view and trigger 
   assert.deepEqual([byId['AR-01'].price, byId['AR-01'].state, byId['AR-01'].tag], ['$2,700', 'buyable', '구매']);
   assert.deepEqual([byId['SR-01'].price, byId['SR-01'].state, byId['SR-01'].tag], ['$4,750', 'short', '자금 부족']);
   assert.deepEqual([byId.Knife.price, byId.Knife.state, byId.Knife.tag], ['무료', 'issued', '기본 지급']);
-  for (const id of ['SMG-01', 'SG-01', 'PIS-01', 'ARMOR-01', 'FLASH-01', 'SMOKE-01']) assert.deepEqual([byId[id].state, byId[id].tag], ['locked', '준비 중'], id);
+  // Every listed item has its game system now: all on sale (grenades show the count carried / the limit).
+  for (const id of ['SMG-01', 'SG-01', 'PIS-01', 'ARMOR-01']) assert.deepEqual([byId[id].state, byId[id].tag], ['buyable', '구매'], id);
+  assert.deepEqual([byId['FLASH-01'].state, byId['FLASH-01'].tag], ['buyable', '구매 (0/2)']);
+  assert.deepEqual([byId['SMOKE-01'].state, byId['SMOKE-01'].tag], ['buyable', '구매 (0/1)']);
   assert.deepEqual(
     ['SMG-01', 'SG-01', 'PIS-01', 'ARMOR-01', 'FLASH-01', 'SMOKE-01'].map((id) => byId[id].price),
     ['$1,500', '$2,000', '$500', '$650', '$300', '$400'],
@@ -160,10 +164,21 @@ test('buying: not enough money is refused with the reason and changes nothing; A
   assert.deepEqual(refused.gear, { primary: null, secondary: null, melee: 'Knife', weapons: ['karambit'], inHand: 'karambit' });
   assert.equal(refused.fb, '자금 부족: SR-01 $4,750 (부족 $1,750)');
   assert.equal(refused.err, true);
-  // Locked items cannot be bought either.
+  // A locked item cannot be bought either (SMG-01 locked for this check only, then restored).
+  await page.evaluate(async () => {
+    const { findItem } = await import('/src/weapons/catalog.ts');
+    const smg = findItem('SMG-01');
+    window.T.unlock = { available: smg.available, lockedReason: smg.lockedReason };
+    smg.available = false;
+    smg.lockedReason = '준비 중: 테스트';
+  });
   await page.click('.buy-card[data-id="SMG-01"]');
-  const locked = await page.evaluate(() => ({ money: window.T.money(), primary: window.T.gear().primary, fb: document.querySelector('.buy-feedback').textContent }));
-  assert.deepEqual(locked, { money: 3000, primary: null, fb: 'SMG-01: 준비 중: 발사 로직 미구현 (모델 있음)' });
+  const locked = await page.evaluate(async () => {
+    const { findItem } = await import('/src/weapons/catalog.ts');
+    Object.assign(findItem('SMG-01'), window.T.unlock);
+    return { money: window.T.money(), primary: window.T.gear().primary, fb: document.querySelector('.buy-feedback').textContent };
+  });
+  assert.deepEqual(locked, { money: 3000, primary: null, fb: 'SMG-01: 준비 중: 테스트' });
   // AR-01.
   await page.click('.buy-card[data-id="AR-01"]');
   await page.evaluate(() => window.T.run(2));
@@ -199,44 +214,44 @@ test('buying: not enough money is refused with the reason and changes nothing; A
   assert.deepEqual(noSwap.gear.weapons, ['ar01', 'karambit']);
 });
 
-test('one primary: another primary replaces it (the replaced one is refunded); one secondary at most', async () => {
+test('one primary: another primary replaces it (refunded when bought this round); one secondary at most', async () => {
   const r = await page.evaluate(async () => {
     const g = window.game;
     const eco = g.teamMatch.economy;
     eco.credit('local', 5000); // $5,300
     const swap = g.buy('SR-01');
-    const afterSwap = { money: window.T.money(), gear: window.T.gear() };
+    const afterSwap = { money: window.T.money(), gear: window.T.gear(), fb: document.querySelector('.buy-feedback').textContent };
     const back = g.buy('AR-01');
     const afterBack = { money: window.T.money(), gear: window.T.gear() };
-    // Secondary slot: PIS-01 is locked today; make it buyable for this check only, then restore it.
-    const { findItem } = await import('/src/weapons/catalog.ts');
-    const { SR_01 } = await import('/src/weapons/weapons.ts');
-    const pis = findItem('PIS-01');
-    const saved = { available: pis.available, weapon: pis.weapon };
-    const lockedTry = g.buy('PIS-01');
-    pis.available = true;
-    pis.weapon = SR_01; // stand-in weapon definition, only to exercise the slot rules
+    // Secondary: PIS-01, once.
     const first = g.buy('PIS-01');
     const second = g.buy('PIS-01');
-    const withSecondary = { money: window.T.money(), gear: window.T.gear(), entries: g.buyLoadout.weapons().map((e) => e.item.id) };
-    Object.assign(pis, saved);
-    g.buyLoadout.secondary = null;
-    g.applyBuyLoadout(); // reissue: AR-01 + knife again
-    eco.credit('local', 500);
+    const pis = g.weapons.loadout.find((w) => w.def.id === 'pis01');
+    const withSecondary = {
+      money: window.T.money(),
+      gear: window.T.gear(),
+      entries: g.buyLoadout.weapons().map((e) => e.item.id),
+      pisAmmo: pis && [pis.magazine, pis.reserve],
+      hudSlots: [...document.querySelectorAll('.loadout .slot')].map((s) => s.textContent),
+    };
     g.buy('AR-01'); // already held: no-op
-    return { swap: swap.ok, afterSwap, back: back.ok, afterBack, lockedTry: lockedTry.reason, first: first.ok, second: second.reason, withSecondary };
+    return { swap: swap.ok, afterSwap, back: back.ok, afterBack, first: first.ok, second: second.reason, withSecondary, finalMoney: window.T.money() };
   });
   assert.equal(r.swap, true);
   assert.equal(r.afterSwap.money, 5300 + 2700 - 4750);
+  assert.equal(r.afterSwap.fb, 'SR-01 구매 (AR-01 환불, -$2,050)');
   assert.deepEqual([r.afterSwap.gear.primary, r.afterSwap.gear.weapons], ['SR-01', ['sr01', 'karambit']]);
   assert.equal(r.back, true);
   assert.equal(r.afterBack.money, 5300, 'swapping back refunds SR-01 and charges AR-01');
   assert.deepEqual(r.afterBack.gear.weapons, ['ar01', 'karambit']);
-  assert.equal(r.lockedTry, 'locked');
   assert.equal(r.first, true);
   assert.equal(r.second, 'owned', 'the same secondary twice is refused');
   assert.deepEqual(r.withSecondary.entries, ['AR-01', 'PIS-01', 'Knife'], 'one primary, one secondary, the knife');
+  assert.deepEqual(r.withSecondary.gear.weapons, ['ar01', 'pis01', 'karambit']);
+  assert.deepEqual(r.withSecondary.pisAmmo, [12, 36], 'the real PIS-01: 12 / 36');
+  assert.deepEqual(r.withSecondary.hudSlots, ['1 AR-01', '2 PIS-01', '3 M9 BAYONET']);
   assert.equal(r.withSecondary.money, 4800);
+  assert.equal(r.finalMoney, 4800);
 });
 
 test('closing the menu re-captures the mouse; controls unchanged; keys 1 / 3 pick primary / knife', async () => {
@@ -252,13 +267,13 @@ test('closing the menu re-captures the mouse; controls unchanged; keys 1 / 3 pic
   await page.keyboard.press('Digit3');
   await page.evaluate(() => window.T.run(2));
   const knife = await page.evaluate(() => window.game.weapons.weapon.def.id);
-  await page.keyboard.press('Digit2'); // no secondary: nothing happens
+  await page.keyboard.press('Digit2');
   await page.evaluate(() => window.T.run(2));
-  const still = await page.evaluate(() => window.game.weapons.weapon.def.id);
+  const pistol = await page.evaluate(() => window.game.weapons.weapon.def.id);
   await page.keyboard.press('Digit1');
   await page.evaluate(() => window.T.run(2));
   const rifle = await page.evaluate(() => window.game.weapons.weapon.def.id);
-  assert.deepEqual([knife, still, rifle], ['karambit', 'karambit', 'ar01']);
+  assert.deepEqual([knife, pistol, rifle], ['karambit', 'pis01', 'ar01']);
   // Esc out of the buy menu lands on the normal pause menu; Play resumes.
   await openBuy();
   await page.keyboard.press('Escape');
@@ -281,7 +296,7 @@ test('the buy phase ends on its clock: the round goes live, buying is closed, th
   assert.equal(r.buyOpen, false);
   assert.ok(r.clock > 119.9, `round clock starts at 2:00 when the round goes live (${r.clock})`);
   assert.deepEqual([r.late, r.lateSr], ['phase', 'phase'], 'no buying after the round started');
-  assert.equal(r.money, 5300, 'the $5,300 left after the slot checks');
+  assert.equal(r.money, 4800, 'the $4,800 left after the slot checks');
   assert.equal(r.gear.inHand, 'ar01');
   assert.equal(r.menuOpen, false);
   // Fire the bought AR-01 with the real mouse.
@@ -300,7 +315,7 @@ test('the buy phase ends on its clock: the round goes live, buying is closed, th
   assert.equal(await page.evaluate(() => window.game.buyMenuOpen), false);
 });
 
-test('round won: $3,000 + $200 per enemy killed, paid exactly once; next round: gear reset, money kept', async () => {
+test('round won: $3,000 + $200 per enemy killed, paid exactly once; next round: the survivor keeps gear and ammo, money kept', async () => {
   const r = await page.evaluate(() => {
     const g = window.game;
     const T = window.T;
@@ -324,8 +339,25 @@ test('round won: $3,000 + $200 per enemy killed, paid exactly once; next round: 
     const afterResult = T.money();
     const banner = document.querySelector('.team-hud .round-banner .rb-sub').textContent;
     const moneyHud = document.querySelector('.team-hud .ta-money').textContent;
+    const ammoAtEnd = Object.fromEntries(g.weapons.loadout.map((w) => [w.def.id, [w.magazine, w.reserve]]));
+    const inHandAtEnd = g.weapons.weapon.def.id;
     T.until('prep', 600);
+    const next = { phase: tm.phase, round: tm.round, money: T.money(), gear: T.gear(), buyTime: tm.phaseLeft, clock: tm.roundTimeLeft };
+    const carried = Object.fromEntries(g.weapons.loadout.map((w) => [w.def.id, [w.magazine, w.reserve]]));
+    // Buying what is already held: refused, nothing charged or issued twice.
+    const rebuy = g.buy('AR-01');
+    const afterRebuy = { money: T.money(), weapons: g.weapons.loadout.map((w) => w.def.id) };
+    // Replacing the carried-over AR-01 (bought last round): no refund, the full SR-01 price.
+    const swap = g.buy('SR-01');
+    const afterSwap = { money: T.money(), weapons: g.weapons.loadout.map((w) => w.def.id), fb: document.querySelector('.buy-feedback').textContent, pis: carried.pis01 && g.weapons.loadout.find((w) => w.def.id === 'pis01').magazine };
     return {
+      ammoAtEnd,
+      inHandAtEnd,
+      carried,
+      rebuy: rebuy.reason,
+      afterRebuy,
+      swap: swap.ok,
+      afterSwap,
       m0,
       afterKills,
       afterDup,
@@ -336,23 +368,33 @@ test('round won: $3,000 + $200 per enemy killed, paid exactly once; next round: 
       redMoney: T.money(reds[0].id),
       banner,
       moneyHud,
-      next: { phase: tm.phase, round: tm.round, money: T.money(), gear: T.gear(), buyTime: tm.phaseLeft, clock: tm.roundTimeLeft },
+      next,
     };
   });
-  assert.equal(r.m0, 5300);
-  assert.equal(r.afterKills, 5700, 'two kills, $200 each');
-  assert.equal(r.afterDup, 5700, 'a duplicate kill event pays nothing');
-  assert.equal(r.afterWin, 8700, 'round win $3,000');
+  assert.equal(r.m0, 4800);
+  assert.equal(r.afterKills, 5200, 'two kills, $200 each');
+  assert.equal(r.afterDup, 5200, 'a duplicate kill event pays nothing');
+  assert.equal(r.afterWin, 8200, 'round win $3,000');
   assert.equal(r.settledAgain, false, 'a round settles once');
-  assert.equal(r.afterResult, 8700);
+  assert.equal(r.afterResult, 8200);
   assert.equal(r.allyGain, 3 * 200 + 3000, 'the teammate who killed three gets the bonuses + the win');
   assert.equal(r.redMoney, 3000 + 1900, 'the losing side gets the first-loss reward');
   assert.equal(r.banner, '승리 보상 +$3,000');
-  assert.equal(r.moneyHud, '$8,700');
+  assert.equal(r.moneyHud, '$8,200');
   assert.equal(r.next.phase, 'prep');
   assert.equal(r.next.round, 2);
-  assert.equal(r.next.money, 8700, 'money carries over');
-  assert.deepEqual(r.next.gear, { primary: null, secondary: null, melee: 'Knife', weapons: ['karambit'], inHand: 'karambit' }, 'gear resets to the knife');
+  assert.equal(r.next.money, 8200, 'money carries over');
+  // The player survived: AR-01 + PIS-01 + knife stay, each with the ammo it had when the round ended.
+  assert.deepEqual(r.next.gear, { primary: 'AR-01', secondary: 'PIS-01', melee: 'Knife', weapons: ['ar01', 'pis01', 'karambit'], inHand: r.inHandAtEnd }, 'the survivor keeps the gear');
+  assert.deepEqual(r.carried, r.ammoAtEnd, 'magazines and reserves carried over as they were');
+  assert.ok(r.ammoAtEnd.ar01[0] < 30, `the rifle really was fired (${r.ammoAtEnd.ar01})`);
+  assert.equal(r.rebuy, 'owned');
+  assert.deepEqual(r.afterRebuy, { money: 8200, weapons: ['ar01', 'pis01', 'karambit'] }, 'not charged, not issued again');
+  assert.equal(r.swap, true);
+  assert.equal(r.afterSwap.money, 8200 - 4750, 'a carried-over weapon is not refunded when replaced');
+  assert.equal(r.afterSwap.fb, 'SR-01 구매 (AR-01 교체, -$4,750)');
+  assert.deepEqual(r.afterSwap.weapons, ['sr01', 'pis01', 'karambit']);
+  assert.equal(r.afterSwap.pis, r.ammoAtEnd.pis01[0], 'the pistol kept its magazine through the swap');
   assert.ok(r.next.buyTime > 14.9, 'a fresh 15 s buy time');
   assert.equal(r.next.clock, 120);
 });
@@ -384,6 +426,22 @@ test('no bonus for teammates or kills after the round is decided; draws and loss
   assert.equal(r.afterLate, r.afterDraw, 'nothing after the round is decided');
   assert.deepEqual(r.streaks, { blue: 0, red: 1 }, 'a draw leaves the loss streaks as they were');
   assert.equal(r.banner, '무승부 보상 +$1,900');
+});
+
+test('a player who died loses the gear and starts the next round with the default issue; money stays', async () => {
+  const r = await page.evaluate(() => {
+    const g = window.game;
+    const T = window.T;
+    // The previous test ended the round with everyone dead (draw), the player included.
+    const before = { money: T.money(), gear: T.gear(), alive: g.combat.alive, phase: g.teamMatch.phase };
+    T.until('prep', 600);
+    return { before, after: { money: T.money(), gear: T.gear(), alive: g.combat.alive, hp: g.player.health } };
+  });
+  assert.equal(r.before.alive, false);
+  assert.deepEqual(r.before.gear.weapons, ['sr01', 'pis01', 'karambit'], 'still holding the gear when the round ended');
+  assert.deepEqual(r.after.gear, { primary: null, secondary: null, melee: 'Knife', weapons: ['karambit'], inHand: 'karambit' }, 'gear lost on death');
+  assert.equal(r.after.money, r.before.money, 'money carries over');
+  assert.deepEqual([r.after.alive, r.after.hp], [true, 100]);
 });
 
 test('loss streak: $1,900, $2,400, $2,900, $3,400, $3,400; a win resets it; a draw keeps it; money capped at $16,000', async () => {

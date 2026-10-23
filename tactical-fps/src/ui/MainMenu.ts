@@ -1,3 +1,4 @@
+import type { WeaponCategory } from '../weapons/WeaponDefinition';
 import './menu.css';
 
 import { ACTIONS, bindKey, defaultControls, keyLabel, RESERVED_KEYS, SENSITIVITY_MAX, SENSITIVITY_MIN, type ActionId, type ControlSettings } from '../input/Controls';
@@ -13,7 +14,7 @@ export interface MenuWeapon {
   slot: number;
   id: string;
   name: string;
-  category: 'rifle' | 'sniper' | 'melee';
+  category: WeaponCategory;
   /** Real values from the weapon definition, already formatted. */
   stats: readonly { label: string; value: string }[];
 }
@@ -26,6 +27,9 @@ export interface MenuOption<T> {
 const CATEGORY_LABEL: Record<MenuWeapon['category'], string> = {
   rifle: '돌격소총',
   sniper: '저격소총',
+  smg: '기관단총',
+  shotgun: '산탄총',
+  pistol: '권총',
   melee: '근접 무기',
 };
 
@@ -110,6 +114,11 @@ export class MainMenu {
               </label>
             </div>
             <div class="team-options" hidden>
+              <label class="field">
+                <span class="field-label">목표</span>
+                <select class="select" data-setting="objective"></select>
+                <span class="field-hint">C4: BLUE 공격 · RED 방어로 시작, 하프타임에 공수 교대. 전멸전: 최후 생존 팀 승리.</span>
+              </label>
               <label class="field">
                 <span class="field-label">승리 라운드</span>
                 <select class="select" data-setting="rounds-to-win"></select>
@@ -346,7 +355,7 @@ export class MainMenu {
   // --- Loadout ----------------------------------------------------------------
 
   setWeapons(weapons: readonly MenuWeapon[], onSelect: (slot: number) => void): void {
-    const order: MenuWeapon['category'][] = ['rifle', 'sniper', 'melee'];
+    const order: MenuWeapon['category'][] = ['rifle', 'sniper', 'smg', 'shotgun', 'pistol', 'melee'];
     const groups = order
       .map((cat) => ({ cat, items: weapons.filter((w) => w.category === cat) }))
       .filter((g) => g.items.length > 0);
@@ -414,7 +423,7 @@ export class MainMenu {
 
   // --- Settings ---------------------------------------------------------------
 
-  bindSelect<T extends string | number>(setting: 'quality' | 'frame-limit' | 'volume' | 'mode' | 'bots' | 'time-limit' | 'kill-target' | 'rounds-to-win' | 'round-time' | 'bot-look', options: readonly MenuOption<T>[], current: T, onChange: (value: T) => void): void {
+  bindSelect<T extends string | number>(setting: 'quality' | 'frame-limit' | 'volume' | 'mode' | 'bots' | 'time-limit' | 'kill-target' | 'rounds-to-win' | 'round-time' | 'objective' | 'bot-look', options: readonly MenuOption<T>[], current: T, onChange: (value: T) => void): void {
     const select = this.root.querySelector<HTMLSelectElement>(`select[data-setting="${setting}"]`)!;
     select.replaceChildren(
       ...options.map((o) => {

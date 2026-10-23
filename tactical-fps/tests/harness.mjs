@@ -48,7 +48,7 @@ export async function startEnv() {
  * until the map is loaded and the Play button is enabled. `page.errors`
  * collects page exceptions and console errors.
  */
-export async function openGame(env, { map = 'warehouse', quality = 'low', width = 640, height = 360, mode = 'training' } = {}) {
+export async function openGame(env, { map = 'warehouse', quality = 'low', width = 640, height = 360, mode = 'training', objective = null, seed = null } = {}) {
   const context = await env.browser.newContext({ viewport: { width, height } });
   const page = await context.newPage();
   page.setDefaultTimeout(LOAD_TIMEOUT);
@@ -60,7 +60,9 @@ export async function openGame(env, { map = 'warehouse', quality = 'low', width 
   // quality: null = no ?quality in the link (the game picks automatically / from saved settings).
   // mode: 'training' (dummies, the default here so earlier suites test what they were written for),
   // 'deathmatch' (bots), or null for the game's own default.
-  await page.goto(`${env.url}/?map=${map}` + (quality ? `&quality=${quality}` : '') + (mode ? `&mode=${mode}` : ''));
+  // seed: bots' random choices from a fixed seed (reproducible runs).
+  // objective: team match 'bomb' (the game's default) or 'elimination' (suites written for the elimination rules).
+  await page.goto(`${env.url}/?map=${map}` + (quality ? `&quality=${quality}` : '') + (mode ? `&mode=${mode}` : '') + (objective ? `&objective=${objective}` : '') + (seed !== null ? `&seed=${seed}` : ''));
   await waitReady(page);
   return page;
 }

@@ -356,3 +356,90 @@ body {
 .hud.no-ammo .ammo-sep {
   display: none;
 }
+
+/* SR-01 scope: dark mask around a round field, fine cross-hairs; the gun crosshair hides. */
+.scope {
+  position: absolute;
+  inset: 0;
+  display: none;
+  pointer-events: none;
+  background: radial-gradient(circle at center, transparent 0, transparent 41vmin, rgba(0, 0, 0, 0.92) 41.6vmin, #000 46vmin);
+}
+.hud.playing.scoped .scope {
+  display: block;
+}
+.hud.scoped .crosshair {
+  visibility: hidden;
+}
+.scope-h,
+.scope-v {
+  position: absolute;
+  background: rgba(0, 0, 0, 0.85);
+}
+.scope-h {
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+}
+.scope-v {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+}
+
+/* Armour (ARMOR-01): a smaller readout beside the health one. */
+.armor {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  margin-left: 4px;
+  padding-left: 12px;
+  border-left: 1px solid var(--c-border-strong);
+}
+.armor[hidden] {
+  display: none;
+}
+.armor-value {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1;
+}
+.armor .health-track {
+  width: 80px;
+}
+.armor-bar {
+  height: 100%;
+  background: #8fa3b8;
+  transform-origin: left center;
+  transition: transform 0.2s ease-out;
+}
+
+/* FLASH-01: white screen while blinded (opacity set per frame); SMOKE-01: grey veil inside a cloud. */
+.flash-white,
+.smoke-veil {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+}
+.flash-white {
+  background: #fff;
+}
+.smoke-veil {
+  background: rgb(160, 164, 168);
+}
+/* Grenades carried, above the weapon name; the one in hand is lit. */
+.utility {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--hud-dim);
+}
+.utility .ut.held {
+  color: var(--hud-fg);
+  font-weight: 700;
+}

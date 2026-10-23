@@ -1,5 +1,6 @@
 import type { FireMode, WeaponDefinition, WeaponViewSpec } from './WeaponDefinition';
-import { AR_01, KARAMBIT, SR_01 } from './weapons';
+import type { GrenadeKind } from '../combat/Grenades';
+import { AR_01, KARAMBIT, PIS_01, SG_01, SMG_01, SR_01 } from './weapons';
 
 // Single catalog of everything the team match buy menu can show: weapons
 // (implemented or planned) and tactical equipment. Prices live here and
@@ -37,63 +38,23 @@ export interface CatalogItem {
    * menu picture (not issued, no first-person pose tuned).
    */
   preview?: WeaponViewSpec;
-}
-
-/** Buy menu picture spec for a Blender GLB with the muzzle along -X (the SMG / shotgun / pistol exports). */
-function previewSpec(url: string): WeaponViewSpec {
-  return {
-    kind: 'gltf',
-    url,
-    fallback: 'ar01',
-    fit: { rotation: [0, -Math.PI / 2, 0], grip: { position: [0, 0, 0] } },
-    pose: { position: [0, 0, 0], rotation: [0, 0, 0], scale: 1 },
-  };
+  /** Thrown utility: which grenade one purchase adds (carry limit: GRENADE_CONFIG.maxCarry). */
+  grenade?: GrenadeKind;
 }
 
 export const CATALOG: readonly CatalogItem[] = [
   { id: 'AR-01', name: '돌격소총', slot: 'primary', category: 'rifle', price: 2700, weapon: AR_01, available: true },
   // Price is GRID's proposal for the existing bolt-action rifle (one-shot body, slow).
   { id: 'SR-01', name: '저격소총', slot: 'primary', category: 'sniper', price: 4750, weapon: SR_01, available: true },
-  {
-    id: 'SMG-01',
-    name: '기관단총',
-    slot: 'primary',
-    category: 'smg',
-    price: 1500,
-    weapon: null,
-    available: false,
-    lockedReason: '준비 중: 발사 로직 미구현 (모델 있음)',
-    planned: { fireMode: 'auto', magazineSize: 30, reserveAmmo: 120 },
-    preview: previewSpec('/weapons/smg01.glb'),
-  },
-  {
-    id: 'SG-01',
-    name: '산탄총',
-    slot: 'primary',
-    category: 'shotgun',
-    price: 2000,
-    weapon: null,
-    available: false,
-    lockedReason: '준비 중: 산탄 발사 로직 미구현 (모델 있음)',
-    planned: { fireMode: 'semi', magazineSize: 8, reserveAmmo: 32 },
-    preview: previewSpec('/weapons/sg01.glb'),
-  },
-  {
-    id: 'PIS-01',
-    name: '권총',
-    slot: 'secondary',
-    category: 'pistol',
-    price: 500,
-    weapon: null,
-    available: false,
-    lockedReason: '준비 중: 발사 로직 미구현 (모델 있음)',
-    planned: { fireMode: 'semi', magazineSize: 12, reserveAmmo: 36 },
-    preview: previewSpec('/weapons/pis01.glb'),
-  },
+  { id: 'SMG-01', name: '기관단총', slot: 'primary', category: 'smg', price: 1500, weapon: SMG_01, available: true },
+  { id: 'SG-01', name: '산탄총 (8펠릿)', slot: 'primary', category: 'shotgun', price: 2000, weapon: SG_01, available: true },
+  { id: 'PIS-01', name: '권총', slot: 'secondary', category: 'pistol', price: 500, weapon: PIS_01, available: true },
   { id: 'Knife', name: '근접 무기 (M9 총검)', slot: 'melee', category: 'knife', price: 0, weapon: KARAMBIT, available: true },
-  { id: 'ARMOR-01', name: '방탄 조끼', slot: 'armor', category: 'armor', price: 650, weapon: null, available: false, lockedReason: '준비 중: 방어력 시스템 미구현' },
-  { id: 'FLASH-01', name: '섬광탄', slot: 'utility', category: 'grenade', price: 300, weapon: null, available: false, lockedReason: '준비 중: 투척·섬광 효과 미구현' },
-  { id: 'SMOKE-01', name: '연막탄', slot: 'utility', category: 'grenade', price: 400, weapon: null, available: false, lockedReason: '준비 중: 투척·연막 시야 차단 미구현' },
+  // Armour points and absorption: ARMOR_CONFIG (config.ts). Body only (there is no helmet).
+  { id: 'ARMOR-01', name: '방탄 조끼 (몸통)', slot: 'armor', category: 'armor', price: 650, weapon: null, available: true },
+  // Thrown with key 4 (Controls 'utility'); flight and effects: GrenadeSystem / GRENADE_CONFIG.
+  { id: 'FLASH-01', name: '섬광탄', slot: 'utility', category: 'grenade', price: 300, weapon: null, available: true, grenade: 'flash' },
+  { id: 'SMOKE-01', name: '연막탄', slot: 'utility', category: 'grenade', price: 400, weapon: null, available: true, grenade: 'smoke' },
 ];
 
 /** The free melee item every loadout starts with. */

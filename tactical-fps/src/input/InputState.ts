@@ -15,6 +15,8 @@ export interface InputState {
   walk: boolean;
   /** Primary fire held. */
   fire: boolean;
+  /** Secondary button (right mouse) held: scope on weapons that have one. */
+  aim: boolean;
   /** Reload key held (weapon code reacts to the press edge). */
   reload: boolean;
   /** Weapon slot requested this frame (0-based), -1 = none. */
@@ -23,12 +25,16 @@ export interface InputState {
   equipLast: boolean;
   /** Scroll through the loadout: -1 / +1, 0 = none. */
   equipCycle: number;
+  /** Utility key pressed this frame: take out a grenade / switch to the other kind. */
+  utility: boolean;
+  /** Use key held (plant / defuse the C4). */
+  use: boolean;
   /** Inspect key held. */
   inspect: boolean;
 }
 
 export function createInputState(): InputState {
-  return { moveX: 0, moveY: 0, lookYaw: 0, lookPitch: 0, jump: false, crouch: false, walk: false, fire: false, reload: false, equipSlot: -1, equipLast: false, equipCycle: 0, inspect: false };
+  return { moveX: 0, moveY: 0, lookYaw: 0, lookPitch: 0, jump: false, crouch: false, walk: false, fire: false, aim: false, reload: false, equipSlot: -1, equipLast: false, equipCycle: 0, utility: false, use: false, inspect: false };
 }
 
 export interface InputSource {
