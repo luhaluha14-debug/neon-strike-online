@@ -197,15 +197,19 @@ export class Hud {
     this.root.classList.toggle('low-health', hp <= 25);
   }
 
-  /** Slot strip above the ammo counter: "1 AR-01  2 SR-01  3 M9 BAYONET". */
-  setLoadout(names: readonly string[], active: number): void {
+  /**
+   * Slot strip above the ammo counter: "1 AR-01  2 SR-01  3 M9 BAYONET".
+   * `keys`: the number key of each entry when it is not its position + 1
+   * (team match: 1 primary, 2 secondary, 3 knife).
+   */
+  setLoadout(names: readonly string[], active: number, keys?: readonly number[]): void {
     this.menu.setSelectedWeapon(active);
     const strip = this.root.querySelector<HTMLDivElement>('.loadout')!;
     strip.replaceChildren(
       ...names.map((n, i) => {
         const span = document.createElement('span');
         span.className = i === active ? 'slot active' : 'slot';
-        span.textContent = `${i + 1} ${n}`;
+        span.textContent = `${keys?.[i] ?? i + 1} ${n}`;
         return span;
       }),
     );

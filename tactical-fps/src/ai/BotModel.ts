@@ -22,6 +22,18 @@ export interface BotPose {
   deadTime: number;
 }
 
+/** What BotSquad drives for each bot: the built-in BotModel or a Blender character (AgentModel). */
+export interface BotBody {
+  readonly object: THREE.Object3D;
+  /** Muzzle point (world position via getWorldPosition) for flashes and tracers. */
+  readonly muzzle: THREE.Object3D;
+  update(dt: number, pose: BotPose): void;
+  onShot(): void;
+  onHit(direction: THREE.Vector3): void;
+  reset(): void;
+  dispose(): void;
+}
+
 /** Uniform colours per team (team match); free-for-all bots keep the default olive kit. */
 const TEAM_KIT: Record<string, { fabric: number; gear: number; helmet: number; marker: number }> = {
   blue: { fabric: 0x4f5b69, gear: 0x343d48, helmet: 0x3c4754, marker: 0x2f7bff },
@@ -68,6 +80,58 @@ export class BotKit {
   }
 }
 
+/** Where the barrel of buildBotRifle ends (rifle space, -Z forward). */
+export const RIFLE_MUZZLE_Z = -0.74;
+
+/**
+ * The bots' rifle (AR-01 stand-in for third person): pivot at the stock
+ * butt, barrel along -Z, pistol grip at (0, -0.07, -0.04). Merged per
+ * material; its geometries are pushed to `geometries` for disposal.
+ */
+export function buildBotRifle(kit: BotKit, geometries: THREE.BufferGeometry[]): THREE.Group {
+  const r = new THREE.Group();
+  const gun = kit.gun;
+  const part = (g: THREE.BufferGeometry, m: THREE.Material, pos: readonly number[], rot: readonly number[] = [0, 0, 0]) => {
+    const mesh = new THREE.Mesh(g, m);
+    mesh.position.set(pos[0], pos[1], pos[2]);
+    mesh.rotation.set(rot[0], rot[1], rot[2]);
+    r.add(mesh);
+  };
+  part(new THREE.BoxGeometry(0.045, 0.07, 0.3), gun, [0, 0, -0.17]);
+  part(new THREE.BoxGeometry(0.05, 0.055, 0.24), gun, [0, -0.005, -0.42]);
+  part(new THREE.CylinderGeometry(0.011, 0.011, 0.16, 8), gun, [0, 0, -0.62], [Math.PI / 2, 0, 0]);
+  part(new THREE.CylinderGeometry(0.017, 0.017, 0.05, 8), kit.dark, [0, 0, -0.71], [Math.PI / 2, 0, 0]);
+  part(new THREE.BoxGeometry(0.035, 0.14, 0.06), gun, [0, -0.1, -0.2], [0.18, 0, 0]);
+  part(new THREE.BoxGeometry(0.035, 0.09, 0.04), gun, [0, -0.07, -0.04], [-0.3, 0, 0]);
+  part(new THREE.BoxGeometry(0.04, 0.08, 0.2), gun, [0, -0.02, 0.08]);
+  part(new THREE.BoxGeometry(0.035, 0.045, 0.1), kit.dark, [0, 0.06, -0.17]);
+  mergeByMaterial(r, geometries);
+  return r;
+}
+
+/** One mesh per material in `group` (draw calls); merged geometries go to `sink`. */
+function mergeByMaterial(group: THREE.Object3D, sink: THREE.BufferGeometry[]): void {
+  const byMat = new Map<THREE.Material, THREE.BufferGeometry[]>();
+  for (const child of [...group.children]) {
+    const mesh = child as THREE.Mesh;
+    if (!mesh.isMesh) continue;
+    mesh.updateMatrix();
+    const g = (mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone()).applyMatrix4(mesh.matrix);
+    mesh.geometry.dispose();
+    const list = byMat.get(mesh.material as THREE.Material) ?? [];
+    list.push(g);
+    byMat.set(mesh.material as THREE.Material, list);
+    group.remove(mesh);
+  }
+  for (const [mat, list] of byMat) {
+    const merged = list.length === 1 ? list[0] : mergeGeometries(list, false);
+    if (list.length > 1) list.forEach((g) => g.dispose());
+    if (!merged) continue;
+    sink.push(merged);
+    group.add(new THREE.Mesh(merged, mat));
+  }
+}
+
 const _feet = new THREE.Vector3();
 const _state: BodyState = { feet: new THREE.Vector3(), yaw: 0, eyeHeight: 1.68, velocity: new THREE.Vector3(), grounded: true };
 
@@ -81,7 +145,7 @@ const _state: BodyState = { feet: new THREE.Vector3(), yaw: 0, eyeHeight: 1.68, 
  * backward when killed. Presentation only: the bot's hit capsule, AI and
  * damage are untouched.
  */
-export class BotModel {
+export class BotModel implements BotBody {
   readonly object: THREE.Object3D;
   /** Muzzle point (world position via getWorldPosition) for flashes and tracers. */
   readonly muzzle = new THREE.Object3D();
@@ -127,19 +191,10 @@ export class BotModel {
     a.position.set(0, 0.42, 0);
     sp.add(a);
     // Rifle: stock in the right shoulder, barrel along -Z.
-    const r = new THREE.Group();
+    const r = buildBotRifle(k, this.geometries);
     r.position.set(0.1, 0.03, 0);
     a.add(r);
-    const gun = k.gun;
-    this.add(r, new THREE.BoxGeometry(0.045, 0.07, 0.3), gun, [0, 0, -0.17]);
-    this.add(r, new THREE.BoxGeometry(0.05, 0.055, 0.24), gun, [0, -0.005, -0.42]);
-    this.add(r, new THREE.CylinderGeometry(0.011, 0.011, 0.16, 8), gun, [0, 0, -0.62], [1, 1, 1], [Math.PI / 2, 0, 0]);
-    this.add(r, new THREE.CylinderGeometry(0.017, 0.017, 0.05, 8), k.dark, [0, 0, -0.71], [1, 1, 1], [Math.PI / 2, 0, 0]);
-    this.add(r, new THREE.BoxGeometry(0.035, 0.14, 0.06), gun, [0, -0.1, -0.2], [1, 1, 1], [0.18, 0, 0]);
-    this.add(r, new THREE.BoxGeometry(0.035, 0.09, 0.04), gun, [0, -0.07, -0.04], [-0.3, 0, 0]);
-    this.add(r, new THREE.BoxGeometry(0.04, 0.08, 0.2), gun, [0, -0.02, 0.08]);
-    this.add(r, new THREE.BoxGeometry(0.035, 0.045, 0.1), k.dark, [0, 0.06, -0.17]);
-    this.muzzle.position.set(0.1, 0.03, -0.74);
+    this.muzzle.position.set(0.1, 0.03, RIFLE_MUZZLE_Z);
     a.add(this.muzzle);
     // Arms from the shoulders to the hands on the rifle (grip, handguard).
     this.limb(a, [0.2, 0, 0.02], [0.24, -0.22, -0.05], 0.05, k.fabric);
@@ -156,7 +211,6 @@ export class BotModel {
 
     this.mergeParts(sp);
     this.mergeParts(a);
-    this.mergeParts(r);
     this.object.traverse((o) => {
       const m = o as THREE.Mesh;
       if (!m.isMesh) return;
@@ -253,24 +307,6 @@ export class BotModel {
 
   /** One mesh per material per group (draw calls). */
   private mergeParts(group: THREE.Object3D): void {
-    const byMat = new Map<THREE.Material, THREE.BufferGeometry[]>();
-    for (const child of [...group.children]) {
-      const mesh = child as THREE.Mesh;
-      if (!mesh.isMesh) continue;
-      mesh.updateMatrix();
-      const g = (mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone()).applyMatrix4(mesh.matrix);
-      mesh.geometry.dispose();
-      const list = byMat.get(mesh.material as THREE.Material) ?? [];
-      list.push(g);
-      byMat.set(mesh.material as THREE.Material, list);
-      group.remove(mesh);
-    }
-    for (const [mat, list] of byMat) {
-      const merged = list.length === 1 ? list[0] : mergeGeometries(list, false);
-      if (list.length > 1) list.forEach((g) => g.dispose());
-      if (!merged) continue;
-      this.geometries.push(merged);
-      group.add(new THREE.Mesh(merged, mat));
-    }
+    mergeByMaterial(group, this.geometries);
   }
 }

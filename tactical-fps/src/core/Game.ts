@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { BotSquad, type SquadMember } from '../ai/BotSquad';
+import { preloadAgentModels } from '../ai/AgentModel';
 import type { Bot, Combatant } from '../ai/Bot';
 import { NavGrid } from '../ai/NavGrid';
 import { HitscanSystem } from '../combat/HitscanSystem';
@@ -22,6 +23,10 @@ import { DEFAULT_TEAM_MATCH, otherTeam, ROUND_TIME_OPTIONS, ROUNDS_TO_WIN_OPTION
 import { Hud } from '../ui/Hud';
 import { MatchHud } from '../ui/MatchHud';
 import { TeamHud } from '../ui/TeamHud';
+import { BuyMenu } from '../ui/BuyMenu';
+import { BuyLoadout, type BuyResult } from '../game/Economy';
+import { CATALOG } from '../weapons/catalog';
+import { loadGltfScene } from '../weapons/view/GltfWeaponView';
 import { createWeaponView, loadWeaponView, preloadWeaponViews } from '../weapons/view/WeaponView';
 import type { MenuWeapon } from '../ui/MainMenu';
 import { renderWeaponThumbnails } from '../ui/weaponThumbnails';
@@ -97,6 +102,17 @@ export class Game {
   teamSpawns: Record<Team, SpawnPoint[]> | null = null;
   private readonly matchHud: MatchHud;
   private readonly teamHud: TeamHud;
+  /** Team match buy menu ("작전 준비") and the player's gear for the current round. */
+  private readonly buyMenu: BuyMenu;
+  readonly buyLoadout = new BuyLoadout();
+  /**
+   * The buy menu is open: the pointer lock is released for the mouse, yet
+   * the simulation keeps running (the buy clock counts down; everyone is
+   * frozen in the prep phase anyway) and no game input gets through.
+   */
+  buyMenuOpen = false;
+  /** Team match: number key (0 = "1") of each entry of the player's loadout; null outside the team match. */
+  private playerSlotKeys: number[] | null = null;
   /** Team match: which living teammate a dead player watches, and the fire button's last state (to cycle). */
   private spectateIndex = 0;
   private spectateFireHeld = false;
@@ -242,11 +258,7 @@ export class Game {
     // Weapon card images: rendered once, the first time the Weapons page is opened,
     // so the work happens in the menu on demand and never during play.
     this.hud.menu.onPageShown((page) => {
-      if (page !== 'loadout' || this.thumbnailsDone) return;
-      this.thumbnailsDone = true;
-      void renderWeaponThumbnails(this.renderer, this.viewModel.scene.environment, DEFAULT_LOADOUT, (id, url) =>
-        this.hud.menu.setWeaponThumbnail(id, url),
-      ).catch((err) => console.warn('[menu] weapon thumbnails unavailable', err));
+      if (page === 'loadout') this.renderThumbnails();
     });
     this.input = new KeyboardMouseInput(this.renderer.domElement, (locked) => this.onLockChange(locked));
     // Controls page: sensitivity + key bindings, applied immediately, stored apart from the settings record.
@@ -267,6 +279,18 @@ export class Game {
       },
       () => this.restartMatch(),
     );
+    this.buyMenu = new BuyMenu(this.hud.root, {
+      onBuy: (id) => void this.buy(id),
+      onReady: () => this.confirmReady(),
+      onClose: () => this.closeBuyMenu(true),
+    });
+    // A failed re-lock after the buy menu (no click to grant it) falls back to the normal pause menu.
+    document.addEventListener('pointerlockerror', () => {
+      if (!this.input.active && !this.buyMenuOpen && this.hasStarted) {
+        this.hud.setPaused(true);
+        this.hud.setReady('일시정지됨');
+      }
+    });
     this.teamHud = new TeamHud(
       this.hud.root,
       () => {
@@ -291,6 +315,13 @@ export class Game {
       } else if (e.code === 'Tab') {
         e.preventDefault();
         this.scoreboardHeld = true;
+      } else if (e.code === 'KeyB' && !e.repeat && this.teamMatch?.buyOpen) {
+        // B toggles the buy menu during the prep phase (closing re-captures the mouse).
+        if (this.buyMenuOpen) this.closeBuyMenu(true);
+        else if (this.input.active) this.openBuyMenu();
+      } else if (e.code === 'Escape' && this.buyMenuOpen) {
+        // Esc: leave the buy menu for the normal pause menu.
+        this.closeBuyMenu(false);
       }
     });
     window.addEventListener('keyup', (e) => {
@@ -301,6 +332,8 @@ export class Game {
   async start(): Promise<void> {
     // Weapon GLBs download alongside the map; the game is ready once both are in.
     this.weaponModels = preloadWeaponViews(DEFAULT_LOADOUT.map((d) => d.view));
+    // Bot character models (small): in before the first match is set up.
+    this.agentModels = preloadAgentModels();
     if (!(await this.loadMapInto(this.mapDef))) return;
     this.timer.connect(document);
     this.loop.start();
@@ -383,14 +416,14 @@ export class Game {
     this.combat = new PlayerCombat(this.player);
     this.combat.onDamage = (e) => this.onPlayerDamaged(e);
     this.hitscan.register(this.combat);
-    await this.weaponModels;
+    await Promise.all([this.weaponModels, this.agentModels]);
     this.showWeaponModel(this.weapons.weapon.def.view);
-    this.hud.setLoadout(this.weapons.loadout.map((w) => w.def.displayName), this.weapons.slot);
+    this.updateLoadoutHud();
     this.weapons.events = {
       onEquip: (weapon, slot) => {
         this.showWeaponModel(weapon.def.view);
         this.weaponAudio.onEquip(weapon);
-        this.hud.setLoadout(this.weapons!.loadout.map((w) => w.def.displayName), slot);
+        this.updateLoadoutHud(slot);
       },
       onShot: (result, _origin, dir, weapon) => {
         // Rounds resolved in later ticks of the same frame keep their real spacing.
@@ -429,7 +462,8 @@ export class Game {
     );
     this.loadingMap = false;
     this.hud.setMapSelectEnabled(true);
-    this.hud.setWeaponOptionsEnabled(true);
+    // Team match: weapons come from the buy menu, not from the menu's Weapons page.
+    this.hud.setWeaponOptionsEnabled(!this.teamMatch);
     this.hud.setReady(this.hasStarted ? '일시정지됨' : '준비 완료');
 
     this.hud.setHealth(this.player.health);
@@ -472,7 +506,7 @@ export class Game {
       // Built once per map and reused by every match and round.
       this.nav ??= new NavGrid(map);
       console.info(`[bots] nav grid ${this.nav.walkable.length} cells in ${this.nav.buildMs.toFixed(0)} ms`);
-      const squad = new BotSquad(map, this.nav, hitscan, team ? TEAM_ROSTER : this.matchSettings.bots, [AR_01]);
+      const squad = new BotSquad(map, this.nav, hitscan, team ? TEAM_ROSTER : this.matchSettings.bots, [AR_01], Math.random, this.matchSettings.botLook);
       // Team match: deaths last until the round ends.
       squad.respawns = !team;
       squad.events = {
@@ -513,6 +547,8 @@ export class Game {
     this.hud.setDeathNote(null);
     this.hud.menu.setMatchOptionsVisible(dm);
     this.hud.menu.setTeamOptionsVisible(team);
+    this.hud.menu.setBotOptionsVisible(dm || team);
+    if (!this.loadingMap) this.hud.setWeaponOptionsEnabled(!team);
   }
 
   /** Places everyone for the mode just set up: a first round (team), or spread out (deathmatch). */
@@ -535,6 +571,11 @@ export class Game {
     const squad = this.squad;
     const spawns = this.teamSpawns;
     if (!squad || !spawns) return;
+    // Gear is for one round: back to the knife (money carries over), then a fresh spawn.
+    this.closeBuyMenu(false, true);
+    this.buyLoadout.reset();
+    this.applyBuyLoadout();
+    this.buyMenu.clearFeedback();
     this.respawn();
     const next: Record<Team, number> = { blue: 1, red: 0 };
     const centre = (t: Team) => spawns[t].reduce((a, s) => a.add(s.position), new THREE.Vector3()).multiplyScalar(1 / spawns[t].length);
@@ -621,6 +662,12 @@ export class Game {
     this.squad = null;
     this.match = null;
     this.teamMatch = null;
+    this.closeBuyMenu(false, true);
+    // Leaving the team match: back to the standard loadout of the other modes.
+    if (this.playerSlotKeys) {
+      this.playerSlotKeys = null;
+      this.weapons?.setLoadout(DEFAULT_LOADOUT);
+    }
     // Free-for-all and training: no teams, friendly fire rules do not apply.
     if (this.hitscan) this.hitscan.friendlyFire = true;
     if (this.combat) this.combat.team = undefined;
@@ -702,8 +749,22 @@ export class Game {
       save();
       this.restartMatch();
     });
+    this.hud.menu.bindSelect(
+      'bot-look',
+      [
+        { value: 'procedural', label: '기본 (애니메이션)' },
+        { value: 'agents', label: '요원 모델 (정적 포즈)' },
+      ] as const,
+      ms.botLook,
+      (look) => {
+        ms.botLook = look;
+        save();
+        this.restartMatch();
+      },
+    );
     this.hud.menu.setMatchOptionsVisible(this.mode === 'deathmatch');
     this.hud.menu.setTeamOptionsVisible(this.mode === 'team');
+    this.hud.menu.setBotOptionsVisible(this.mode !== 'training');
   }
 
   /** The spawn point the player (re)spawns at; training targets are laid out in front of it. */
@@ -759,6 +820,12 @@ export class Game {
     }
 
     this.input.poll(this.inputState);
+    if (this.buyMenuOpen) {
+      // Buy menu: nothing reaches the game, including look / clicks that slipped in
+      // around the moment the pointer lock was released.
+      Object.assign(this.inputState, createInputState());
+      this.input.clearLatches();
+    }
     const combat = this.combat;
     if (combat && !combat.alive) {
       // Dead: the view stays where it fell; mouse movement is dropped.
@@ -770,7 +837,8 @@ export class Game {
     this.weapons?.onLookInput(lookPitch);
     player.applyLook(this.inputState);
 
-    if (this.input.active) {
+    // The buy menu releases the mouse but the round clock keeps running behind it.
+    if (this.input.active || this.buyMenuOpen) {
       const tick = 1 / SIM_CONFIG.tickRate;
       this.accumulator += frameTime;
       let ticks = 0;
@@ -819,6 +887,7 @@ export class Game {
         document.exitPointerLock();
       }
     }
+    this.updateBuyPhase();
     const dead = !!combat && !combat.alive;
 
     // Interpolate between the last two ticks for smooth motion at any refresh rate.
@@ -927,11 +996,15 @@ export class Game {
   private shownSpec: WeaponViewSpec | null = null;
   /** Download of the loadout's weapon GLBs (settles even if one fails). */
   private weaponModels: Promise<void> = Promise.resolve();
+  /** Download of the bot character GLBs (settles even if one fails). */
+  private agentModels: Promise<void> = Promise.resolve();
 
   /** Translates this frame's player input into a device-independent weapon command. */
   private weaponCommand(): WeaponCommand {
     const i = this.inputState;
     let equipSlot = i.equipSlot;
+    // Team match: 1 primary, 2 secondary, 3 knife, whatever was bought (a key with nothing behind it does nothing).
+    if (equipSlot >= 0 && this.playerSlotKeys) equipSlot = this.playerSlotKeys.indexOf(equipSlot);
     if (equipSlot < 0 && i.equipCycle !== 0 && this.weapons) {
       const n = this.weapons.loadout.length;
       equipSlot = (this.weapons.slot + i.equipCycle + n) % n;
@@ -1005,16 +1078,147 @@ export class Game {
   }
 
   private onLockChange(locked: boolean): void {
-    this.hud.setPaused(!locked);
+    if (locked && this.buyMenuOpen) {
+      // Captured again some other way: the buy menu is done.
+      this.buyMenuOpen = false;
+      this.buyMenu.hide();
+    }
+    // Releasing the mouse for the buy menu is not a pause.
+    this.hud.setPaused(!locked && !this.buyMenuOpen);
     if (locked) {
       this.accumulator = 0;
       if (!this.hasStarted) {
         this.hasStarted = true;
         this.hud.setResumeMode(true);
       }
-    } else if (this.player) {
+    } else if (this.player && !this.buyMenuOpen) {
       this.hud.setReady('일시정지됨');
     }
+  }
+
+  // --- Team match buy phase ------------------------------------------------------
+
+  /**
+   * Buys a catalog item for the player. Only in the prep phase of a team
+   * match, while alive; money and gear change together or not at all, and
+   * the result is issued to the real weapon system at once.
+   */
+  buy(id: string): BuyResult {
+    const tm = this.teamMatch;
+    const eco = tm?.economy;
+    if (!tm || !eco || !tm.buyOpen || !this.combat?.alive) {
+      const r: BuyResult = { ok: false, item: null, reason: 'phase', message: '지금은 구매할 수 없습니다 (작전 준비 중에만 가능)', spent: 0 };
+      this.buyMenu.feedback(r.message, false);
+      return r;
+    }
+    const r = this.buyLoadout.buy(id, eco, 'local');
+    this.buyMenu.feedback(r.message, r.ok);
+    if (r.ok && r.item) this.applyBuyLoadout(r.item.id);
+    return r;
+  }
+
+  /** Issues the bought gear to the player's WeaponSystem; draws `draw` (catalog id) or the best weapon held. */
+  private applyBuyLoadout(draw?: string): void {
+    if (!this.weapons) return;
+    const entries = this.buyLoadout.weapons();
+    this.playerSlotKeys = entries.map((e) => e.slotKey);
+    const idx = draw ? entries.findIndex((e) => e.item.id === draw) : 0;
+    this.weapons.setLoadout(
+      entries.map((e) => e.item.weapon!),
+      Math.max(idx, 0),
+    );
+  }
+
+  /** "출격 확정": the round goes live on the next tick for everyone at once. */
+  confirmReady(): void {
+    this.teamMatch?.ready();
+    this.closeBuyMenu(true);
+  }
+
+  openBuyMenu(): void {
+    const tm = this.teamMatch;
+    if (!tm?.buyOpen || !this.combat?.alive || this.buyMenuOpen) return;
+    this.renderThumbnails();
+    this.buyMenuOpen = true;
+    this.updateBuyMenu();
+    this.buyMenu.show();
+    this.scoreboardHeld = false;
+    if (this.input.active) document.exitPointerLock();
+  }
+
+  /**
+   * Closes the buy menu. `relock`: capture the mouse again (works from a
+   * click or key press; if the browser refuses, the pause menu shows and the
+   * game waits). Otherwise (Esc) the pause menu shows. `silent`: just hide.
+   */
+  closeBuyMenu(relock: boolean, silent = false): void {
+    if (!this.buyMenuOpen) return;
+    this.buyMenuOpen = false;
+    this.buyMenu.hide();
+    this.accumulator = 0;
+    if (silent || this.input.active) return;
+    if (relock) this.input.requestLock();
+    else {
+      this.hud.setPaused(true);
+      this.hud.setReady('일시정지됨');
+    }
+  }
+
+  /**
+   * Per frame: close the buy menu when buying ends (buy time up, the round
+   * went live, the match changed) and refresh it while open. It is opened
+   * with B (not automatically: closing it on time-out cannot re-capture the
+   * mouse without a click, so the game would wait on the pause menu).
+   */
+  private updateBuyPhase(): void {
+    const tm = this.teamMatch;
+    if (this.buyMenuOpen && !(tm?.buyOpen && this.combat?.alive)) this.closeBuyMenu(true);
+    if (this.buyMenuOpen) this.updateBuyMenu();
+  }
+
+  private updateBuyMenu(): void {
+    const tm = this.teamMatch;
+    if (!tm?.economy) return;
+    this.buyMenu.update({ timeLeft: tm.phaseLeft, money: tm.economy.money('local'), loadout: this.buyLoadout });
+  }
+
+  /** HUD slot strip; in the team match the numbers are the keys (1 primary, 2 secondary, 3 knife). */
+  private updateLoadoutHud(slot = this.weapons?.slot ?? 0): void {
+    if (!this.weapons) return;
+    this.hud.setLoadout(
+      this.weapons.loadout.map((w) => w.def.displayName),
+      slot,
+      this.playerSlotKeys?.map((k) => k + 1),
+    );
+  }
+
+  /**
+   * Weapon images for the menu's Weapons page and the buy menu: rendered
+   * once, on first need. The buy menu also shows the models of weapons that
+   * are not implemented yet (catalog previews), once their GLB has loaded.
+   */
+  private renderThumbnails(): void {
+    if (this.thumbnailsDone) return;
+    this.thumbnailsDone = true;
+    const env = this.viewModel.scene.environment;
+    void renderWeaponThumbnails(this.renderer, env, DEFAULT_LOADOUT, (id, url) => {
+      this.hud.menu.setWeaponThumbnail(id, url);
+      this.buyMenu.setThumbnail(id, url);
+    })
+      .then(async () => {
+        const previews = CATALOG.filter((i) => i.preview?.kind === 'gltf');
+        const ready = await Promise.all(
+          previews.map((i) =>
+            loadGltfScene((i.preview as { url: string }).url).then(
+              () => true,
+              (err) => (console.warn(`[buy] ${i.id} model unavailable, keeping the icon`, err), false),
+            ),
+          ),
+        );
+        const loaded = previews.filter((_, k) => ready[k]).map((i) => ({ id: i.id, view: i.preview! }));
+        await renderWeaponThumbnails(this.renderer, env, loaded, (id, url) => this.buyMenu.setThumbnail(id, url));
+      })
+      .catch((err) => console.warn('[menu] weapon thumbnails unavailable', err));
   }
 
   private hasStarted = false;

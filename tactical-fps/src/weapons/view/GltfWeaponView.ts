@@ -138,6 +138,11 @@ export function isGltfLoaded(url: string): boolean {
   return loaded.has(url);
 }
 
+/** The loaded scene of a GLB (shared: clone it before adding it anywhere), or null while loading / failed. */
+export function loadedGltfScene(url: string): THREE.Object3D | null {
+  return loaded.get(url) ?? null;
+}
+
 /** A fresh view right away if the GLB has already loaded, else null. */
 export function loadedGltfWeaponView(url: string, fit?: GltfFit): GltfWeaponView | null {
   const scene = loaded.get(url);
