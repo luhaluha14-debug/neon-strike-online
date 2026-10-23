@@ -166,8 +166,19 @@ export class MainMenu {
         </div>
         <footer class="menu-footer">
           <button type="button" class="btn btn-primary btn-block play-button" disabled>플레이</button>
+          <button type="button" class="btn btn-block forfeit-button" hidden>대결 포기</button>
         </footer>
       </aside>
+      <div class="confirm" role="alertdialog" aria-modal="true" aria-labelledby="confirm-text" hidden>
+        <div class="confirm-panel">
+          <div class="eyebrow confirm-eyebrow">대결 포기</div>
+          <p class="confirm-text" id="confirm-text">정말 대결을 포기하시겠습니까? 포기하면 현재 대결은 패배 처리됩니다.</p>
+          <div class="confirm-actions">
+            <button type="button" class="btn confirm-forfeit">대결 포기</button>
+            <button type="button" class="btn btn-primary confirm-cancel">계속 플레이</button>
+          </div>
+        </div>
+      </div>
       <div class="loading" hidden aria-live="polite">
         <div class="loading-inner">
           <div class="brand brand-compact">
@@ -201,6 +212,63 @@ export class MainMenu {
     this.loadingBar = q('.loading-progress .progress-bar');
 
     this.bindTabs();
+    this.bindForfeit();
+  }
+
+  // --- 대결 포기 (team match, pause menu) -----------------------------------------
+
+  private forfeitAvailable = false;
+  private onForfeitConfirm: (() => void) | null = null;
+
+  /**
+   * The pause menu's "대결 포기" button (5v5 team match only, not after the
+   * match is over). `onConfirm` runs once per confirmation; cancelling only
+   * closes the dialog and resumes, changing nothing.
+   */
+  setForfeit(available: boolean, onConfirm?: () => void): void {
+    if (onConfirm) this.onForfeitConfirm = onConfirm;
+    if (available === this.forfeitAvailable) return;
+    this.forfeitAvailable = available;
+    this.root.querySelector<HTMLButtonElement>('.forfeit-button')!.hidden = !available;
+    if (!available) this.closeConfirm();
+  }
+
+  get confirmOpen(): boolean {
+    return !this.root.querySelector<HTMLElement>('.confirm')!.hidden;
+  }
+
+  private bindForfeit(): void {
+    const dialog = this.root.querySelector<HTMLElement>('.confirm')!;
+    const yes = dialog.querySelector<HTMLButtonElement>('.confirm-forfeit')!;
+    const no = dialog.querySelector<HTMLButtonElement>('.confirm-cancel')!;
+    this.root.querySelector<HTMLButtonElement>('.forfeit-button')!.addEventListener('click', () => {
+      if (!this.forfeitAvailable) return;
+      yes.disabled = false;
+      dialog.hidden = false;
+      no.focus();
+    });
+    yes.addEventListener('click', () => {
+      // One confirmation, one forfeit: the button is spent until the dialog opens again.
+      if (yes.disabled || !this.forfeitAvailable) return;
+      yes.disabled = true;
+      this.closeConfirm();
+      this.onForfeitConfirm?.();
+    });
+    no.addEventListener('click', () => {
+      this.closeConfirm();
+      // "계속 플레이": back into the match exactly like the 계속하기 button.
+      this.playButton.click();
+    });
+    dialog.addEventListener('keydown', (e) => {
+      if (e.code === 'Escape') {
+        e.stopPropagation();
+        this.closeConfirm();
+      }
+    });
+  }
+
+  private closeConfirm(): void {
+    this.root.querySelector<HTMLElement>('.confirm')!.hidden = true;
   }
 
   /** Match options only matter in deathmatch. */
@@ -503,6 +571,7 @@ export class MainMenu {
   /** Shown before the first start ("플레이") and when paused ("계속하기"). */
   setVisible(visible: boolean): void {
     this.root.classList.toggle('hidden', !visible);
+    if (!visible) this.closeConfirm();
   }
 
   setPausedMode(paused: boolean): void {

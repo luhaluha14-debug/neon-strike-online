@@ -347,6 +347,7 @@ export class Game {
       () => this.restartMatch(),
     );
     this.bindMatchOptions();
+    this.hud.menu.setForfeit(false, () => void this.forfeitMatch());
     this.renderer.domElement.addEventListener('click', () => {
       if (this.player && !this.loadingMap && !this.input.active) this.input.requestLock();
     });
@@ -943,6 +944,35 @@ export class Game {
     if (this.weapons) this.weapons.team = undefined;
   }
 
+  /**
+   * 대결 포기 (pause menu, confirmed): the team match ends now as the
+   * player's loss. Nothing more is simulated or paid: no round is played
+   * or settled for it, live bombs / grenades / plant or defuse progress are
+   * dropped (no timer, no explosion, no beep), bots get no further orders,
+   * input is cleared and the mouse released, and the results show
+   * "대결 포기 - 패배". Runs at most once per match; a new match
+   * (다시 시작 / 메뉴 / any option change) starts from scratch.
+   */
+  forfeitMatch(): boolean {
+    const tm = this.teamMatch;
+    if (!tm || tm.over || !this.hasStarted) return false;
+    if (!tm.forfeit(this.combat?.team === 'red' ? 'red' : 'blue')) return false;
+    this.closeBuyMenu(false, true);
+    this.clearGrenades();
+    this.bomb = null;
+    this.bombFx.clear();
+    this.teamHud.setBomb(null);
+    if (this.squad) TacticalDirector.clear(this.squad.bots);
+    this.audio.stopGroup('foley');
+    Object.assign(this.inputState, createInputState());
+    this.input.clearLatches();
+    this.scoped = false;
+    this.hud.setScoped(false);
+    this.teamHud.showResults(tm);
+    if (document.pointerLockElement) document.exitPointerLock();
+    return true;
+  }
+
   /** New match on the same map: fresh scores, everyone respawned. */
   restartMatch(): void {
     if (!this.map) return;
@@ -1206,6 +1236,8 @@ export class Game {
       }
     }
     this.updateBuyPhase();
+    // 대결 포기: only in a team match still being played, once the player has started it.
+    this.hud.menu.setForfeit(!!this.teamMatch && !this.teamMatch.over && this.hasStarted);
     const dead = !!combat && !combat.alive;
 
     // Interpolate between the last two ticks for smooth motion at any refresh rate.

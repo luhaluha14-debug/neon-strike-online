@@ -275,6 +275,106 @@ test('pathfinding stays bounded: A* runs only when an order or route changes (un
   assert.ok(r.perBotSecond < 1, `${r.calls} A* calls in 20 s for 9 bots (${r.perBotSecond.toFixed(2)} per bot per second)`);
 });
 
+test('engagement on the move: a far enemy seen while travelling to an ordered spot is called out, not duelled; near, or at its post, the bot fights', async () => {
+  const r = await page.evaluate(() => {
+    const g = window.game;
+    const T = window.T;
+    const V = T.V;
+    g.restartMatch();
+    T.until('live');
+    g.director = null; // the orders below are set by the test
+    g.combat.protection = 1e9;
+    for (const b of g.squad.bots) {
+      b.combat.protection = 1e9;
+      b.blindTime = 1e6; // everyone else out of it
+    }
+    // The longest clear line from any spawn spot (both sides).
+    let best = null;
+    for (const s of [...g.spawnsOf('blue'), ...g.spawnsOf('red')]) {
+      const eye = new V(s.position.x, s.position.y + 1.6, s.position.z);
+      for (let k = 0; k < 36; k++) {
+        const a = (k / 36) * Math.PI * 2;
+        const d = new V(-Math.sin(a), 0, -Math.cos(a));
+        const hit = g.map.collision.raycast(eye, d, 60) ?? 60;
+        if (!best || hit > best.len) best = { yaw: a, d, len: hit, p: s.position.clone() };
+      }
+    }
+    const p = best.p;
+    const at = (m) => p.clone().addScaledVector(best.d, m).setY(p.y + 0.1);
+    const blue = T.blues()[0];
+    const red = T.reds()[0];
+    // Only these two in play (the player stays, protected, so the round goes on).
+    for (const b of g.squad.bots) if (b !== blue && b !== red) T.kill(b.combat);
+    let spots = 0;
+    blue.onSpot = () => spots++;
+    blue.blindTime = 0;
+    const place = (meters, goal) => {
+      blue.order = { role: 'entry', goal, look: null, use: false, tag: 'test:' + goal.toArray().join() };
+      blue.mode = 'wander';
+      blue.target = null;
+      const shots = blue.weapons.shotsFired;
+      for (let i = 0; i < 45; i++) {
+        blue.controller.teleport(at(0), best.yaw);
+        red.controller.teleport(at(meters), best.yaw + Math.PI);
+        T.run(1);
+      }
+      return { mode: blue.mode, target: blue.target?.id ?? null, shots: blue.weapons.shotsFired - shots };
+    };
+    const far = at(0).clone().addScaledVector(best.d, -40); // a spot 40 m behind: still travelling
+    const travellingFar = place(40, far);
+    const spotsAfterFar = spots;
+    const travellingNear = place(20, far);
+    const atPostFar = place(40, at(0));
+    // Losing sight of a far enemy: with an order, back to the order (no chase); without one, search as before.
+    const lose = (order) => {
+      place(40, at(0));
+      blue.order = order ? blue.order : null;
+      blue.blindTime = 0.3;
+      T.run(12);
+      const mode = blue.mode;
+      blue.blindTime = 0;
+      return mode;
+    };
+    return { line: best.len, travellingFar, spotsAfterFar, travellingNear, atPostFar, lostWithOrder: lose(true), lostWithout: lose(false), redId: red.id };
+  });
+  assert.ok(r.line >= 41, `a clear line of ${r.line.toFixed(1)} m`);
+  assert.deepEqual(r.travellingFar, { mode: 'wander', target: null, shots: 0 }, 'not duelled while travelling');
+  assert.equal(r.spotsAfterFar, 1, 'called out to the team once');
+  assert.equal(r.travellingNear.mode, 'engage', 'within 30 m: fights');
+  assert.equal(r.travellingNear.target, r.redId);
+  assert.equal(r.atPostFar.mode, 'engage', 'holding its post: fights at any range');
+  assert.equal(r.lostWithOrder, 'wander', 'no chase across the map with an order');
+  assert.equal(r.lostWithout, 'search', 'without an order: searches as before');
+});
+
+test('a bot-only round from the start: attackers leave the spawn instead of duelling across the map (seeded)', async () => {
+  const r = await page.evaluate(() => {
+    const g = window.game;
+    const T = window.T;
+    g.restartMatch();
+    T.until('live');
+    // The player is out at once: 4 BLUE attackers (one fetches the bomb) vs 5 RED defenders.
+    T.kill(g.combat);
+    const start = new Map(T.blues().map((b) => [b.id, b.position.clone()]));
+    let farDuels = 0;
+    for (let i = 0; i < 5 * 60; i++) {
+      T.run(1);
+      for (const b of T.blues()) {
+        const o = b.order;
+        const travelling = o && Math.hypot(o.goal.x - b.position.x, o.goal.z - b.position.z) > 0.7 && (o.role === 'retriever' || Math.hypot(o.goal.x - b.position.x, o.goal.z - b.position.z) > 15);
+        if (b.alive && b.mode === 'engage' && b.target && travelling && b.position.distanceTo(b.target.position) > 30 && b.seenFor < 0.02) farDuels++;
+      }
+    }
+    // The bomb fetcher only has a few metres to walk (the bomb lies where the player fell); the others head out.
+    const moved = T.blues().filter((b) => b.alive && b.order?.role !== 'retriever' && b.order?.role !== 'carrier').map((b) => +b.position.distanceTo(start.get(b.id)).toFixed(1));
+    const fetched = g.bomb.state === 'carried' && T.blues().some((b) => b.id === g.bomb.carrier);
+    return { farDuels, moved, fetched, reports: g.director.sightings.filter((s) => s.team === 'blue').length };
+  });
+  assert.equal(r.farDuels, 0, 'no attacker started a duel beyond 30 m on its way');
+  assert.ok(r.moved.length >= 1 && r.moved.every((m) => m > 8), `out of the spawn after 5 s: ${r.moved}`);
+  assert.equal(r.fetched, true, 'the dropped bomb picked up within 5 s');
+});
+
 test('elimination objective: no tactical orders (bots roam and fight as before)', async () => {
   const r = await page.evaluate(() => {
     const g = window.game;
