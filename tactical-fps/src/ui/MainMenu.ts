@@ -87,6 +87,13 @@ export class MainMenu {
               <span class="field-label">모드</span>
               <select class="select" data-setting="mode"></select>
             </label>
+            <div class="bot-options">
+              <label class="field">
+                <span class="field-label">봇 외형</span>
+                <select class="select" data-setting="bot-look"></select>
+                <span class="field-hint">요원 모델은 리깅·애니메이션이 없는 정적 포즈입니다(걷기 동작 없음).</span>
+              </label>
+            </div>
             <div class="match-options">
               <label class="field">
                 <span class="field-label">봇 수</span>
@@ -190,6 +197,11 @@ export class MainMenu {
   /** Match options only matter in deathmatch. */
   setMatchOptionsVisible(on: boolean): void {
     this.root.querySelector<HTMLElement>('.match-options')!.hidden = !on;
+  }
+
+  /** Bot appearance matters in both bot modes. */
+  setBotOptionsVisible(on: boolean): void {
+    this.root.querySelector<HTMLElement>('.bot-options')!.hidden = !on;
   }
 
   /** Team match options only matter in the 5v5 round mode. */
@@ -402,7 +414,7 @@ export class MainMenu {
 
   // --- Settings ---------------------------------------------------------------
 
-  bindSelect<T extends string | number>(setting: 'quality' | 'frame-limit' | 'volume' | 'mode' | 'bots' | 'time-limit' | 'kill-target' | 'rounds-to-win' | 'round-time', options: readonly MenuOption<T>[], current: T, onChange: (value: T) => void): void {
+  bindSelect<T extends string | number>(setting: 'quality' | 'frame-limit' | 'volume' | 'mode' | 'bots' | 'time-limit' | 'kill-target' | 'rounds-to-win' | 'round-time' | 'bot-look', options: readonly MenuOption<T>[], current: T, onChange: (value: T) => void): void {
     const select = this.root.querySelector<HTMLSelectElement>(`select[data-setting="${setting}"]`)!;
     select.replaceChildren(
       ...options.map((o) => {

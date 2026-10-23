@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { BotSquad, type SquadMember } from '../ai/BotSquad';
+import { preloadAgentModels } from '../ai/AgentModel';
 import type { Bot, Combatant } from '../ai/Bot';
 import { NavGrid } from '../ai/NavGrid';
 import { HitscanSystem } from '../combat/HitscanSystem';
@@ -24,6 +25,8 @@ import { MatchHud } from '../ui/MatchHud';
 import { TeamHud } from '../ui/TeamHud';
 import { BuyMenu } from '../ui/BuyMenu';
 import { BuyLoadout, type BuyResult } from '../game/Economy';
+import { CATALOG } from '../weapons/catalog';
+import { loadGltfScene } from '../weapons/view/GltfWeaponView';
 import { createWeaponView, loadWeaponView, preloadWeaponViews } from '../weapons/view/WeaponView';
 import type { MenuWeapon } from '../ui/MainMenu';
 import { renderWeaponThumbnails } from '../ui/weaponThumbnails';
@@ -329,6 +332,8 @@ export class Game {
   async start(): Promise<void> {
     // Weapon GLBs download alongside the map; the game is ready once both are in.
     this.weaponModels = preloadWeaponViews(DEFAULT_LOADOUT.map((d) => d.view));
+    // Bot character models (small): in before the first match is set up.
+    this.agentModels = preloadAgentModels();
     if (!(await this.loadMapInto(this.mapDef))) return;
     this.timer.connect(document);
     this.loop.start();
@@ -411,7 +416,7 @@ export class Game {
     this.combat = new PlayerCombat(this.player);
     this.combat.onDamage = (e) => this.onPlayerDamaged(e);
     this.hitscan.register(this.combat);
-    await this.weaponModels;
+    await Promise.all([this.weaponModels, this.agentModels]);
     this.showWeaponModel(this.weapons.weapon.def.view);
     this.updateLoadoutHud();
     this.weapons.events = {
@@ -501,7 +506,7 @@ export class Game {
       // Built once per map and reused by every match and round.
       this.nav ??= new NavGrid(map);
       console.info(`[bots] nav grid ${this.nav.walkable.length} cells in ${this.nav.buildMs.toFixed(0)} ms`);
-      const squad = new BotSquad(map, this.nav, hitscan, team ? TEAM_ROSTER : this.matchSettings.bots, [AR_01]);
+      const squad = new BotSquad(map, this.nav, hitscan, team ? TEAM_ROSTER : this.matchSettings.bots, [AR_01], Math.random, this.matchSettings.botLook);
       // Team match: deaths last until the round ends.
       squad.respawns = !team;
       squad.events = {
@@ -542,6 +547,7 @@ export class Game {
     this.hud.setDeathNote(null);
     this.hud.menu.setMatchOptionsVisible(dm);
     this.hud.menu.setTeamOptionsVisible(team);
+    this.hud.menu.setBotOptionsVisible(dm || team);
     if (!this.loadingMap) this.hud.setWeaponOptionsEnabled(!team);
   }
 
@@ -743,8 +749,22 @@ export class Game {
       save();
       this.restartMatch();
     });
+    this.hud.menu.bindSelect(
+      'bot-look',
+      [
+        { value: 'procedural', label: '기본 (애니메이션)' },
+        { value: 'agents', label: '요원 모델 (정적 포즈)' },
+      ] as const,
+      ms.botLook,
+      (look) => {
+        ms.botLook = look;
+        save();
+        this.restartMatch();
+      },
+    );
     this.hud.menu.setMatchOptionsVisible(this.mode === 'deathmatch');
     this.hud.menu.setTeamOptionsVisible(this.mode === 'team');
+    this.hud.menu.setBotOptionsVisible(this.mode !== 'training');
   }
 
   /** The spawn point the player (re)spawns at; training targets are laid out in front of it. */
@@ -976,6 +996,8 @@ export class Game {
   private shownSpec: WeaponViewSpec | null = null;
   /** Download of the loadout's weapon GLBs (settles even if one fails). */
   private weaponModels: Promise<void> = Promise.resolve();
+  /** Download of the bot character GLBs (settles even if one fails). */
+  private agentModels: Promise<void> = Promise.resolve();
 
   /** Translates this frame's player input into a device-independent weapon command. */
   private weaponCommand(): WeaponCommand {
@@ -1170,14 +1192,33 @@ export class Game {
     );
   }
 
-  /** Weapon images for the menu's Weapons page and the buy menu: rendered once, on first need. */
+  /**
+   * Weapon images for the menu's Weapons page and the buy menu: rendered
+   * once, on first need. The buy menu also shows the models of weapons that
+   * are not implemented yet (catalog previews), once their GLB has loaded.
+   */
   private renderThumbnails(): void {
     if (this.thumbnailsDone) return;
     this.thumbnailsDone = true;
-    void renderWeaponThumbnails(this.renderer, this.viewModel.scene.environment, DEFAULT_LOADOUT, (id, url) => {
+    const env = this.viewModel.scene.environment;
+    void renderWeaponThumbnails(this.renderer, env, DEFAULT_LOADOUT, (id, url) => {
       this.hud.menu.setWeaponThumbnail(id, url);
       this.buyMenu.setThumbnail(id, url);
-    }).catch((err) => console.warn('[menu] weapon thumbnails unavailable', err));
+    })
+      .then(async () => {
+        const previews = CATALOG.filter((i) => i.preview?.kind === 'gltf');
+        const ready = await Promise.all(
+          previews.map((i) =>
+            loadGltfScene((i.preview as { url: string }).url).then(
+              () => true,
+              (err) => (console.warn(`[buy] ${i.id} model unavailable, keeping the icon`, err), false),
+            ),
+          ),
+        );
+        const loaded = previews.filter((_, k) => ready[k]).map((i) => ({ id: i.id, view: i.preview! }));
+        await renderWeaponThumbnails(this.renderer, env, loaded, (id, url) => this.buyMenu.setThumbnail(id, url));
+      })
+      .catch((err) => console.warn('[menu] weapon thumbnails unavailable', err));
   }
 
   private hasStarted = false;

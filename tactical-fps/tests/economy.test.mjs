@@ -163,7 +163,7 @@ test('buying: not enough money is refused with the reason and changes nothing; A
   // Locked items cannot be bought either.
   await page.click('.buy-card[data-id="SMG-01"]');
   const locked = await page.evaluate(() => ({ money: window.T.money(), primary: window.T.gear().primary, fb: document.querySelector('.buy-feedback').textContent }));
-  assert.deepEqual(locked, { money: 3000, primary: null, fb: 'SMG-01: 준비 중: 모델·발사 로직 미구현' });
+  assert.deepEqual(locked, { money: 3000, primary: null, fb: 'SMG-01: 준비 중: 발사 로직 미구현 (모델 있음)' });
   // AR-01.
   await page.click('.buy-card[data-id="AR-01"]');
   await page.evaluate(() => window.T.run(2));

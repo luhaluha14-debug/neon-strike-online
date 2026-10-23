@@ -1,5 +1,6 @@
 import { BOT_COUNT_OPTIONS, DEFAULT_MATCH, KILL_TARGET_OPTIONS, TIME_LIMIT_OPTIONS, type GameMode, type MatchConfig } from './Match';
 import { DEFAULT_TEAM_MATCH, ROUND_TIME_OPTIONS, ROUNDS_TO_WIN_OPTIONS } from './TeamMatch';
+import type { BotLook } from '../ai/BotSquad';
 
 // Mode and match rules, stored apart from the settings record (whose format stays as is).
 // Deathmatch (bots / timeLimit / killTarget) and team match (roundsToWin / roundTime)
@@ -11,6 +12,8 @@ export interface MatchSettings extends MatchConfig {
   roundsToWin: number;
   /** Team match: seconds per round. */
   roundTime: number;
+  /** Bot bodies in both bot modes: built-in animated body or the character models. */
+  botLook: BotLook;
 }
 
 const KEY = 'tactical-fps.match.v1';
@@ -20,7 +23,13 @@ export function parseMode(v: unknown): GameMode | null {
 }
 
 export function loadMatchSettings(): MatchSettings {
-  const s: MatchSettings = { mode: 'deathmatch', ...DEFAULT_MATCH, roundsToWin: DEFAULT_TEAM_MATCH.roundsToWin, roundTime: DEFAULT_TEAM_MATCH.roundTime };
+  const s: MatchSettings = {
+    mode: 'deathmatch',
+    ...DEFAULT_MATCH,
+    roundsToWin: DEFAULT_TEAM_MATCH.roundsToWin,
+    roundTime: DEFAULT_TEAM_MATCH.roundTime,
+    botLook: 'procedural',
+  };
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Record<string, unknown>;
     s.mode = parseMode(raw.mode) ?? s.mode;
@@ -29,6 +38,7 @@ export function loadMatchSettings(): MatchSettings {
     if ((KILL_TARGET_OPTIONS as readonly unknown[]).includes(raw.killTarget)) s.killTarget = raw.killTarget as number;
     if ((ROUNDS_TO_WIN_OPTIONS as readonly unknown[]).includes(raw.roundsToWin)) s.roundsToWin = raw.roundsToWin as number;
     if ((ROUND_TIME_OPTIONS as readonly unknown[]).includes(raw.roundTime)) s.roundTime = raw.roundTime as number;
+    if (raw.botLook === 'procedural' || raw.botLook === 'agents') s.botLook = raw.botLook;
   } catch {
     // Defaults.
   }

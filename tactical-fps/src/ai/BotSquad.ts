@@ -5,10 +5,18 @@ import type { Weapon } from '../weapons/Weapon';
 import type { WeaponDefinition } from '../weapons/WeaponDefinition';
 import type { LoadedMap } from '../world/MapLoader';
 import { Bot, type Combatant } from './Bot';
-import { BotKit, BotModel, type BotPose } from './BotModel';
+import { AgentModel } from './AgentModel';
+import { BotKit, BotModel, type BotBody, type BotPose } from './BotModel';
 import type { NavGrid } from './NavGrid';
 
 const NAMES = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot', 'Golf', 'Hotel', 'India'];
+
+/**
+ * How bots look: the built-in animated body, or the Blender character
+ * models (static pose, no rig; falls back to the built-in body until the
+ * file has loaded).
+ */
+export type BotLook = 'procedural' | 'agents';
 
 /** One bot of a team match roster. */
 export interface SquadMember {
@@ -42,7 +50,7 @@ const _pose: BotPose = {
  */
 export class BotSquad {
   readonly bots: Bot[] = [];
-  readonly models: BotModel[] = [];
+  readonly models: BotBody[] = [];
   readonly group = new THREE.Group();
   events: SquadEvents = {};
   /**
@@ -62,6 +70,7 @@ export class BotSquad {
     members: number | readonly SquadMember[],
     loadout: readonly WeaponDefinition[],
     private readonly rand: () => number = Math.random,
+    look: BotLook = 'procedural',
   ) {
     this.group.name = 'BotSquad';
     const roster: readonly (SquadMember | null)[] = typeof members === 'number' ? Array.from({ length: members }, () => null) : members;
@@ -75,7 +84,7 @@ export class BotSquad {
         kit = new BotKit(m?.team);
         this.kits.set(kitKey, kit);
       }
-      const model = new BotModel(kit);
+      const model: BotBody = (look === 'agents' && AgentModel.create(m?.team, kit)) || new BotModel(kit);
       model.object.name = bot.id;
       this.group.add(model.object);
       bot.combat.onDamage = (e) => {

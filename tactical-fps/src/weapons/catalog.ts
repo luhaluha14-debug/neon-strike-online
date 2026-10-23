@@ -1,4 +1,4 @@
-import type { FireMode, WeaponDefinition } from './WeaponDefinition';
+import type { FireMode, WeaponDefinition, WeaponViewSpec } from './WeaponDefinition';
 import { AR_01, KARAMBIT, SR_01 } from './weapons';
 
 // Single catalog of everything the team match buy menu can show: weapons
@@ -32,6 +32,22 @@ export interface CatalogItem {
   lockedReason?: string;
   /** Planned stats of a weapon that is not implemented yet (shown as "예정"). */
   planned?: { fireMode: FireMode; magazineSize: number; reserveAmmo: number };
+  /**
+   * Model of a weapon that is not implemented yet, used only for its buy
+   * menu picture (not issued, no first-person pose tuned).
+   */
+  preview?: WeaponViewSpec;
+}
+
+/** Buy menu picture spec for a Blender GLB with the muzzle along -X (the SMG / shotgun / pistol exports). */
+function previewSpec(url: string): WeaponViewSpec {
+  return {
+    kind: 'gltf',
+    url,
+    fallback: 'ar01',
+    fit: { rotation: [0, -Math.PI / 2, 0], grip: { position: [0, 0, 0] } },
+    pose: { position: [0, 0, 0], rotation: [0, 0, 0], scale: 1 },
+  };
 }
 
 export const CATALOG: readonly CatalogItem[] = [
@@ -46,8 +62,9 @@ export const CATALOG: readonly CatalogItem[] = [
     price: 1500,
     weapon: null,
     available: false,
-    lockedReason: '준비 중: 모델·발사 로직 미구현',
+    lockedReason: '준비 중: 발사 로직 미구현 (모델 있음)',
     planned: { fireMode: 'auto', magazineSize: 30, reserveAmmo: 120 },
+    preview: previewSpec('/weapons/smg01.glb'),
   },
   {
     id: 'SG-01',
@@ -57,8 +74,9 @@ export const CATALOG: readonly CatalogItem[] = [
     price: 2000,
     weapon: null,
     available: false,
-    lockedReason: '준비 중: 모델·산탄 발사 로직 미구현',
+    lockedReason: '준비 중: 산탄 발사 로직 미구현 (모델 있음)',
     planned: { fireMode: 'semi', magazineSize: 8, reserveAmmo: 32 },
+    preview: previewSpec('/weapons/sg01.glb'),
   },
   {
     id: 'PIS-01',
@@ -68,8 +86,9 @@ export const CATALOG: readonly CatalogItem[] = [
     price: 500,
     weapon: null,
     available: false,
-    lockedReason: '준비 중: 모델·발사 로직 미구현',
+    lockedReason: '준비 중: 발사 로직 미구현 (모델 있음)',
     planned: { fireMode: 'semi', magazineSize: 12, reserveAmmo: 36 },
+    preview: previewSpec('/weapons/pis01.glb'),
   },
   { id: 'Knife', name: '근접 무기 (M9 총검)', slot: 'melee', category: 'knife', price: 0, weapon: KARAMBIT, available: true },
   { id: 'ARMOR-01', name: '방탄 조끼', slot: 'armor', category: 'armor', price: 650, weapon: null, available: false, lockedReason: '준비 중: 방어력 시스템 미구현' },

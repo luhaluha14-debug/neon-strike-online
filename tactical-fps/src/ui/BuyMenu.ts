@@ -147,10 +147,10 @@ export class BuyMenu {
     this.hover(null);
   }
 
-  /** A rendered weapon image (data URL) for the cards using that WeaponDefinition id. */
-  setThumbnail(weaponId: string, url: string): void {
+  /** A rendered weapon image (data URL) for the cards of that WeaponDefinition id or catalog id (preview models). */
+  setThumbnail(id: string, url: string): void {
     for (const { el, item } of this.cards.values()) {
-      if (item.weapon?.id !== weaponId) continue;
+      if (item.weapon?.id !== id && item.id !== id) continue;
       const art = el.querySelector<HTMLElement>('.buy-art')!;
       art.style.backgroundImage = `url("${url}")`;
       art.classList.add('has-image');
