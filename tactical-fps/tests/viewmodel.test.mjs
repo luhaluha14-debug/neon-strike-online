@@ -83,6 +83,46 @@ test('support hand shown on two-handed weapons, hidden on the knife', async () =
   assert.deepEqual(visible, [true, true, false]);
 });
 
+// Team match buy-menu weapons (Blender GLBs fitted in weapons.ts). Budgets measured when they were added.
+const teamWeaponCases = [
+  // name, weapon id, state, max mm, max vertices inside
+  ['SMG-01 idle', 'smg01', {}, 6.0, 71],
+  ['SMG-01 just fired', 'smg01', { sinceShot: 0.03 }, 6.0, 71],
+  ['SMG-01 reload 40 %', 'smg01', { reload: 0.4 }, 6.0, 71],
+  ['SG-01 idle', 'sg01', {}, 8.4, 7],
+  ['SG-01 just fired', 'sg01', { sinceShot: 0.03 }, 8.4, 7],
+  ['SG-01 reload 82 %', 'sg01', { reload: 0.82 }, 8.4, 7],
+  ['PIS-01 idle', 'pis01', {}, 3.3, 10],
+  ['PIS-01 just fired', 'pis01', { sinceShot: 0.03 }, 3.3, 10],
+  ['PIS-01 reload 40 %', 'pis01', { reload: 0.4 }, 3.3, 10],
+];
+
+for (const [name, id, state, maxMm, maxInside] of teamWeaponCases) {
+  test(`${name}: glove clipping within budget, nothing at the near plane`, async () => {
+    const r = await page.evaluate(
+      async ([id, s]) => {
+        const g = window.game;
+        const { WEAPONS } = await import('/src/weapons/weapons.ts');
+        g.weapons.setLoadout([WEAPONS[id], WEAPONS.karambit]);
+        const w = g.weapons.weapon;
+        w.status = 'ready';
+        w.equipRemaining = 0;
+        const anim = { category: w.def.category, equip: s.equip ?? 1, reload: s.reload ?? null, sinceShot: s.sinceShot ?? Infinity, fireInterval: w.fireInterval, inspect: s.inspect ?? null };
+        for (let k = 0; k < 40; k++) g.viewModel.update(1 / 60, { lookYaw: 0, lookPitch: 0, speed01: 0, grounded: true, crouching: false }, anim);
+        const c = window.vmCheck();
+        return { inside: c.handVerticesInside, maxMm: c.maxPenetrationMm, near: c.verticesTooCloseToCamera, handVertices: c.handVertices, support: !!g.viewModel.currentView.supportAnchor, model: g.viewModel.currentView.object.name };
+      },
+      [id, state],
+    );
+    assert.ok(r.handVertices > 0, 'hands are present');
+    assert.ok(r.maxMm <= maxMm, `deepest penetration ${r.maxMm} mm > ${maxMm} mm`);
+    assert.ok(r.inside <= maxInside, `${r.inside} glove vertices inside the weapon > ${maxInside}`);
+    assert.equal(r.near, 0, 'vertices closer than 6 cm to the eye');
+    assert.equal(r.support, id !== 'pis01', 'two hands on the SMG and the shotgun, one on the pistol');
+    assert.equal(r.model, { smg01: 'SMG_LowPoly', sg01: 'Shotgun_LowPoly', pis01: 'Pistol_LowPoly' }[id], 'the GLB model, not the placeholder');
+  });
+}
+
 test('no page errors', () => {
   assert.deepEqual(page.errors, []);
 });

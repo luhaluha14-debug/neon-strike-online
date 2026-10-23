@@ -7,7 +7,12 @@ import { Weapon } from './Weapon';
 import type { WeaponDefinition } from './WeaponDefinition';
 
 export interface WeaponEvents {
-  onShot?(result: HitscanResult, origin: THREE.Vector3, direction: THREE.Vector3, weapon: Weapon): void;
+  /**
+   * One per bullet. A shotgun round calls it once per pellet: `pellet` 0 is
+   * the round itself (sound, flash, view kick), higher pellets only carry
+   * their own hit.
+   */
+  onShot?(result: HitscanResult, origin: THREE.Vector3, direction: THREE.Vector3, weapon: Weapon, pellet?: number): void;
   onReloadStart?(): void;
   onReloadEnd?(): void;
   onDryFire?(): void;
@@ -35,6 +40,7 @@ const INSPECT_TIME = 2.6;
 
 const _origin = new THREE.Vector3();
 const _dir = new THREE.Vector3();
+const _aim = new THREE.Vector3();
 const _euler = new THREE.Euler(0, 0, 0, 'YXZ');
 const _kick = { pitch: 0, yaw: 0 };
 
@@ -89,7 +95,9 @@ export class WeaponSystem {
    */
   setLoadout(defs: readonly WeaponDefinition[], slot = 0): void {
     if (defs.length === 0) throw new Error('WeaponSystem needs at least one weapon');
-    this.loadout.splice(0, this.loadout.length, ...defs.map((d) => new Weapon(d)));
+    // A weapon that stays in the loadout keeps its own magazine and reserve.
+    const kept = new Map(this.loadout.map((w) => [w.def, w]));
+    this.loadout.splice(0, this.loadout.length, ...defs.map((d) => kept.get(d) ?? new Weapon(d)));
     this.slot = Math.min(Math.max(slot, 0), this.loadout.length - 1);
     this.lastSlot = this.slot;
     this.recoil.setProfile(this.weapon.def.recoil);
@@ -141,6 +149,16 @@ export class WeaponSystem {
     this.owner.addViewKick(_kick.pitch, _kick.yaw);
   }
 
+  /**
+   * Team match round carried over by a survivor: ammo stays as it is, but an
+   * unfinished reload / draw / inspect and the recoil are cleared.
+   */
+  clearTransient(): void {
+    for (const w of this.loadout) w.clearTransient();
+    this.recoil.reset();
+    this.inspectRemaining = 0;
+  }
+
   resetForRespawn(): void {
     for (const w of this.loadout) w.resetAmmo();
     this.recoil.reset();
@@ -155,21 +173,27 @@ export class WeaponSystem {
     // Bullets leave exactly through the crosshair (current view incl. recoil so far),
     // plus a movement-dependent cone. Standing still, first shots are pin-point.
     _euler.set(p.pitch, p.yaw, 0);
-    _dir.set(0, 0, -1).applyEuler(_euler);
+    _aim.set(0, 0, -1).applyEuler(_euler);
     const spread = this.currentSpread();
-    if (spread > 0) applyCone(_dir, spread);
+    if (spread > 0) applyCone(_aim, spread);
 
-    const result = this.hitscan.fire({
-      origin: _origin,
-      direction: _dir,
-      damage: def.damage,
-      sourceId: this.ownerId,
-      weaponId: def.id,
-      team: this.team,
-    });
+    // A shotgun round is several pellets around the (spread) aim; everything else one bullet.
+    const pellets = def.pellets?.count ?? 1;
     this.shotsFired++;
     this.recoil.onShot();
-    this.events.onShot?.(result, _origin, _dir, this.weapon);
+    for (let i = 0; i < pellets; i++) {
+      _dir.copy(_aim);
+      if (def.pellets) applyCone(_dir, def.pellets.spread);
+      const result = this.hitscan.fire({
+        origin: _origin,
+        direction: _dir,
+        damage: def.damage,
+        sourceId: this.ownerId,
+        weaponId: def.id,
+        team: this.team,
+      });
+      this.events.onShot?.(result, _origin, _dir, this.weapon, i);
+    }
   }
 
   /** Current inaccuracy cone half-angle (radians). */

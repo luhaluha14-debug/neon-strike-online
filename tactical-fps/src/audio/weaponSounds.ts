@@ -8,6 +8,10 @@ import { biquad, buffer, expEnv, finish, glideSine, mix, noise, ring, rng, shape
 export type SoundId =
   | 'ar01.shot'
   | 'sr01.shot'
+  | 'smg01.shot'
+  | 'sg01.shot'
+  | 'sg01.pump'
+  | 'pis01.shot'
   | 'sr01.bolt'
   | 'karambit.swing'
   | 'karambit.hit'
@@ -27,6 +31,10 @@ export type SoundId =
 export const VARIANTS: Record<SoundId, number> = {
   'ar01.shot': 4,
   'sr01.shot': 3,
+  'smg01.shot': 4,
+  'sg01.shot': 3,
+  'sg01.pump': 1,
+  'pis01.shot': 3,
   'sr01.bolt': 1,
   'karambit.swing': 3,
   'karambit.hit': 2,
@@ -83,6 +91,48 @@ const SR01_SHOT: GunshotRecipe = {
     [0.11, 0.16],
     [0.24, 0.09],
     [0.41, 0.04],
+  ],
+};
+
+/** 9 mm SMG: lighter, snappier blast than the rifle, short tail. */
+const SMG01_SHOT: GunshotRecipe = {
+  length: 0.7,
+  crack: { highpass: 2800, tau: 0.0028, gain: 0.55 },
+  body: { lowpass: 2400, tau: 0.014, gain: 0.85 },
+  thump: { f0: 210, f1: 110, tau: 0.02, gain: 0.2 },
+  mech: { freq: 3800, delay: 0.008, tau: 0.007, gain: 0.18 },
+  tail: { lowpass: 1050, attack: 0.02, tau: 0.14, gain: 0.15 },
+  reflections: [
+    [0.065, 0.1],
+    [0.13, 0.05],
+  ],
+};
+
+/** 12 gauge: heavy, wide, boomy blast with a long tail. */
+const SG01_SHOT: GunshotRecipe = {
+  length: 1.6,
+  crack: { highpass: 1600, tau: 0.006, gain: 0.8 },
+  body: { lowpass: 1300, tau: 0.05, gain: 1.0 },
+  thump: { f0: 120, f1: 55, tau: 0.06, gain: 0.4 },
+  mech: { freq: 2200, delay: 0.02, tau: 0.012, gain: 0.08 },
+  tail: { lowpass: 650, attack: 0.04, tau: 0.42, gain: 0.3 },
+  reflections: [
+    [0.1, 0.16],
+    [0.22, 0.08],
+  ],
+};
+
+/** 9 mm pistol: sharp crack, small body. */
+const PIS01_SHOT: GunshotRecipe = {
+  length: 0.6,
+  crack: { highpass: 3000, tau: 0.0025, gain: 0.65 },
+  body: { lowpass: 2600, tau: 0.012, gain: 0.75 },
+  thump: { f0: 230, f1: 120, tau: 0.016, gain: 0.16 },
+  mech: { freq: 4200, delay: 0.006, tau: 0.006, gain: 0.2 },
+  tail: { lowpass: 1100, attack: 0.02, tau: 0.12, gain: 0.13 },
+  reflections: [
+    [0.06, 0.09],
+    [0.12, 0.04],
   ],
 };
 
@@ -240,6 +290,18 @@ function arCharge(seed: number): Float32Array {
   return finish(out, 0.7, 1.2);
 }
 
+/** Pump-action: fore-end back (slide + catch), then forward (slide + lock). */
+function sgPump(seed: number): Float32Array {
+  const rand = rng(seed);
+  const out = buffer(0.55);
+  mix(out, slide(rand, 0.12, 1700, 0.45), 1, 0.12);
+  mix(out, click(rand, 1400, 0.014, 0.9), 1, 0.24);
+  mix(out, slide(rand, 0.1, 2000, 0.4), 1, 0.3);
+  mix(out, click(rand, 1900, 0.012, 1), 1, 0.4);
+  biquad(out, 'highpass', 180);
+  return finish(out, 0.75, 1.1);
+}
+
 function srChamber(seed: number): Float32Array {
   const rand = rng(seed);
   const out = buffer(0.2);
@@ -340,6 +402,14 @@ export function renderSound(id: SoundId, variant: number, opts: { srFireInterval
       return gunshot(AR01_SHOT, seed);
     case 'sr01.shot':
       return gunshot(SR01_SHOT, seed);
+    case 'smg01.shot':
+      return gunshot(SMG01_SHOT, seed);
+    case 'sg01.shot':
+      return gunshot(SG01_SHOT, seed);
+    case 'sg01.pump':
+      return sgPump(seed);
+    case 'pis01.shot':
+      return gunshot(PIS01_SHOT, seed);
     case 'sr01.bolt':
       return srBolt(seed, opts.srFireInterval);
     case 'karambit.swing':

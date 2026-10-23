@@ -67,7 +67,7 @@ test('every shipped GLB loads: three weapons in use, three locked weapons, two c
   assert.ok(r['/characters/terrorist.glb'].mats.includes('TR_Armband'));
 });
 
-test('buy menu: pictures rendered from the models, including the locked SMG-01 / SG-01 / PIS-01 (still not buyable)', async () => {
+test('buy menu: pictures rendered from the models (SMG-01 / SG-01 / PIS-01 included); buying one issues that model', async () => {
   await page.click('.play-button');
   await waitLocked();
   await page.keyboard.press('KeyB');
@@ -81,13 +81,15 @@ test('buy menu: pictures rendered from the models, including the locked SMG-01 /
   const r = await page.evaluate(() => ({
     noImage: [...document.querySelectorAll('.buy-card')].filter((c) => !c.querySelector('.buy-art.has-image')).map((c) => c.dataset.id).sort(),
     states: Object.fromEntries(['SMG-01', 'SG-01', 'PIS-01'].map((id) => [id, document.querySelector(`.buy-card[data-id="${id}"]`).dataset.state])),
-    buy: ['SMG-01', 'SG-01', 'PIS-01'].map((id) => window.game.buy(id).reason),
+    buy: window.game.buy('SMG-01').ok,
     weapons: window.game.weapons.loadout.map((w) => w.def.id),
+    model: window.game.viewModel.currentView?.object.name,
   }));
   assert.deepEqual(r.noImage, ['ARMOR-01', 'FLASH-01', 'SMOKE-01'], 'equipment without a model keeps its icon');
-  assert.deepEqual(r.states, { 'SMG-01': 'locked', 'SG-01': 'locked', 'PIS-01': 'locked' });
-  assert.deepEqual(r.buy, ['locked', 'locked', 'locked'], 'a model alone does not make a weapon buyable');
-  assert.deepEqual(r.weapons, ['karambit']);
+  assert.deepEqual(r.states, { 'SMG-01': 'buyable', 'SG-01': 'buyable', 'PIS-01': 'buyable' });
+  assert.equal(r.buy, true);
+  assert.deepEqual(r.weapons, ['smg01', 'karambit']);
+  assert.equal(r.model, 'SMG_LowPoly', 'the first-person view shows the SMG file');
   await page.click('.buy-close');
   await waitLocked();
 });

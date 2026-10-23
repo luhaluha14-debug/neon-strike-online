@@ -6,7 +6,7 @@ import type { ArmPose, HandGripProfile } from './view/HandGrip';
 export type FireMode = 'auto' | 'semi';
 
 /** Drives view animation style and HUD; behavior itself comes from the numbers below. */
-export type WeaponCategory = 'rifle' | 'sniper' | 'melee';
+export type WeaponCategory = 'rifle' | 'sniper' | 'smg' | 'shotgun' | 'pistol' | 'melee';
 
 export interface RecoilProfile {
   /** Upward camera kick of the first shot (radians). */
@@ -139,4 +139,10 @@ export interface WeaponDefinition {
   recoil: RecoilProfile;
   view: WeaponViewSpec;
   sounds: WeaponSounds;
+  /**
+   * Shotguns: every round is `count` pellets, each its own hitscan with the
+   * `damage` profile, spread in a cone of `spread` (radians) around the aim
+   * (on top of the movement spread). Absent = one bullet per round.
+   */
+  pellets?: { count: number; spread: number };
 }

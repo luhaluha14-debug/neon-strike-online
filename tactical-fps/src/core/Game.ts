@@ -33,7 +33,7 @@ import { renderWeaponThumbnails } from '../ui/weaponThumbnails';
 import type { WeaponDefinition, WeaponViewSpec } from '../weapons/WeaponDefinition';
 import { ViewModelLayer } from '../weapons/view/ViewModelLayer';
 import type { Weapon } from '../weapons/Weapon';
-import { AR_01, DEFAULT_LOADOUT, SR_01 } from '../weapons/weapons';
+import { AR_01, DEFAULT_LOADOUT, SR_01, WEAPONS } from '../weapons/weapons';
 import { WeaponSystem, type WeaponCommand } from '../weapons/WeaponSystem';
 import type { WeaponAnimState } from '../weapons/view/WeaponView';
 import { findMap, MAPS, type MapDefinition } from '../maps';
@@ -331,7 +331,8 @@ export class Game {
 
   async start(): Promise<void> {
     // Weapon GLBs download alongside the map; the game is ready once both are in.
-    this.weaponModels = preloadWeaponViews(DEFAULT_LOADOUT.map((d) => d.view));
+    // Every weapon model (the team match buy menu can issue any of them).
+    this.weaponModels = preloadWeaponViews(Object.values(WEAPONS).map((d) => d.view));
     // Bot character models (small): in before the first match is set up.
     this.agentModels = preloadAgentModels();
     if (!(await this.loadMapInto(this.mapDef))) return;
@@ -425,12 +426,16 @@ export class Game {
         this.weaponAudio.onEquip(weapon);
         this.updateLoadoutHud(slot);
       },
-      onShot: (result, _origin, dir, weapon) => {
+      onShot: (result, _origin, dir, weapon, pellet) => {
         // Rounds resolved in later ticks of the same frame keep their real spacing.
         if (this.frameShotTick < 0) this.frameShotTick = this.tickInFrame;
         const delay = (this.tickInFrame - this.frameShotTick) / SIM_CONFIG.tickRate;
-        this.weaponAudio.onShot(weapon, result, delay, this.camera);
-        this.viewModel.onShot(weapon.def.category);
+        // A shotgun round: one blast, one kick; every pellet keeps its own hit, tracer and impact.
+        // (No pellet index = a single-bullet round.)
+        if (!pellet) {
+          this.weaponAudio.onShot(weapon, result, delay, this.camera);
+          this.viewModel.onShot(weapon.def.category);
+        }
         if (weapon.def.category !== 'melee' && this.viewModel.muzzleInWorld(this.camera, _muzzleWorld)) {
           this.fx.tracer(_muzzleWorld, result.kind === 'miss' ? result.end : result.point);
         }
@@ -471,7 +476,12 @@ export class Game {
     return true;
   }
 
-  respawn(): void {
+  /**
+   * Puts the player at a spawn, alive. `keepWeapons` (team match survivor):
+   * the weapons keep their magazines and reserves; otherwise every weapon is
+   * refilled.
+   */
+  respawn(keepWeapons = false): void {
     if (!this.map || !this.player) return;
     const spawn = this.teamMatch ? this.teamSpawns?.blue[0] : this.squad ? this.deathmatchSpawn() : this.safeSpawn(this.map);
     this.spawnPoint = spawn ?? null;
@@ -479,7 +489,8 @@ export class Game {
     // Spawn empties sit slightly above the floor; drop onto it from a little higher.
     pos.y += 0.1;
     this.player.teleport(pos, spawn?.yaw ?? 0);
-    this.weapons?.resetForRespawn();
+    if (keepWeapons) this.weapons?.clearTransient();
+    else this.weapons?.resetForRespawn();
     this.body.reset();
     this.combat?.reset();
     this.hud.setDeath(null, RESPAWN_DELAY);
@@ -567,16 +578,18 @@ export class Game {
    * hitscan is instant and nothing is scheduled for later, so nothing from
    * the previous round can land in this one.
    */
-  private startRound(): void {
+  private startRound(carryOver = false): void {
     const squad = this.squad;
     const spawns = this.teamSpawns;
     if (!squad || !spawns) return;
-    // Gear is for one round: back to the knife (money carries over), then a fresh spawn.
     this.closeBuyMenu(false, true);
-    this.buyLoadout.reset();
-    this.applyBuyLoadout();
+    // Gear between rounds (LOADOUT_RULES): a survivor keeps weapons (with their ammo);
+    // otherwise, and at the start of a match, back to the default issue. Money always carries over.
+    const kept = this.buyLoadout.carryOver(carryOver && !!this.combat?.alive);
+    if (kept) this.playerSlotKeys = this.buyLoadout.weapons().map((e) => e.slotKey);
+    else this.applyBuyLoadout();
     this.buyMenu.clearFeedback();
-    this.respawn();
+    this.respawn(kept);
     const next: Record<Team, number> = { blue: 1, red: 0 };
     const centre = (t: Team) => spawns[t].reduce((a, s) => a.add(s.position), new THREE.Vector3()).multiplyScalar(1 / spawns[t].length);
     const roam: Record<Team, THREE.Vector3> = { blue: centre('red'), red: centre('blue') };
@@ -866,7 +879,7 @@ export class Game {
         if (tm) {
           if (tm.phase === 'live') this.squad?.step(tick, this.playerCombatant);
           else this.squad?.hold(tick);
-          if (tm.update(tick, this.teamAlive()) === 'round-start') this.startRound();
+          if (tm.update(tick, this.teamAlive()) === 'round-start') this.startRound(true);
         }
         // Switch requests are one-shot: apply them on the first tick only.
         command.equipSlot = -1;
@@ -1206,6 +1219,11 @@ export class Game {
       this.buyMenu.setThumbnail(id, url);
     })
       .then(async () => {
+        // Buy-menu-only weapons (not in the standard loadout), once their GLB is in.
+        const extra = CATALOG.flatMap((i) => (i.weapon && !DEFAULT_LOADOUT.includes(i.weapon) ? [i.weapon] : []));
+        await this.weaponModels;
+        await renderWeaponThumbnails(this.renderer, env, extra, (id, url) => this.buyMenu.setThumbnail(id, url));
+        // Locked weapons that already have a model (catalog previews).
         const previews = CATALOG.filter((i) => i.preview?.kind === 'gltf');
         const ready = await Promise.all(
           previews.map((i) =>

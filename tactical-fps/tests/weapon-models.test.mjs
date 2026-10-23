@@ -133,7 +133,8 @@ test('weapon switch spam: one model at a time, shared geometry intact, each file
       return m;
     }, {}),
   );
-  assert.deepEqual(counts, { '/weapons/ar01.glb': 1, '/weapons/sr01.glb': 1, '/weapons/m9_bayonet.glb': 1 });
+  // Every weapon file (the standard three and the team match buy-menu weapons), each downloaded once.
+  assert.deepEqual(counts, { '/weapons/ar01.glb': 1, '/weapons/sr01.glb': 1, '/weapons/m9_bayonet.glb': 1, '/weapons/smg01.glb': 1, '/weapons/sg01.glb': 1, '/weapons/pis01.glb': 1 });
 });
 
 test('after switching to Seoul: same GLB models, no leftovers from the first map', async () => {

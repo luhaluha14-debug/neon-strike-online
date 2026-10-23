@@ -181,31 +181,71 @@ export interface BuyResult {
 }
 
 /**
- * The player's equipment for one round. The knife is always issued for free;
- * one primary and one secondary at most.
+ * What happens to the player's gear between rounds (the one place these
+ * rules live). Money always carries over (TeamEconomy); gear does only for
+ * someone still alive when the round ends, and never across the side swap
+ * or into a new match.
+ */
+export const LOADOUT_RULES = {
+  /** Gear a survivor keeps into the next round (weapons keep their magazine and reserve as they are). */
+  keepOnSurvive: { primary: true, secondary: true },
+  /** Issued for free to everyone every round (a survivor already has it). */
+  defaultIssue: [DEFAULT_MELEE_ID],
+} as const;
+
+/**
+ * The player's equipment. The knife is always issued for free; one primary
+ * and one secondary at most.
  *
  * Rules:
- * - Buying an item you already hold is refused (nothing to refill: gear is
- *   new every round).
- * - Buying another item for an occupied slot replaces it; the replaced
- *   item's price is refunded first (everything was bought in this buy phase
- *   and never used), so only the difference is needed.
+ * - Buying an item you already hold is refused (it is still yours, ammo and
+ *   all; buying it again would only charge twice).
+ * - Buying another item for an occupied slot replaces it. If the replaced
+ *   item was bought in this same buy phase (never used) its price is
+ *   refunded first, so only the difference is needed; gear carried over
+ *   from an earlier round is simply discarded, no refund.
  * - Not enough money (after that refund): refused, nothing changes.
  * - Locked catalog items cannot be bought.
- * - reset() at every round start: back to the knife only; money stays.
+ * - Between rounds: carryOver() per LOADOUT_RULES (survivor keeps, otherwise
+ *   back to the default issue); reset() for a new match / side swap.
  */
 export class BuyLoadout {
   primary: CatalogItem | null = null;
   secondary: CatalogItem | null = null;
   readonly melee: CatalogItem;
+  /** Items bought in the current buy phase (refundable when replaced). */
+  private readonly boughtThisRound = new Set<string>();
 
   constructor() {
     this.melee = findItem(DEFAULT_MELEE_ID)!;
   }
 
+  /** Back to the default issue (knife only). */
   reset(): void {
     this.primary = null;
     this.secondary = null;
+    this.boughtThisRound.clear();
+  }
+
+  /**
+   * Round over: a survivor keeps what LOADOUT_RULES says; anyone else starts
+   * from the default issue. Nothing is charged or refunded here. Returns
+   * whether gear was kept.
+   */
+  carryOver(survived: boolean): boolean {
+    this.boughtThisRound.clear();
+    if (!survived) {
+      this.reset();
+      return false;
+    }
+    if (!LOADOUT_RULES.keepOnSurvive.primary) this.primary = null;
+    if (!LOADOUT_RULES.keepOnSurvive.secondary) this.secondary = null;
+    return true;
+  }
+
+  /** Was `id` bought in the current buy phase? */
+  boughtNow(id: string): boolean {
+    return this.boughtThisRound.has(id);
   }
 
   held(slot: ItemSlot): CatalogItem | null {
@@ -225,7 +265,7 @@ export class BuyLoadout {
     if (this.owns(item.id)) return fail('owned', `${item.id}: 이미 보유한 장비입니다`);
     if (item.slot !== 'primary' && item.slot !== 'secondary') return fail('locked', `${item.id}: 구매할 수 없는 장비입니다`);
     const replaced = this.held(item.slot);
-    const refund = replaced?.price ?? 0;
+    const refund = replaced && this.boughtThisRound.has(replaced.id) ? replaced.price : 0;
     const money = economy.money(buyer);
     if (money + refund < item.price) {
       return fail('funds', `자금 부족: ${item.id} ${formatMoney(item.price)} (부족 ${formatMoney(item.price - money - refund)})`);
@@ -234,13 +274,19 @@ export class BuyLoadout {
     if (!economy.pay(buyer, item.price, refund)) return fail('funds', `자금 부족: ${item.id} ${formatMoney(item.price)}`);
     if (item.slot === 'primary') this.primary = item;
     else this.secondary = item;
+    if (replaced) this.boughtThisRound.delete(replaced.id);
+    this.boughtThisRound.add(item.id);
     const spent = item.price - refund;
     return {
       ok: true,
       item,
       replaced: replaced ?? undefined,
       spent,
-      message: replaced ? `${item.id} 구매 (${replaced.id} 환불, ${formatSigned(-spent)})` : `${item.id} 구매 완료 (${formatSigned(-spent)})`,
+      message: !replaced
+        ? `${item.id} 구매 완료 (${formatSigned(-spent)})`
+        : refund > 0
+          ? `${item.id} 구매 (${replaced.id} 환불, ${formatSigned(-spent)})`
+          : `${item.id} 구매 (${replaced.id} 교체, ${formatSigned(-spent)})`,
     };
   }
 
