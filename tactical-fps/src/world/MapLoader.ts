@@ -10,6 +10,12 @@ export interface SpawnPoint {
   yaw: number;
 }
 
+/** A bomb site: its letter and the volume the bomb can be planted in (world space). */
+export interface BombSite {
+  name: string;
+  box: THREE.Box3;
+}
+
 export interface LoadedMap {
   /** Render root, already batched by material. */
   root: THREE.Group;
@@ -22,6 +28,8 @@ export interface LoadedMap {
   playBounds: THREE.Box3;
   attackSpawns: SpawnPoint[];
   defenseSpawns: SpawnPoint[];
+  /** Bomb sites (MapDefinition.bombSitePattern), sorted by letter. */
+  bombSites: BombSite[];
   stats: { sourceMeshes: number; drawCalls: number; triangles: number; colliderTriangles: number };
 }
 
@@ -71,8 +79,16 @@ export async function loadMap(
   zoneMarkers.name = 'ZoneMarkers';
   zoneMarkers.visible = false;
   let sourceMeshes = 0;
+  const bombSites: BombSite[] = [];
 
   scene.traverse((obj) => {
+    const site = def.bombSitePattern.exec(obj.name);
+    if (site) {
+      const box = (obj as THREE.Mesh).isMesh
+        ? new THREE.Box3().setFromObject(obj)
+        : new THREE.Box3(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1)).applyMatrix4(obj.matrixWorld);
+      bombSites.push({ name: site[1], box });
+    }
     if (obj.name.startsWith(def.attackSpawnPrefix)) {
       attackSpawns.push({ position: obj.getWorldPosition(new THREE.Vector3()), yaw: 0 });
     } else if (obj.name.startsWith(def.defenseSpawnPrefix)) {
@@ -145,6 +161,7 @@ export async function loadMap(
     s.yaw = Math.atan2(-(center.x - s.position.x), -(center.z - s.position.z));
   }
   attackSpawns.sort((a, b) => a.position.x - b.position.x);
+  bombSites.sort((a, b) => a.name.localeCompare(b.name));
   defenseSpawns.sort((a, b) => a.position.x - b.position.x);
 
   return {
@@ -155,6 +172,7 @@ export async function loadMap(
     playBounds,
     attackSpawns,
     defenseSpawns,
+    bombSites,
     stats: { sourceMeshes, drawCalls: root.children.length - 1, triangles, colliderTriangles: collision.triangleCount },
   };
 }

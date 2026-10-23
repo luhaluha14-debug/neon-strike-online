@@ -29,6 +29,12 @@ export interface MapDefinition {
   zoneMarkerPrefix: string;
   attackSpawnPrefix: string;
   defenseSpawnPrefix: string;
+  /**
+   * Bomb site volumes: node names matching this, group 1 = the site letter.
+   * A mesh gives its bounding box; an empty (no mesh) its unit cube scaled
+   * by its transform (Blender "cube" empty).
+   */
+  bombSitePattern: RegExp;
 
   /** Anything that falls below this height is respawned. */
   killPlaneY: number;
@@ -62,6 +68,7 @@ export const MAPS: readonly MapDefinition[] = [
     zoneMarkerPrefix: 'Zone_',
     attackSpawnPrefix: 'ATK_SpawnPoint_',
     defenseSpawnPrefix: 'DEF_SpawnPoint_',
+    bombSitePattern: /^BombSite_([AB])_PlantZone_Volume$/,
     killPlaneY: -20,
     environment: { fogNear: 120, fogFar: 650, viewDistance: 900 },
   },
@@ -87,6 +94,7 @@ export const MAPS: readonly MapDefinition[] = [
     zoneMarkerPrefix: 'Zone_',
     attackSpawnPrefix: 'ATK_SpawnPoint_',
     defenseSpawnPrefix: 'DEF_SpawnPoint_',
+    bombSitePattern: /^Zone_([AB])_Site_PlantArea$/,
     killPlaneY: -20,
     environment: { fogNear: 60, fogFar: 180, viewDistance: 400 },
   },

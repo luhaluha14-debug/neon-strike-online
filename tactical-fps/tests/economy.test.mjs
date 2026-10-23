@@ -27,7 +27,8 @@ async function openBuy() {
 
 before(async () => {
   env = await startEnv();
-  page = await openGame(env, { map: 'warehouse', mode: 'team' });
+  // Elimination rules (round won by wiping out the other team / most survivors at time); the C4 rules: bomb.test.mjs.
+  page = await openGame(env, { map: 'warehouse', mode: 'team', objective: 'elimination' });
   await page.click('.play-button');
   await waitLocked();
   await page.mouse.move(0, 0);

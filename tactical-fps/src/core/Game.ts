@@ -6,8 +6,10 @@ import { NavGrid } from '../ai/NavGrid';
 import { HitscanSystem } from '../combat/HitscanSystem';
 import { GrenadeSystem, type FlashObserver, type GrenadeKind } from '../combat/Grenades';
 import { GrenadeEffects } from '../fx/GrenadeEffects';
+import { BombEffects } from '../fx/BombEffects';
+import { BombObjective, type BombActor } from '../game/BombObjective';
 import { TrainingRange } from '../combat/TrainingRange';
-import { CAMERA_CONFIG, GRENADE_CONFIG, PLAYER_CONFIG, QUALITY_PRESETS, SIM_CONFIG, type QualityLevel } from '../config';
+import { BOMB_CONFIG, CAMERA_CONFIG, GRENADE_CONFIG, PLAYER_CONFIG, QUALITY_PRESETS, SIM_CONFIG, type QualityLevel } from '../config';
 import { AudioEngine } from '../audio/AudioEngine';
 import { WeaponAudio } from '../audio/WeaponAudio';
 import { BloodEffects } from '../fx/BloodEffects';
@@ -20,11 +22,11 @@ import { FirstPersonBody, type BodyState } from '../player/FirstPersonBody';
 import { PlayerController } from '../player/PlayerController';
 import { PlayerCombat, RESPAWN_DELAY, type PlayerDamageEvent } from '../player/PlayerCombat';
 import { Match, BOT_COUNT_OPTIONS, KILL_TARGET_OPTIONS, TIME_LIMIT_OPTIONS, type GameMode } from '../game/Match';
-import { loadMatchSettings, parseMode, saveMatchSettings, type MatchSettings } from '../game/MatchSettings';
+import { loadMatchSettings, parseMode, parseObjective, saveMatchSettings, type MatchSettings } from '../game/MatchSettings';
 import { DEFAULT_TEAM_MATCH, otherTeam, ROUND_TIME_OPTIONS, ROUNDS_TO_WIN_OPTIONS, TeamMatch, TEAMS, type Team } from '../game/TeamMatch';
 import { Hud } from '../ui/Hud';
 import { MatchHud } from '../ui/MatchHud';
-import { TeamHud } from '../ui/TeamHud';
+import { TeamHud, type BombHudState } from '../ui/TeamHud';
 import { BuyMenu } from '../ui/BuyMenu';
 import { BuyLoadout, LOADOUT_RULES, type BuyResult } from '../game/Economy';
 import { CATALOG } from '../weapons/catalog';
@@ -123,6 +125,9 @@ export class Game {
   /** Thrown utility on the current map (FLASH-01 / SMOKE-01 of the team match). */
   grenades: GrenadeSystem | null = null;
   readonly grenadeFx = new GrenadeEffects();
+  /** C4 objective of the team match (objective 'bomb' on a map with bomb sites). */
+  bomb: BombObjective | null = null;
+  readonly bombFx = new BombEffects();
   /** Grenade in the player's hand instead of the weapon (null = the weapon). */
   heldGrenade: GrenadeKind | null = null;
   /** Seconds left drawing the grenade; the trigger's state on the last tick (a throw needs a fresh press). */
@@ -183,6 +188,8 @@ export class Game {
     this.settings = settings;
     this.matchSettings = loadMatchSettings();
     this.mode = parseMode(new URLSearchParams(location.search).get('mode')) ?? this.matchSettings.mode;
+    // `?objective=elimination|bomb` overrides the saved team match objective for this visit.
+    this.matchSettings.objective = parseObjective(new URLSearchParams(location.search).get('objective')) ?? this.matchSettings.objective;
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const game = this;
     this.playerCombatant = {
@@ -232,6 +239,7 @@ export class Game {
     this.scene.add(this.blood.group);
     this.scene.add(this.fx.group);
     this.scene.add(this.grenadeFx.group);
+    this.scene.add(this.bombFx.group);
     this.scene.add(this.body.object);
     this.handGrenade = new THREE.Mesh(
       new THREE.CylinderGeometry(0.032, 0.032, 0.1, 14),
@@ -514,7 +522,7 @@ export class Game {
    */
   respawn(keepWeapons = false): void {
     if (!this.map || !this.player) return;
-    const spawn = this.teamMatch ? this.teamSpawns?.blue[0] : this.squad ? this.deathmatchSpawn() : this.safeSpawn(this.map);
+    const spawn = this.teamMatch ? (this.teamSpawns ? this.spawnsOf('blue')[0] : undefined) : this.squad ? this.deathmatchSpawn() : this.safeSpawn(this.map);
     this.spawnPoint = spawn ?? null;
     const pos = spawn ? spawn.position.clone() : this.map.playBounds.getCenter(new THREE.Vector3());
     // Spawn empties sit slightly above the floor; drop onto it from a little higher.
@@ -576,10 +584,17 @@ export class Game {
         if (this.weapons) this.weapons.team = 'blue';
         this.teamSpawns ??= this.buildTeamSpawns(map, this.nav);
         const ms = this.matchSettings;
-        this.teamMatch = new TeamMatch({ ...DEFAULT_TEAM_MATCH, roundsToWin: ms.roundsToWin, roundTime: ms.roundTime }, [
+        this.teamMatch = new TeamMatch({
+            ...DEFAULT_TEAM_MATCH,
+            roundsToWin: ms.roundsToWin,
+            roundTime: ms.roundTime,
+            // A map without bomb sites can only be played to elimination.
+            objective: ms.objective === 'bomb' && map.bombSites.length > 0 ? 'bomb' : 'elimination',
+          }, [
           { id: 'local', name: 'YOU', team: 'blue', isPlayer: true },
           ...squad.bots.map((b) => ({ id: b.id, name: b.name, team: b.team as Team, isPlayer: false })),
         ]);
+        if (this.teamMatch.bombMode) this.bomb = new BombObjective(map.bombSites);
       } else {
         this.match = new Match(this.matchSettings, [{ id: 'local', name: 'YOU', isPlayer: true }, ...squad.bots.map((b) => ({ id: b.id, name: b.name, isPlayer: false }))]);
       }
@@ -617,24 +632,184 @@ export class Game {
     if (!squad || !spawns) return;
     this.closeBuyMenu(false, true);
     // Gear between rounds (LOADOUT_RULES): a survivor keeps weapons (with their ammo);
-    // otherwise, and at the start of a match, back to the default issue. Money always carries over.
-    const kept = this.buyLoadout.carryOver(carryOver && !!this.combat?.alive);
+    // otherwise, at the start of a match and at the half-time side swap, back to the default issue.
+    // Money carries over (the swap resets it: TeamMatch).
+    const tm = this.teamMatch;
+    const swapped = !!tm && tm.swappedAtRound === tm.round;
+    const kept = this.buyLoadout.carryOver(carryOver && !swapped && !!this.combat?.alive);
     if (kept) this.playerSlotKeys = this.buyLoadout.weapons().map((e) => e.slotKey);
     else this.applyBuyLoadout();
     this.buyMenu.clearFeedback();
     this.clearGrenades();
     this.respawn(kept);
     const next: Record<Team, number> = { blue: 1, red: 0 };
-    const centre = (t: Team) => spawns[t].reduce((a, s) => a.add(s.position), new THREE.Vector3()).multiplyScalar(1 / spawns[t].length);
+    const centre = (t: Team) => this.spawnsOf(t).reduce((a, s) => a.add(s.position), new THREE.Vector3()).multiplyScalar(1 / this.spawnsOf(t).length);
     const roam: Record<Team, THREE.Vector3> = { blue: centre('red'), red: centre('blue') };
     for (const b of squad.bots) {
       const t = b.team as Team;
-      const s = spawns[t][next[t]++ % spawns[t].length];
+      const list = this.spawnsOf(t);
+      const s = list[next[t]++ % list.length];
       squad.spawnAt(b, s.position, s.yaw);
       b.roamTarget = roam[t];
+      b.useKey = false;
     }
+    this.resetBomb();
     this.spectateIndex = 0;
     this.hud.setDeathNote(null);
+  }
+
+  /**
+   * Spawn spots of `team` this round. teamSpawns.blue holds the map's attack
+   * side, .red its defence side; with the bomb objective a team uses the
+   * side it plays this round (they swap at half time).
+   */
+  private spawnsOf(team: Team): SpawnPoint[] {
+    const s = this.teamSpawns!;
+    const attack = this.teamMatch?.bombMode ? this.teamMatch.attackers : 'blue';
+    return team === attack ? s.blue : s.red;
+  }
+
+  /** Round start: the C4 goes to one attacker (rotating through the side each round, so it is reproducible). */
+  private resetBomb(): void {
+    const tm = this.teamMatch;
+    const bomb = this.bomb;
+    this.bombFx.clear();
+    if (!tm || !bomb || !this.player) return;
+    const carriers: { id: string; position: THREE.Vector3 }[] = [];
+    if (tm.attackers === 'blue') carriers.push({ id: 'local', position: this.player.position });
+    for (const b of this.squad?.bots ?? []) if (b.team === tm.attackers) carriers.push({ id: b.id, position: b.position });
+    const pick = carriers[(tm.round - 1) % carriers.length];
+    bomb.reset(pick?.id ?? null, pick?.position ?? this.player.position);
+  }
+
+  /** Everyone as the bomb objective sees them this tick. */
+  private bombActors(tm: TeamMatch): BombActor[] {
+    const out: BombActor[] = [];
+    const p = this.player;
+    const c = this.combat;
+    if (p && c) {
+      out.push({
+        id: 'local',
+        side: tm.attackers === 'blue' ? 'attack' : 'defense',
+        alive: c.alive,
+        position: p.position,
+        speed: Math.hypot(p.velocity.x, p.velocity.z),
+        use: this.inputState.use && this.input.active && !this.buyMenuOpen,
+        hits: c.hits,
+      });
+    }
+    for (const b of this.squad?.bots ?? []) {
+      out.push({
+        id: b.id,
+        side: b.team === tm.attackers ? 'attack' : 'defense',
+        alive: b.alive,
+        position: b.position,
+        speed: Math.hypot(b.controller.velocity.x, b.controller.velocity.z),
+        use: b.useKey,
+        hits: b.combat.hits,
+      });
+    }
+    return out;
+  }
+
+  /** One tick of the C4 objective in a live round: plant / defuse / pickup / timer, and what they decide. */
+  private stepBomb(tick: number): void {
+    const tm = this.teamMatch;
+    const bomb = this.bomb;
+    if (!tm || !bomb || tm.phase !== 'live') return;
+    for (const e of bomb.step(tick, this.bombActors(tm))) {
+      switch (e.type) {
+        case 'plant-start':
+        case 'defuse-start':
+          this.bombSound('c4.press', e.id);
+          break;
+        case 'planted':
+          tm.bombPlanted(e.id);
+          this.bombSound('c4.press', e.id);
+          break;
+        case 'defused':
+          this.weaponAudio.world('c4.defused', bomb.position, 0.8, this.camera, 80);
+          tm.bombDefused(e.id, this.teamAlive());
+          break;
+        case 'exploded':
+          this.explodeBomb(e.at);
+          tm.bombExploded(this.teamAlive());
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
+  private bombSound(id: 'c4.press', who: string): void {
+    if (who === 'local') this.weaponAudio.local(id, 0.6);
+    else if (this.bomb) this.weaponAudio.world(id, this.bomb.position, 0.6, this.camera, 40);
+  }
+
+  /** The C4 goes off: everyone within BOMB_CONFIG.explosionRadius takes damage falling off with distance (walls do not shield). */
+  private explodeBomb(at: THREE.Vector3): void {
+    this.bombFx.explode(at);
+    this.weaponAudio.world('c4.explode', at, 1, this.camera, 400);
+    const victims: { combat: PlayerCombat; pos: THREE.Vector3 }[] = [];
+    if (this.combat && this.player) victims.push({ combat: this.combat, pos: this.player.position });
+    for (const b of this.squad?.bots ?? []) victims.push({ combat: b.combat, pos: b.position });
+    for (const v of victims) {
+      if (!v.combat.alive) continue;
+      const centre = new THREE.Vector3(v.pos.x, v.pos.y + 1, v.pos.z);
+      const d = centre.distanceTo(at);
+      if (d >= BOMB_CONFIG.explosionRadius) continue;
+      const amount = Math.round(BOMB_CONFIG.explosionDamage * (1 - d / BOMB_CONFIG.explosionRadius));
+      // No kill credit for the bomb (as in CS): the source is the C4, not the planter.
+      v.combat.applyDamage({ amount, zone: 'body', sourceId: 'c4', weaponId: 'c4', point: at.clone(), direction: centre.sub(at).normalize(), distance: d });
+    }
+  }
+
+  /** What the player may know about the bomb (attackers know the carrier; everyone hears the plant). */
+  private bombHud(): BombHudState | null {
+    const tm = this.teamMatch;
+    const bomb = this.bomb;
+    const p = this.player;
+    if (!tm || !bomb || !p) return null;
+    const attacker = tm.attackers === 'blue';
+    const alive = !!this.combat?.alive;
+    const out: BombHudState = { side: attacker ? '공격 · C4 설치' : '방어 · C4 저지', status: '', cls: '', timer: null, hint: '', progress: null };
+    switch (bomb.state) {
+      case 'carried':
+        if (attacker) {
+          out.cls = 'carry';
+          out.status = bomb.carrier === 'local' ? 'C4 보유' : `C4: ${tm.name(bomb.carrier ?? '')} 보유`;
+          if (bomb.carrier === 'local' && alive && tm.phase === 'live') {
+            const site = bomb.siteAt(p.position);
+            out.hint = site ? `${site} 사이트 — E 길게: C4 설치` : 'A / B 사이트에서 E 길게: C4 설치';
+          }
+        }
+        break;
+      case 'dropped':
+        if (attacker) {
+          out.cls = 'dropped';
+          out.status = 'C4 떨어짐 — 주워서 운반';
+        }
+        break;
+      case 'planted': {
+        out.cls = 'planted';
+        out.status = `C4 설치됨 · ${bomb.site} 사이트`;
+        out.timer = bomb.timeLeft;
+        const near = Math.hypot(p.position.x - bomb.position.x, p.position.z - bomb.position.z) <= BOMB_CONFIG.defuseRange;
+        if (!attacker && alive && tm.phase === 'live') out.hint = near ? `E 길게: C4 해체 (${BOMB_CONFIG.defuseTime}초)` : `${bomb.site} 사이트로 가서 해체`;
+        break;
+      }
+      case 'defused':
+        out.cls = 'defused';
+        out.status = 'C4 해체됨';
+        break;
+      case 'exploded':
+        out.cls = 'exploded';
+        out.status = 'C4 폭파';
+        break;
+    }
+    if (bomb.planting?.id === 'local') out.progress = { label: 'C4 설치 중', value: bomb.plantProgress ?? 0 };
+    if (bomb.defusing?.id === 'local') out.progress = { label: 'C4 해체 중', value: bomb.defuseProgress ?? 0 };
+    return out;
   }
 
   /** Living combatants per team (the player counts for BLUE). */
@@ -704,6 +879,9 @@ export class Game {
 
   private teardownMode(): void {
     this.clearGrenades();
+    this.bomb = null;
+    this.bombFx.clear();
+    this.teamHud.setBomb(null);
     this.trainingRange?.dispose();
     this.trainingRange = null;
     this.squad?.dispose();
@@ -797,6 +975,19 @@ export class Game {
       save();
       this.restartMatch();
     });
+    this.hud.menu.bindSelect(
+      'objective',
+      [
+        { value: 'bomb', label: 'C4 폭파 (공격 / 방어)' },
+        { value: 'elimination', label: '전멸전' },
+      ] as const,
+      ms.objective,
+      (v) => {
+        ms.objective = v;
+        save();
+        this.restartMatch();
+      },
+    );
     this.hud.menu.bindSelect(
       'bot-look',
       [
@@ -947,6 +1138,7 @@ export class Game {
         if (tm) {
           if (tm.phase === 'live') this.squad?.step(tick, this.playerCombatant);
           else this.squad?.hold(tick);
+          this.stepBomb(tick);
           if (tm.update(tick, this.teamAlive()) === 'round-start') this.startRound(true);
         }
         // Switch requests are one-shot: apply them on the first tick only.
@@ -995,6 +1187,8 @@ export class Game {
     this.squad?.updateVisuals(frameTime);
     this.fx.update(frameTime, this.camera);
     this.grenadeFx.update(frameTime, this.grenades);
+    if (this.bombFx.update(frameTime, this.bomb) && this.bomb) this.weaponAudio.world('c4.beep', this.bomb.position, 0.45, this.camera, 70);
+    if (this.teamMatch) this.teamHud.setBomb(this.bombHud());
     if (this.match) this.matchHud.update(this.match, this.scoreboardHeld && this.input.active);
     if (this.teamMatch) this.teamHud.update(this.teamMatch, this.teamAlive(), this.scoreboardHeld && this.input.active);
     this.viewModel.update(

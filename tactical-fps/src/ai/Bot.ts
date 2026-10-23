@@ -81,6 +81,8 @@ export class Bot {
    * blocked by something other than the map. Set by whoever owns the bots.
    */
   sightBlocked: ((from: THREE.Vector3, to: THREE.Vector3) => boolean) | null = null;
+  /** Holding "use" this tick: planting / defusing the C4 (set by the bot's objective logic). */
+  useKey = false;
   private teamId: string | undefined = undefined;
 
   private path: THREE.Vector3[] = [];

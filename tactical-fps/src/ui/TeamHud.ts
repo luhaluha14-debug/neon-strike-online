@@ -1,10 +1,27 @@
 import { formatMoney } from '../game/Economy';
 import type { KillEvent } from '../game/Match';
-import { TEAM_NAME, type Team, type TeamMatch, type TeamScoreLine } from '../game/TeamMatch';
+import { TEAM_NAME, type RoundEnd, type Team, type TeamMatch, type TeamScoreLine } from '../game/TeamMatch';
 import './match.css';
 
 const FEED_SECONDS = 6;
-const WEAPON_SHORT: Record<string, string> = { ar01: 'AR-01', sr01: 'SR-01', karambit: 'M9' };
+const WEAPON_SHORT: Record<string, string> = { ar01: 'AR-01', sr01: 'SR-01', karambit: 'M9', smg01: 'SMG-01', sg01: 'SG-01', pis01: 'PIS-01', c4: 'C4' };
+const REASON: Record<RoundEnd, string> = { elimination: '전멸', time: '시간', bomb: 'C4 폭파', defuse: 'C4 해체' };
+
+/** What the bomb line of the HUD shows (built by Game from what the player may know). */
+export interface BombHudState {
+  /** "공격" / "방어" for the player's side this round. */
+  side: string;
+  /** Status line ("C4 보유", "C4 설치됨 · A", ...); '' hides it. */
+  status: string;
+  /** Status style: 'carry' | 'dropped' | 'planted' | 'defused' | 'exploded' | ''. */
+  cls: string;
+  /** Bomb timer (s) once planted, else null. */
+  timer: number | null;
+  /** Key hint ("E 길게: 설치"); '' hides it. */
+  hint: string;
+  /** The player's own plant / defuse: label and 0..1, or null. */
+  progress: { label: string; value: number } | null;
+}
 
 /**
  * Team match overlay (same look as the deathmatch MatchHud): round wins per
@@ -28,6 +45,7 @@ export class TeamHud {
   private readonly board: HTMLElement;
   private readonly results: HTMLElement;
   private last = '';
+  private bombKey = '';
   private bannerKey = '';
   private feedKey = -1;
   private boardKey = '';
@@ -46,6 +64,12 @@ export class TeamHud {
         <span class="ta blue">생존 <b class="ta-blue">5</b></span>
         <span class="ta red">생존 <b class="ta-red">5</b></span>
         <span class="ta money" hidden>자금 <b class="ta-money">$0</b></span>
+        <span class="ta side" hidden></span>
+      </div>
+      <div class="bomb-box" hidden>
+        <div class="bomb-status"><span class="bomb-text"></span><b class="bomb-timer"></b></div>
+        <div class="bomb-hint"></div>
+        <div class="bomb-progress" hidden><span class="bomb-progress-label"></span><div class="bomb-track"><div class="bomb-bar"></div></div></div>
       </div>
       <div class="round-banner" role="status" hidden></div>
       <ol class="killfeed" aria-live="polite"></ol>
@@ -123,6 +147,32 @@ export class TeamHud {
     }
   }
 
+  /** Bomb objective line (null: no bomb objective, hidden). */
+  setBomb(b: BombHudState | null): void {
+    const key = b ? `${b.side}|${b.status}|${b.cls}|${b.timer === null ? '' : Math.ceil(b.timer)}|${b.hint}|${b.progress ? `${b.progress.label}:${b.progress.value.toFixed(2)}` : ''}` : '';
+    if (key === this.bombKey) return;
+    this.bombKey = key;
+    const q = (s: string) => this.root.querySelector<HTMLElement>(s)!;
+    const box = q('.bomb-box');
+    const side = q('.ta.side');
+    side.hidden = !b;
+    box.hidden = !b || (!b.status && !b.hint && !b.progress);
+    if (!b) return;
+    side.textContent = b.side;
+    box.className = `bomb-box ${b.cls}`;
+    q('.bomb-text').textContent = b.status;
+    const t = b.timer === null ? null : Math.ceil(b.timer);
+    q('.bomb-timer').textContent = t === null ? '' : `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+    q('.bomb-hint').textContent = b.hint;
+    q('.bomb-hint').hidden = !b.hint;
+    const pr = q('.bomb-progress');
+    pr.hidden = !b.progress;
+    if (b.progress) {
+      q('.bomb-progress-label').textContent = b.progress.label;
+      q('.bomb-bar').style.transform = `scaleX(${Math.min(Math.max(b.progress.value, 0), 1)})`;
+    }
+  }
+
   showResults(m: TeamMatch): void {
     const winner = m.winner;
     const won = winner === m.teamOf('local');
@@ -134,7 +184,7 @@ export class TeamHud {
       .map((r) => {
         const cls = r.winner ?? 'draw';
         const label = r.winner ? TEAM_NAME[r.winner] : '무승부';
-        const why = r.reason === 'elimination' ? '전멸' : '시간';
+        const why = REASON[r.reason];
         return `<li class="rh ${cls}" title="라운드 ${r.round}: ${label} (${why}, 생존 ${r.alive.blue}:${r.alive.red})"><span class="rh-n">${r.round}</span><span class="rh-w">${label}</span><span class="rh-why">${why}</span></li>`;
       })
       .join('');
@@ -156,7 +206,8 @@ export class TeamHud {
       cls = 'prep';
     } else if (m.phase === 'result' && m.lastRound) {
       const r = m.lastRound;
-      text = r.winner ? `${TEAM_NAME[r.winner]} 라운드 승리${r.reason === 'time' ? ' (시간 종료)' : ''}` : `무승부${r.reason === 'time' ? ' (시간 종료)' : ''}`;
+      const why = r.reason === 'time' ? ' (시간 종료)' : r.reason === 'bomb' ? ' (C4 폭파)' : r.reason === 'defuse' ? ' (C4 해체)' : '';
+      text = r.winner ? `${TEAM_NAME[r.winner]} 라운드 승리${why}` : `무승부${why}`;
       cls = r.winner ?? 'draw';
       // The player's round payout (settled once when the round was decided).
       const p = m.economy?.lastPayout.get('local');

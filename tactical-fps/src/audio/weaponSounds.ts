@@ -29,7 +29,11 @@ export type SoundId =
   | 'grenade.pin'
   | 'grenade.bounce'
   | 'flash.bang'
-  | 'smoke.pop';
+  | 'smoke.pop'
+  | 'c4.beep'
+  | 'c4.press'
+  | 'c4.explode'
+  | 'c4.defused';
 
 /** Number of pre-rendered variants per sound. */
 export const VARIANTS: Record<SoundId, number> = {
@@ -57,6 +61,10 @@ export const VARIANTS: Record<SoundId, number> = {
   'grenade.bounce': 3,
   'flash.bang': 2,
   'smoke.pop': 1,
+  'c4.beep': 1,
+  'c4.press': 2,
+  'c4.explode': 2,
+  'c4.defused': 1,
 };
 
 interface GunshotRecipe {
@@ -456,6 +464,49 @@ function smokePop(seed: number): Float32Array {
   return finish(out, 0.7, 1.1);
 }
 
+/** Armed C4: one short electronic beep. */
+function c4Beep(): Float32Array {
+  const out = buffer(0.14);
+  mix(out, shape(ring(0.12, [[2650, 0.5, 1], [5300, 0.08, 1]]), (t) => (t < 0.09 ? Math.min(t / 0.004, 1) : Math.max(0, 1 - (t - 0.09) / 0.02))));
+  return finish(out, 0.5, 1);
+}
+
+/** Keypad press while planting / defusing: a tiny plastic click and tone. */
+function c4Press(seed: number): Float32Array {
+  const rand = rng(seed);
+  const out = buffer(0.12);
+  mix(out, click(rand, 3500, 0.004, 0.6), 1, 0);
+  mix(out, shape(ring(0.08, [[1800 + rand() * 600, 0.25, 1]]), (t) => Math.max(0, 1 - t / 0.07)), 1, 0.01);
+  return finish(out, 0.45, 1);
+}
+
+/** C4 explosion: crack, heavy blast body, deep boom and a long rumbling tail. */
+function c4Explode(seed: number): Float32Array {
+  const rand = rng(seed);
+  const out = buffer(2.6);
+  const crack = biquad(noise(0.1, rand), 'highpass', 1200);
+  shape(crack, expEnv(0.0003, 0.02));
+  mix(out, crack, 1.2);
+  const body = biquad(noise(1, rand), 'lowpass', 1100);
+  shape(body, expEnv(0.002, 0.16));
+  mix(out, body, 1.4);
+  const boom = glideSine(1.2, 70, 28, 0.3);
+  shape(boom, expEnv(0.004, 0.35));
+  mix(out, boom, 0.9);
+  const tail = biquad(noise(2.5, rand), 'lowpass', 400);
+  shape(tail, expEnv(0.05, 0.7));
+  mix(out, tail, 0.45);
+  return finish(out, 0.98, 1.8);
+}
+
+/** Defused: two falling tones. */
+function c4Defused(): Float32Array {
+  const out = buffer(0.5);
+  mix(out, shape(ring(0.2, [[1900, 0.4, 1]]), (t) => Math.max(0, 1 - t / 0.18)), 1, 0);
+  mix(out, shape(ring(0.25, [[1250, 0.4, 1]]), (t) => Math.max(0, 1 - t / 0.23)), 1, 0.2);
+  return finish(out, 0.5, 1);
+}
+
 /** Renders one variant of one sound. */
 export function renderSound(id: SoundId, variant: number, opts: { srFireInterval: number }): Float32Array {
   const seed = hash(id) + variant * 7919;
@@ -508,6 +559,14 @@ export function renderSound(id: SoundId, variant: number, opts: { srFireInterval
       return flashBang(seed);
     case 'smoke.pop':
       return smokePop(seed);
+    case 'c4.beep':
+      return c4Beep();
+    case 'c4.press':
+      return c4Press(seed);
+    case 'c4.explode':
+      return c4Explode(seed);
+    case 'c4.defused':
+      return c4Defused();
   }
 }
 

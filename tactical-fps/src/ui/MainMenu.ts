@@ -115,6 +115,11 @@ export class MainMenu {
             </div>
             <div class="team-options" hidden>
               <label class="field">
+                <span class="field-label">목표</span>
+                <select class="select" data-setting="objective"></select>
+                <span class="field-hint">C4: BLUE 공격 · RED 방어로 시작, 하프타임에 공수 교대. 전멸전: 최후 생존 팀 승리.</span>
+              </label>
+              <label class="field">
                 <span class="field-label">승리 라운드</span>
                 <select class="select" data-setting="rounds-to-win"></select>
               </label>
@@ -418,7 +423,7 @@ export class MainMenu {
 
   // --- Settings ---------------------------------------------------------------
 
-  bindSelect<T extends string | number>(setting: 'quality' | 'frame-limit' | 'volume' | 'mode' | 'bots' | 'time-limit' | 'kill-target' | 'rounds-to-win' | 'round-time' | 'bot-look', options: readonly MenuOption<T>[], current: T, onChange: (value: T) => void): void {
+  bindSelect<T extends string | number>(setting: 'quality' | 'frame-limit' | 'volume' | 'mode' | 'bots' | 'time-limit' | 'kill-target' | 'rounds-to-win' | 'round-time' | 'objective' | 'bot-look', options: readonly MenuOption<T>[], current: T, onChange: (value: T) => void): void {
     const select = this.root.querySelector<HTMLSelectElement>(`select[data-setting="${setting}"]`)!;
     select.replaceChildren(
       ...options.map((o) => {

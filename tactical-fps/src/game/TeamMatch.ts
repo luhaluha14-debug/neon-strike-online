@@ -3,6 +3,7 @@
 // `roundsToWin` round wins takes the match. Pure logic (no rendering, no
 // scene), driven by Game one simulation tick at a time.
 
+import { BOMB_CONFIG } from '../config';
 import { ECONOMY, TeamEconomy, type EconomyConfig } from './Economy';
 import type { KillEvent } from './Match';
 
@@ -30,9 +31,19 @@ export interface TeamMatchConfig {
   resultTime: number;
   /** Round economy (money, rewards, buying in the prep phase); null = none. */
   economy: EconomyConfig | null;
+  /**
+   * 'bomb': attackers win by planting the C4 and letting it explode (or by
+   * eliminating the defenders), defenders by defusing it, eliminating the
+   * attackers before a plant, or running out the clock; sides swap at
+   * half time. 'elimination': last team standing / most survivors at time.
+   */
+  objective: TeamObjective;
 }
 
-export const DEFAULT_TEAM_MATCH: TeamMatchConfig = { teamSize: 5, roundsToWin: 5, roundTime: 120, prepTime: ECONOMY.buyTime, resultTime: 4, economy: ECONOMY };
+export type TeamObjective = 'bomb' | 'elimination';
+export const OBJECTIVE_OPTIONS: readonly TeamObjective[] = ['bomb', 'elimination'];
+
+export const DEFAULT_TEAM_MATCH: TeamMatchConfig = { teamSize: 5, roundsToWin: 5, roundTime: 120, prepTime: ECONOMY.buyTime, resultTime: 4, economy: ECONOMY, objective: 'bomb' };
 export const ROUNDS_TO_WIN_OPTIONS = [3, 5, 7, 10] as const;
 export const ROUND_TIME_OPTIONS = [60, 120, 180] as const;
 
@@ -45,7 +56,7 @@ export const ROUND_TIME_OPTIONS = [60, 120, 180] as const;
  * over   : a team reached `roundsToWin`.
  */
 export type RoundPhase = 'prep' | 'live' | 'result' | 'over';
-export type RoundEnd = 'elimination' | 'time';
+export type RoundEnd = 'elimination' | 'time' | 'bomb' | 'defuse';
 
 export interface RoundResult {
   round: number;
@@ -54,6 +65,8 @@ export interface RoundResult {
   reason: RoundEnd;
   /** Survivors when the round was decided. */
   alive: Record<Team, number>;
+  /** Team on attack in that round (bomb objective). */
+  attackers: Team;
 }
 
 export interface TeamScoreLine {
@@ -84,6 +97,12 @@ export class TeamMatch {
   elapsed = 0;
   /** Money and rewards (null without an economy). Settled once per decided round, kill bonuses once per kill. */
   readonly economy: TeamEconomy | null;
+  /** Bomb objective: the team on attack this round (BLUE first; they swap at half time). */
+  attackers: Team = 'blue';
+  /** Bomb objective: the C4 is planted this round (the round clock is stopped, the bomb timer decides). */
+  planted = false;
+  /** Round in which the sides swapped (0 = not yet). */
+  swappedAtRound = 0;
 
   constructor(
     readonly config: TeamMatchConfig,
@@ -93,6 +112,43 @@ export class TeamMatch {
     this.economy = config.economy ? new TeamEconomy(config.economy, players) : null;
     this.phaseLeft = config.prepTime;
     this.roundTimeLeft = config.roundTime;
+  }
+
+  get defenders(): Team {
+    return otherTeam(this.attackers);
+  }
+
+  get bombMode(): boolean {
+    return this.config.objective === 'bomb';
+  }
+
+  /** Rounds played before the sides swap (bomb objective): one less than the rounds needed to win. */
+  get halftimeAfter(): number {
+    return Math.max(this.config.roundsToWin - 1, 1);
+  }
+
+  /**
+   * The C4 was planted by `id`. Only during a live round, once: stops the
+   * round clock and pays the planter's bonus.
+   */
+  bombPlanted(id: string): boolean {
+    if (this.phase !== 'live' || !this.bombMode || this.planted) return false;
+    this.planted = true;
+    if (this.teamOf(id) === this.attackers) this.economy?.credit(id, BOMB_CONFIG.plantBonus);
+    return true;
+  }
+
+  /** The planted C4 exploded: attackers win (once, live rounds only). */
+  bombExploded(alive: Record<Team, number>): TeamMatchEvent {
+    if (this.phase !== 'live' || !this.planted) return null;
+    return this.endRound(this.attackers, 'bomb', alive);
+  }
+
+  /** `id` defused the C4: defenders win, defuser's bonus (once, live rounds only). */
+  bombDefused(id: string, alive: Record<Team, number>): TeamMatchEvent {
+    if (this.phase !== 'live' || !this.planted) return null;
+    if (this.teamOf(id) === this.defenders) this.economy?.credit(id, BOMB_CONFIG.defuseBonus);
+    return this.endRound(this.defenders, 'defuse', alive);
   }
 
   get over(): boolean {
@@ -177,6 +233,7 @@ export class TeamMatch {
         }
         return null;
       case 'live': {
+        if (this.bombMode) return this.updateBomb(dt, alive);
         // Elimination is checked before the clock: a team wiped out on the last tick still loses by elimination.
         if (alive.blue === 0 || alive.red === 0) {
           const winner = alive.blue === 0 && alive.red === 0 ? null : alive.blue === 0 ? 'red' : 'blue';
@@ -196,14 +253,44 @@ export class TeamMatch {
           this.phase = 'prep';
           this.phaseLeft = this.config.prepTime;
           this.roundTimeLeft = this.config.roundTime;
+          this.planted = false;
+          // Half time (bomb objective): sides swap once; money and loss streaks start over.
+          if (this.bombMode && this.swappedAtRound === 0 && this.round === this.halftimeAfter + 1) {
+            this.attackers = otherTeam(this.attackers);
+            this.swappedAtRound = this.round;
+            this.economy?.resetMoney();
+          }
           return 'round-start';
         }
         return null;
     }
   }
 
+  /**
+   * Bomb objective, live round. Before the plant: attackers wiped out →
+   * defenders; defenders wiped out → attackers; both on the same tick →
+   * draw; clock out → defenders. After the plant the clock stops: wiping out
+   * the attackers does not end it (the bomb must still be defused);
+   * defenders wiped out → attackers. Explosion / defuse: bombExploded / bombDefused.
+   */
+  private updateBomb(dt: number, alive: Record<Team, number>): TeamMatchEvent {
+    const atk = this.attackers;
+    const def = this.defenders;
+    if (this.planted) {
+      if (alive[def] === 0) return this.endRound(atk, 'elimination', alive);
+      return null;
+    }
+    if (alive[atk] === 0 || alive[def] === 0) {
+      const winner = alive[atk] === 0 && alive[def] === 0 ? null : alive[atk] === 0 ? def : atk;
+      return this.endRound(winner, 'elimination', alive);
+    }
+    this.roundTimeLeft = Math.max(0, this.roundTimeLeft - dt);
+    if (this.roundTimeLeft === 0) return this.endRound(def, 'time', alive);
+    return null;
+  }
+
   private endRound(winner: Team | null, reason: RoundEnd, alive: Record<Team, number>): TeamMatchEvent {
-    this.history.push({ round: this.round, winner, reason, alive: { ...alive } });
+    this.history.push({ round: this.round, winner, reason, alive: { ...alive }, attackers: this.attackers });
     if (winner) this.roundWins[winner]++;
     // The one place a round is decided, so its payout happens exactly once.
     this.economy?.settle({ round: this.round, winner });

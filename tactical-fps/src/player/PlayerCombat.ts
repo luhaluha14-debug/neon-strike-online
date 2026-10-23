@@ -55,6 +55,8 @@ export class PlayerCombat implements Damageable {
   protection = 0;
   /** Armour points (ARMOR-01, team match), separate from health. 0 = none. */
   armor = 0;
+  /** Damage events taken so far (a plant / defuse is cancelled when this changes). */
+  hits = 0;
   /** Called once per hit that actually did damage. */
   onDamage: ((e: PlayerDamageEvent) => void) | null = null;
 
@@ -104,6 +106,7 @@ export class PlayerCombat implements Damageable {
   applyDamage(info: DamageInfo): void {
     if (this.dead || this.protection > 0 || info.amount <= 0) return;
     const p = this.player;
+    this.hits++;
     const { health, absorbed } = armorSplit(info.amount, info.zone, this.armor);
     this.armor = Math.max(0, this.armor - absorbed * ARMOR_CONFIG.wearPerAbsorbed);
     p.health = Math.max(0, p.health - health);

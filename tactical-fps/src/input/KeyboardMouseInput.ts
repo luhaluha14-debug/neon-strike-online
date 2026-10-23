@@ -65,6 +65,7 @@ export class KeyboardMouseInput implements InputSource {
     out.equipLast = l.has(b.lastWeapon);
     out.equipCycle = Math.sign(this.wheel);
     out.utility = l.has(b.utility);
+    out.use = held('use');
     out.inspect = pressed('inspect');
     out.lookYaw = this.yaw;
     out.lookPitch = this.pitch;

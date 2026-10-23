@@ -15,6 +15,7 @@ export type ActionId =
   | 'slot3'
   | 'lastWeapon'
   | 'utility'
+  | 'use'
   | 'inspect';
 
 export interface ActionInfo {
@@ -40,6 +41,7 @@ export const ACTIONS: readonly ActionInfo[] = [
   { id: 'slot2', label: '저격총 (SR-01)', group: '전투', key: 'Digit2' },
   { id: 'slot3', label: '근접 (M9)', group: '전투', key: 'Digit3' },
   { id: 'lastWeapon', label: '이전 무기', group: '전투', key: 'KeyQ' },
+  { id: 'use', label: 'C4 설치 / 해체 (길게)', group: '전투', key: 'KeyE' },
   { id: 'utility', label: '투척 장비 (섬광 / 연막, 다시 누르면 전환)', group: '전투', key: 'Digit4' },
   { id: 'inspect', label: '무기 살펴보기', group: '전투', key: 'KeyF' },
 ];

@@ -162,7 +162,13 @@ export class TeamEconomy {
     return true;
   }
 
-  isSettled(round: number): boolean {
+  /** Half time: every wallet back to the starting money, loss streaks cleared (rounds already paid stay paid). */
+  resetMoney(): void {
+    for (const id of this.wallets.keys()) this.wallets.set(id, this.config.startMoney);
+    for (const t of this.lossStreak.keys()) this.lossStreak.set(t, 0);
+  }
+
+    isSettled(round: number): boolean {
     return this.settled.has(round);
   }
 }

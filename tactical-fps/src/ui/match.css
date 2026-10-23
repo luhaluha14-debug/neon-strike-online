@@ -341,3 +341,60 @@
 .rh.red .rh-w {
   color: var(--team-red);
 }
+
+/* C4 objective: the player's side, bomb status / timer, key hint and the player's plant / defuse bar. */
+.team-hud .ta.side {
+  color: var(--hud-fg, #fff);
+  font-weight: 700;
+}
+.team-hud .bomb-box {
+  position: absolute;
+  top: 92px;
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 220px;
+  padding: 6px 12px;
+  background: var(--hud-bg, rgba(17, 19, 21, 0.62));
+  color: var(--hud-fg, #fff);
+  font-size: 13px;
+  text-align: center;
+  pointer-events: none;
+}
+.team-hud .bomb-box[hidden],
+.team-hud .bomb-hint[hidden],
+.team-hud .bomb-progress[hidden] {
+  display: none;
+}
+.team-hud .bomb-status {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+.team-hud .bomb-box.planted .bomb-timer {
+  color: #ff5a46;
+}
+.team-hud .bomb-box.defused .bomb-text {
+  color: #63e08a;
+}
+.team-hud .bomb-hint {
+  margin-top: 3px;
+  color: var(--hud-dim, rgba(255, 255, 255, 0.6));
+  font-size: 12px;
+}
+.team-hud .bomb-progress {
+  margin-top: 5px;
+}
+.team-hud .bomb-track {
+  height: 5px;
+  margin-top: 3px;
+  background: rgba(255, 255, 255, 0.15);
+}
+.team-hud .bomb-bar {
+  height: 100%;
+  background: #ffb347;
+  transform-origin: left center;
+  transform: scaleX(0);
+}
+.hud:not(.playing) .team-hud .bomb-box {
+  display: none;
+}

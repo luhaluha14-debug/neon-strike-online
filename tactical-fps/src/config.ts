@@ -100,6 +100,32 @@ export const GRENADE_CONFIG = {
   },
 } as const;
 
+/**
+ * C4 bomb objective (team match, objective 'bomb'). One place for every
+ * timing, distance and reward; BombObjective / TeamMatch / Game read these.
+ */
+export const BOMB_CONFIG = {
+  /** Seconds of holding the use key, standing still in a site, to plant. */
+  plantTime: 3.2,
+  /** Seconds of holding the use key next to the bomb to defuse (no kits). */
+  defuseTime: 7,
+  /** Seconds from the plant to the explosion. */
+  timer: 40,
+  /** Defuse: feet within this distance (m) of the bomb. Pickup: an attacker within this (m) of a dropped bomb. */
+  defuseRange: 1.6,
+  pickupRange: 1.2,
+  /** Moving faster than this (m/s) cancels a plant / defuse. */
+  maxUseSpeed: 0.6,
+  /** Explosion: damage at the bomb, falling off linearly to 0 at `radius` (m). Walls do not shield (as in CS). */
+  explosionRadius: 22,
+  explosionDamage: 500,
+  /** Money to the one who planted / defused (on top of the round result). */
+  plantBonus: 300,
+  defuseBonus: 300,
+  /** A site volume shorter than this (flat floor marker) is extended upward to this height (m). */
+  siteMinHeight: 3,
+} as const;
+
 export const CAMERA_CONFIG = {
   fov: 78,
   near: 0.05,
