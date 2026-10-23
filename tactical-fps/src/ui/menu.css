@@ -381,3 +381,58 @@
 .controls-reset {
   margin-bottom: var(--s-5);
 }
+
+/* ---- 대결 포기 (pause menu, team match) -------------------------------------- */
+.forfeit-button {
+  margin-top: var(--s-2);
+  color: var(--c-text-2);
+}
+.forfeit-button[hidden] {
+  display: none;
+}
+.confirm {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: var(--s-4);
+  background: rgba(10, 11, 12, 0.72);
+}
+.confirm[hidden] {
+  display: none;
+}
+.confirm-panel {
+  width: min(420px, 100%);
+  padding: var(--s-5);
+  background: var(--c-bg-2);
+  border: 1px solid var(--c-border);
+  border-top: 3px solid var(--c-accent);
+  border-radius: var(--radius);
+}
+.confirm-panel .confirm-eyebrow {
+  color: var(--c-accent);
+}
+.confirm-text {
+  margin: var(--s-3) 0 var(--s-5);
+  color: var(--c-text);
+  font-size: var(--fs-md);
+  line-height: 1.6;
+}
+.confirm-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-2);
+}
+.confirm-actions .btn {
+  min-height: 44px;
+  font-size: var(--fs-md);
+}
+.confirm-actions .confirm-forfeit {
+  color: var(--c-danger);
+}
+@media (max-width: 420px) {
+  .confirm-actions {
+    grid-template-columns: 1fr;
+  }
+}

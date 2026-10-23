@@ -103,6 +103,8 @@ export class TeamMatch {
   planted = false;
   /** Round in which the sides swapped (0 = not yet). */
   swappedAtRound = 0;
+  /** The team that gave up the match (대결 포기), null if it was played out. */
+  forfeitedBy: Team | null = null;
 
   constructor(
     readonly config: TeamMatchConfig,
@@ -170,9 +172,25 @@ export class TeamMatch {
     return true;
   }
 
-  /** Match winner once over (null = not over, or impossible tie). */
+  /**
+   * `team` gives up (대결 포기): the match ends now as that team's loss.
+   * Nothing is played or paid for it: no round is added to the history, no
+   * round result or kill bonus is settled, rounds already settled stay as
+   * they are. Only possible once, while the match is not over.
+   */
+  forfeit(team: Team): boolean {
+    if (this.phase === 'over') return false;
+    this.forfeitedBy = team;
+    this.phase = 'over';
+    this.phaseLeft = 0;
+    this.planted = false;
+    return true;
+  }
+
+  /** Match winner once over (null = not over, or impossible tie). A forfeit goes to the other team. */
   get winner(): Team | null {
     if (!this.over) return null;
+    if (this.forfeitedBy) return otherTeam(this.forfeitedBy);
     return this.roundWins.blue >= this.config.roundsToWin ? 'blue' : this.roundWins.red >= this.config.roundsToWin ? 'red' : null;
   }
 

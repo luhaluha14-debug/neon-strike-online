@@ -176,10 +176,12 @@ export class TeamHud {
   showResults(m: TeamMatch): void {
     const winner = m.winner;
     const won = winner === m.teamOf('local');
+    const forfeit = m.forfeitedBy !== null;
     this.results.hidden = false;
     this.results.classList.toggle('won', won);
-    this.results.querySelector('.results-title')!.textContent = winner ? `${TEAM_NAME[winner]} 승리` : '경기 종료';
-    this.results.querySelector('.results-sub')!.textContent = `${won ? '승리' : '패배'} · BLUE ${m.roundWins.blue} : ${m.roundWins.red} RED · ${m.history.length}라운드`;
+    this.results.classList.toggle('forfeit', forfeit);
+    this.results.querySelector('.results-title')!.textContent = forfeit ? (won ? '상대 포기 - 승리' : '대결 포기 - 패배') : winner ? `${TEAM_NAME[winner]} 승리` : '경기 종료';
+    this.results.querySelector('.results-sub')!.textContent = `${won ? '승리' : '패배'} · BLUE ${m.roundWins.blue} : ${m.roundWins.red} RED · ${m.history.length}라운드${forfeit ? ' 진행 후 포기' : ''}`;
     this.results.querySelector('.round-history')!.innerHTML = m.history
       .map((r) => {
         const cls = r.winner ?? 'draw';

@@ -310,8 +310,12 @@ test('after the plant: attackers wiped out does not end the round; the explosion
     const afterWipe = { phase: tm.phase, alive: g.teamAlive() };
     const blueMoney = tm.economy.money('local');
     let frames = 0;
+    // Nobody defuses here (this checks the timer and the blast): the team plan is switched off and the
+    // defenders hold no orders (bot defusing is covered in tactics.test.mjs).
+    g.director = null;
+    for (const b of g.squad.bots) b.order = null;
     while (g.bomb.state === 'planted' && frames < 3000) {
-      // Keep the red bot by the bomb (no defuse: bots get their objective logic in the bot stage).
+      // Keep the red bot by the bomb.
       red.controller.teleport(g.bomb.position.clone().setY(g.bomb.position.y + 0.1).add(new T.V(1.5, 0, 0)), 0);
       red.useKey = false;
       T.run(1);

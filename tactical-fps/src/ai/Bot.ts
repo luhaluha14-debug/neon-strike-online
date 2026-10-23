@@ -58,6 +58,22 @@ export interface BotOrder {
 const ARRIVE = 0.7;
 /** Shortest time (s) between two path searches for the same order. */
 const ORDER_REPATH = 2;
+/**
+ * With a team order and still on the way to its spot, an enemy first seen
+ * farther than this (m) is reported to the team but not duelled: the bot
+ * keeps to its route instead of stopping in an open sight line (e.g. spawn
+ * to spawn down the middle at round start). Closer enemies, and any enemy
+ * seen from the ordered spot itself, are engaged as always.
+ */
+const ORDER_ENGAGE_RANGE = 30;
+/**
+ * ...and only while the ordered spot is still farther than this (m): near its
+ * site a bot fights as usual. A bot fetching a dropped bomb counts as on the
+ * move however close the bomb is (it is going for the bomb, not holding there).
+ */
+const ORDER_TRAVEL_RANGE = 15;
+/** With a team order, a lost enemy is only searched for when last seen within this distance (m); otherwise back to the order. */
+const ORDER_CHASE_RANGE = 12;
 
 const THINK_INTERVAL = 0.15;
 /** Half-angle of the field of view (rad). */
@@ -114,6 +130,8 @@ export class Bot {
   onSpot: ((enemy: Combatant) => void) | null = null;
   /** Goal the current path was searched for (NaN = none). */
   private readonly pathGoal = new THREE.Vector3(NaN, NaN, NaN);
+  /** Last far enemy passed on to the team without engaging (reported once). */
+  private spotted: Combatant | null = null;
   private orderRepath = 0;
   private teamId: string | undefined = undefined;
 
@@ -204,6 +222,7 @@ export class Bot {
     this.order = null;
     this.useKey = false;
     this.releaseUse = false;
+    this.spotted = null;
     this.pathGoal.set(NaN, NaN, NaN);
     this.combat.reset();
     this.weapons.resetForRespawn();
@@ -383,7 +402,16 @@ export class Bot {
         bestD = d;
       }
     }
-    if (best) {
+    // On the way to an ordered spot: a far enemy (not already being fought) is called out, not duelled.
+    const o0 = this.order;
+    const travelling = !!o0 && !this.atGoal() && (o0.role === 'retriever' || Math.hypot(o0.goal.x - c.position.x, o0.goal.z - c.position.z) > ORDER_TRAVEL_RANGE);
+    const passBy = !!best && this.mode !== 'engage' && travelling && bestD > ORDER_ENGAGE_RANGE;
+    if (best && passBy) {
+      if (best !== this.spotted) {
+        this.spotted = best;
+        this.onSpot?.(best);
+      }
+    } else if (best) {
       if (best !== this.target || this.mode !== 'engage') {
         this.onSpot?.(best);
         this.seenFor = 0;
@@ -394,6 +422,14 @@ export class Bot {
       this.mode = 'engage';
       this.lostFor = 0;
       this.lastSeen.copy(best.position);
+      return;
+    }
+    if (this.mode === 'engage' && this.order && Math.hypot(this.lastSeen.x - c.position.x, this.lastSeen.z - c.position.z) > ORDER_CHASE_RANGE) {
+      // Lost sight of an enemy far away: no chase across the map, back to the order.
+      this.mode = 'wander';
+      this.target = null;
+      this.path = [];
+      this.pathGoal.set(NaN, NaN, NaN);
       return;
     }
     if (this.mode === 'engage') {
