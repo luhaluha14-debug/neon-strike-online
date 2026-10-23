@@ -3,6 +3,8 @@ import { BotSquad, type SquadMember } from '../ai/BotSquad';
 import { preloadAgentModels } from '../ai/AgentModel';
 import type { Bot, Combatant } from '../ai/Bot';
 import { NavGrid } from '../ai/NavGrid';
+import { TacticalDirector } from '../ai/TacticalDirector';
+import { TacticalMap } from '../ai/TacticalMap';
 import { HitscanSystem } from '../combat/HitscanSystem';
 import { GrenadeSystem, type FlashObserver, type GrenadeKind } from '../combat/Grenades';
 import { GrenadeEffects } from '../fx/GrenadeEffects';
@@ -125,6 +127,13 @@ export class Game {
   /** Thrown utility on the current map (FLASH-01 / SMOKE-01 of the team match). */
   grenades: GrenadeSystem | null = null;
   readonly grenadeFx = new GrenadeEffects();
+  /** Bomb objective bot tactics: the map's sites analysed once per map, and the plan of the current match. */
+  tacticalMap: TacticalMap | null = null;
+  director: TacticalDirector | null = null;
+  /** Seconds since the current round went live (director). */
+  private liveTime = 0;
+  /** `?seed=N`: bots' random choices from a fixed seed (reproducible runs); null = Math.random. */
+  private readonly seed: number | null;
   /** C4 objective of the team match (objective 'bomb' on a map with bomb sites). */
   bomb: BombObjective | null = null;
   readonly bombFx = new BombEffects();
@@ -188,6 +197,8 @@ export class Game {
     this.settings = settings;
     this.matchSettings = loadMatchSettings();
     this.mode = parseMode(new URLSearchParams(location.search).get('mode')) ?? this.matchSettings.mode;
+    const seedParam = new URLSearchParams(location.search).get('seed');
+    this.seed = seedParam !== null && Number.isFinite(Number(seedParam)) ? Number(seedParam) : null;
     // `?objective=elimination|bomb` overrides the saved team match objective for this visit.
     this.matchSettings.objective = parseObjective(new URLSearchParams(location.search).get('objective')) ?? this.matchSettings.objective;
     // eslint-disable-next-line @typescript-eslint/no-this-alias
@@ -383,6 +394,7 @@ export class Game {
     if (document.pointerLockElement) document.exitPointerLock();
     this.teardownMode();
     this.nav = null;
+    this.tacticalMap = null;
     this.teamSpawns = null;
     if (this.combat) this.hitscan?.unregister(this.combat);
     this.combat = null;
@@ -557,7 +569,9 @@ export class Game {
       // Built once per map and reused by every match and round.
       this.nav ??= new NavGrid(map);
       console.info(`[bots] nav grid ${this.nav.walkable.length} cells in ${this.nav.buildMs.toFixed(0)} ms`);
-      const squad = new BotSquad(map, this.nav, hitscan, team ? TEAM_ROSTER : this.matchSettings.bots, [AR_01], Math.random, this.matchSettings.botLook);
+      // A fresh seeded stream per match: the same seed replays the same bot choices.
+      const rand = this.seed === null ? Math.random : seededRandom(this.seed);
+      const squad = new BotSquad(map, this.nav, hitscan, team ? TEAM_ROSTER : this.matchSettings.bots, [AR_01], rand, this.matchSettings.botLook);
       // Team match: deaths last until the round ends.
       squad.respawns = !team;
       squad.events = {
@@ -594,7 +608,14 @@ export class Game {
           { id: 'local', name: 'YOU', team: 'blue', isPlayer: true },
           ...squad.bots.map((b) => ({ id: b.id, name: b.name, team: b.team as Team, isPlayer: false })),
         ]);
-        if (this.teamMatch.bombMode) this.bomb = new BombObjective(map.bombSites);
+        if (this.teamMatch.bombMode) {
+          this.bomb = new BombObjective(map.bombSites);
+          this.tacticalMap ??= new TacticalMap(map, this.nav, map.bombSites);
+          console.info(`[bots] tactical map: ${this.tacticalMap.sites.map((s) => `${s.name} ${s.plantSpots.length} plant / ${s.entrances.length} ways in / ${s.holds.length} holds`).join(', ')} in ${this.tacticalMap.buildMs.toFixed(0)} ms`);
+          const director = new TacticalDirector(this.tacticalMap, rand);
+          this.director = director;
+          for (const b of squad.bots) b.onSpot = (e) => director.report(b.team as Team, e.position);
+        }
       } else {
         this.match = new Match(this.matchSettings, [{ id: 'local', name: 'YOU', isPlayer: true }, ...squad.bots.map((b) => ({ id: b.id, name: b.name, isPlayer: false }))]);
       }
@@ -654,6 +675,9 @@ export class Game {
       b.useKey = false;
     }
     this.resetBomb();
+    TacticalDirector.clear(squad.bots);
+    this.director?.newRound();
+    this.liveTime = 0;
     this.spectateIndex = 0;
     this.hud.setDeathNote(null);
   }
@@ -712,6 +736,17 @@ export class Game {
     return out;
   }
 
+  /** Bomb objective: the team plans (a couple of times a second) from what each team may know. */
+  private stepDirector(tick: number, tm: TeamMatch): void {
+    const d = this.director;
+    const bomb = this.bomb;
+    const squad = this.squad;
+    if (!d || !bomb || !squad) return;
+    this.liveTime += tick;
+    const centre = (t: Team) => this.spawnsOf(t).reduce((a, s) => a.add(s.position), new THREE.Vector3()).multiplyScalar(1 / Math.max(this.spawnsOf(t).length, 1));
+    d.update(tick, { attackers: tm.attackers, bots: squad.bots, bomb, liveTime: this.liveTime, attackSpawn: centre(tm.attackers), defenseSpawn: centre(tm.defenders) });
+  }
+
   /** One tick of the C4 objective in a live round: plant / defuse / pickup / timer, and what they decide. */
   private stepBomb(tick: number): void {
     const tm = this.teamMatch;
@@ -723,6 +758,13 @@ export class Game {
         case 'defuse-start':
           this.bombSound('c4.press', e.id);
           break;
+        case 'plant-cancel':
+        case 'defuse-cancel': {
+          // A bot lets go of the key for a tick so it can start again.
+          const b = this.squad?.bots.find((x) => x.id === e.id);
+          if (b) b.releaseUse = true;
+          break;
+        }
         case 'planted':
           tm.bombPlanted(e.id);
           this.bombSound('c4.press', e.id);
@@ -879,6 +921,7 @@ export class Game {
 
   private teardownMode(): void {
     this.clearGrenades();
+    this.director = null;
     this.bomb = null;
     this.bombFx.clear();
     this.teamHud.setBomb(null);
@@ -1136,8 +1179,10 @@ export class Game {
           this.match.update(tick);
         }
         if (tm) {
-          if (tm.phase === 'live') this.squad?.step(tick, this.playerCombatant);
-          else this.squad?.hold(tick);
+          if (tm.phase === 'live') {
+            this.stepDirector(tick, tm);
+            this.squad?.step(tick, this.playerCombatant);
+          } else this.squad?.hold(tick);
           this.stepBomb(tick);
           if (tm.update(tick, this.teamAlive()) === 'round-start') this.startRound(true);
         }
@@ -1632,6 +1677,18 @@ export class Game {
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.viewModel.setAspect(this.camera.aspect);
+  };
+}
+
+/** Small seeded PRNG (mulberry32) for reproducible bot behaviour (`?seed=`). */
+function seededRandom(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
 

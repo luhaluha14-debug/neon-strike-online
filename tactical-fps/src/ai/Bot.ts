@@ -36,6 +36,29 @@ export const DEFAULT_SKILL: BotSkill = { reaction: 0.6, aimStart: 0.16, aimBest:
 
 type Mode = 'wander' | 'engage' | 'search';
 
+/** What a bot is doing for its team (TacticalDirector). */
+export type BotRole = 'carrier' | 'entry' | 'support' | 'flank' | 'retriever' | 'postplant' | 'anchor' | 'rotator' | 'defuser' | 'cover';
+
+/**
+ * A team order: walk to `goal` (nav grid path), then hold there watching
+ * `look`; with `use`, hold the use key there (plant / defuse). Seeing an
+ * enemy still comes first (engage, then search), after which the bot goes
+ * back to its order.
+ */
+export interface BotOrder {
+  role: BotRole;
+  goal: THREE.Vector3;
+  look: THREE.Vector3 | null;
+  use: boolean;
+  /** Stable description of the order ("A:entry:main"); a new tag means a new order. */
+  tag: string;
+}
+
+/** Within this distance (m, horizontal) of an order's goal the bot has arrived. */
+const ARRIVE = 0.7;
+/** Shortest time (s) between two path searches for the same order. */
+const ORDER_REPATH = 2;
+
 const THINK_INTERVAL = 0.15;
 /** Half-angle of the field of view (rad). */
 const FOV_HALF = (130 / 2) * (Math.PI / 180);
@@ -81,8 +104,17 @@ export class Bot {
    * blocked by something other than the map. Set by whoever owns the bots.
    */
   sightBlocked: ((from: THREE.Vector3, to: THREE.Vector3) => boolean) | null = null;
-  /** Holding "use" this tick: planting / defusing the C4 (set by the bot's objective logic). */
+  /** Holding "use" this tick: planting / defusing the C4 (follows the order's `use` once arrived). */
   useKey = false;
+  /** Let go of the use key for one tick (a plant / defuse was cancelled and must be started again). */
+  releaseUse = false;
+  /** Team order (bomb objective); null = roam as in the other modes. */
+  order: BotOrder | null = null;
+  /** Called when this bot spots an enemy (its team hears about it: TacticalDirector.report). */
+  onSpot: ((enemy: Combatant) => void) | null = null;
+  /** Goal the current path was searched for (NaN = none). */
+  private readonly pathGoal = new THREE.Vector3(NaN, NaN, NaN);
+  private orderRepath = 0;
   private teamId: string | undefined = undefined;
 
   private path: THREE.Vector3[] = [];
@@ -169,6 +201,10 @@ export class Bot {
   spawn(at: THREE.Vector3, yaw: number): void {
     this.controller.teleport(at.clone().setY(at.y + 0.1), yaw);
     this.blindTime = 0;
+    this.order = null;
+    this.useKey = false;
+    this.releaseUse = false;
+    this.pathGoal.set(NaN, NaN, NaN);
     this.combat.reset();
     this.weapons.resetForRespawn();
     this.mode = 'wander';
@@ -221,6 +257,9 @@ export class Bot {
       const next = this.nextWaypoint();
       if (next) wantYaw = Math.atan2(-(next.x - c.position.x), -(next.z - c.position.z));
       if (this.mode === 'search') wantYaw = Math.atan2(-(this.lastSeen.x - c.position.x), -(this.lastSeen.z - c.position.z));
+      // Holding an ordered spot: watch the way the enemy would come.
+      const o = this.order;
+      if (this.mode === 'wander' && o && this.atGoal() && o.look) wantYaw = Math.atan2(-(o.look.x - c.position.x), -(o.look.z - c.position.z));
     }
     const maxTurn = this.skill.turnSpeed * dt;
     c.yaw += THREE.MathUtils.clamp(wrap(wantYaw - c.yaw), -maxTurn, maxTurn);
@@ -248,9 +287,14 @@ export class Bot {
     } else {
       const next = this.nextWaypoint();
       if (next) _dir.set(next.x - c.position.x, 0, next.z - c.position.z);
+      // Path done (it ends on the goal's grid cell): the last steps straight onto the goal itself.
+      else if (this.mode === 'wander' && this.order && !this.atGoal()) _dir.set(this.order.goal.x - c.position.x, 0, this.order.goal.z - c.position.z);
     }
-    // Keep a little room from other bots (not while braking to shoot).
-    for (const o of counterStrafe || (this.mode === 'engage' && this.peekTimer <= 0) ? [] : others) {
+    // Arrived at an ordered spot: stand there (still for a plant / defuse).
+    const holding = this.mode === 'wander' && !!this.order && this.atGoal();
+    if (holding) _dir.set(0, 0, 0);
+    // Keep a little room from other bots (not while braking to shoot, nor while holding a spot).
+    for (const o of counterStrafe || holding || (this.mode === 'engage' && this.peekTimer <= 0) ? [] : others) {
       if (o === this || !o.alive) continue;
       const dx = c.position.x - o.position.x;
       const dz = c.position.z - o.position.z;
@@ -289,6 +333,9 @@ export class Bot {
     }
 
     c.step(input, dt);
+    // Plant / defuse: hold "use" once at the spot, not while fighting.
+    this.useKey = holding && !!this.order?.use && !this.releaseUse;
+    this.releaseUse = false;
 
     // --- Shooting ---
     const w = this.weapons.weapon;
@@ -338,6 +385,7 @@ export class Bot {
     }
     if (best) {
       if (best !== this.target || this.mode !== 'engage') {
+        this.onSpot?.(best);
         this.seenFor = 0;
         this.aimErrorSize = this.skill.aimStart;
         this.rollAimError();
@@ -354,6 +402,8 @@ export class Bot {
       this.path = this.nav.findPath(c.position, this.lastSeen) ?? [];
       this.pathIndex = 0;
       this.lostFor = 0;
+      // Back to the order afterwards: its path has to be found again.
+      this.pathGoal.set(NaN, NaN, NaN);
       return;
     }
     if (this.mode === 'search') {
@@ -362,6 +412,19 @@ export class Bot {
         this.mode = 'wander';
         this.target = null;
         this.path = [];
+      }
+      return;
+    }
+    // A team order: path to its goal (only when the goal changed, or the path ran out short of it).
+    const o = this.order;
+    if (o) {
+      this.orderRepath -= THINK_INTERVAL;
+      const changed = !(this.pathGoal.distanceToSquared(o.goal) < 0.25);
+      if (changed || (!this.nextWaypoint() && !this.atGoal() && this.orderRepath <= 0)) {
+        this.pathGoal.copy(o.goal);
+        this.path = this.nav.findPath(c.position, o.goal) ?? [];
+        this.pathIndex = 0;
+        this.orderRepath = ORDER_REPATH;
       }
       return;
     }
@@ -408,6 +471,14 @@ export class Bot {
     _to.normalize();
     if (this.world.raycast(_eye, _to, dist) !== null) return null;
     return dist;
+  }
+
+  /** At the current order's goal (horizontally within ARRIVE, path done)? */
+  private atGoal(): boolean {
+    const o = this.order;
+    if (!o) return false;
+    const p = this.controller.position;
+    return Math.hypot(o.goal.x - p.x, o.goal.z - p.z) < ARRIVE && Math.abs(o.goal.y - p.y) < 1.5;
   }
 
   /** Next path point not yet reached (advances past reached ones), or null. */
