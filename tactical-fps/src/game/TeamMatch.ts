@@ -65,8 +65,8 @@ export interface RoundResult {
   reason: RoundEnd;
   /** Survivors when the round was decided. */
   alive: Record<Team, number>;
-  /** Team on attack in that round (bomb objective). */
-  attackers: Team;
+  /** Team on attack in that round (bomb objective only; elimination rounds have no sides). */
+  attackers?: Team;
 }
 
 export interface TeamScoreLine {
@@ -290,7 +290,7 @@ export class TeamMatch {
   }
 
   private endRound(winner: Team | null, reason: RoundEnd, alive: Record<Team, number>): TeamMatchEvent {
-    this.history.push({ round: this.round, winner, reason, alive: { ...alive }, attackers: this.attackers });
+    this.history.push({ round: this.round, winner, reason, alive: { ...alive }, ...(this.bombMode ? { attackers: this.attackers } : {}) });
     if (winner) this.roundWins[winner]++;
     // The one place a round is decided, so its payout happens exactly once.
     this.economy?.settle({ round: this.round, winner });
