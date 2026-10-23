@@ -47,7 +47,8 @@ export const CATALOG: readonly CatalogItem[] = [
   { id: 'SG-01', name: '산탄총 (8펠릿)', slot: 'primary', category: 'shotgun', price: 2000, weapon: SG_01, available: true },
   { id: 'PIS-01', name: '권총', slot: 'secondary', category: 'pistol', price: 500, weapon: PIS_01, available: true },
   { id: 'Knife', name: '근접 무기 (M9 총검)', slot: 'melee', category: 'knife', price: 0, weapon: KARAMBIT, available: true },
-  { id: 'ARMOR-01', name: '방탄 조끼', slot: 'armor', category: 'armor', price: 650, weapon: null, available: false, lockedReason: '준비 중: 방어력 시스템 미구현' },
+  // Armour points and absorption: ARMOR_CONFIG (config.ts). Body only (there is no helmet).
+  { id: 'ARMOR-01', name: '방탄 조끼 (몸통)', slot: 'armor', category: 'armor', price: 650, weapon: null, available: true },
   { id: 'FLASH-01', name: '섬광탄', slot: 'utility', category: 'grenade', price: 300, weapon: null, available: false, lockedReason: '준비 중: 투척·섬광 효과 미구현' },
   { id: 'SMOKE-01', name: '연막탄', slot: 'utility', category: 'grenade', price: 400, weapon: null, available: false, lockedReason: '준비 중: 투척·연막 시야 차단 미구현' },
 ];

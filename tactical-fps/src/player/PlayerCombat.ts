@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { PLAYER_CONFIG } from '../config';
+import { ARMOR_CONFIG, PLAYER_CONFIG } from '../config';
 import type { Damageable, DamageInfo, HitZone, TargetHit } from '../combat/Damage';
 import type { PlayerController } from './PlayerController';
 
@@ -15,7 +15,10 @@ const HEAD = 0.86;
 const LEGS = 0.5;
 
 export interface PlayerDamageEvent {
+  /** Health lost. */
   amount: number;
+  /** Damage the armour stopped (0 without armour or on an uncovered zone). */
+  absorbed: number;
   /** Shooter id ('local' = the player, bots 'bot-N') and weapon. */
   sourceId: string;
   weaponId: string;
@@ -50,6 +53,8 @@ export class PlayerCombat implements Damageable {
   deadTime = 0;
   /** Seconds of spawn protection left. */
   protection = 0;
+  /** Armour points (ARMOR-01, team match), separate from health. 0 = none. */
+  armor = 0;
   /** Called once per hit that actually did damage. */
   onDamage: ((e: PlayerDamageEvent) => void) | null = null;
 
@@ -99,13 +104,15 @@ export class PlayerCombat implements Damageable {
   applyDamage(info: DamageInfo): void {
     if (this.dead || this.protection > 0 || info.amount <= 0) return;
     const p = this.player;
-    p.health = Math.max(0, p.health - info.amount);
+    const { health, absorbed } = armorSplit(info.amount, info.zone, this.armor);
+    this.armor = Math.max(0, this.armor - absorbed * ARMOR_CONFIG.wearPerAbsorbed);
+    p.health = Math.max(0, p.health - health);
     const killed = p.health === 0;
     if (killed) {
       this.dead = true;
       this.deadTime = 0;
     }
-    this.onDamage?.({ amount: info.amount, sourceId: info.sourceId, weaponId: info.weaponId, zone: info.zone, direction: info.direction.clone(), killed });
+    this.onDamage?.({ amount: health, absorbed, sourceId: info.sourceId, weaponId: info.weaponId, zone: info.zone, direction: info.direction.clone(), killed });
   }
 
   /** Advances timers by one simulation tick. */
@@ -114,13 +121,28 @@ export class PlayerCombat implements Damageable {
     else if (this.protection > 0) this.protection = Math.max(0, this.protection - dt);
   }
 
-  /** Alive at full health with fresh spawn protection (called on every (re)spawn). */
-  reset(): void {
+  /**
+   * Alive at full health with fresh spawn protection (called on every
+   * (re)spawn). Armour is removed unless `keepArmor` (team match survivor).
+   */
+  reset(keepArmor = false): void {
+    if (!keepArmor) this.armor = 0;
     this.dead = false;
     this.deadTime = 0;
     this.protection = SPAWN_PROTECTION;
     this.player.health = PLAYER_CONFIG.maxHealth;
   }
+}
+
+/**
+ * How a hit of `amount` on `zone` splits between health and armour
+ * (ARMOR_CONFIG): a covered zone with armour left loses `absorb` of the
+ * damage to the armour, limited by the armour there is.
+ */
+export function armorSplit(amount: number, zone: HitZone, armor: number): { health: number; absorbed: number } {
+  if (armor <= 0 || !ARMOR_CONFIG.zones.includes(zone)) return { health: amount, absorbed: 0 };
+  const absorbed = Math.min(Math.round(amount * ARMOR_CONFIG.absorb), Math.floor(armor / ARMOR_CONFIG.wearPerAbsorbed));
+  return { health: amount - absorbed, absorbed };
 }
 
 /** Entry distance of a ray into a capsule (union of a finite cylinder and two end spheres). */

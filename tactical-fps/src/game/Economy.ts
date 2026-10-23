@@ -3,6 +3,7 @@
 // and calls it when a kill is credited and when a round is decided; Game
 // applies a BuyLoadout to the player's WeaponSystem.
 
+import { ARMOR_CONFIG } from '../config';
 import { CATALOG, DEFAULT_MELEE_ID, findItem, type CatalogItem, type ItemSlot } from '../weapons/catalog';
 
 export interface EconomyConfig {
@@ -176,8 +177,16 @@ export interface BuyResult {
   message: string;
   /** Money spent (net of a refunded replaced item). */
   spent: number;
-  /** Item that was replaced (and refunded). */
+  /** Item that was replaced (refunded if it was bought in this buy phase). */
   replaced?: CatalogItem;
+  /** ARMOR-01 bought: the armour value to give the buyer. */
+  armor?: number;
+}
+
+/** What the buyer has right now that the loadout does not track itself. */
+export interface BuyContext {
+  /** Current armour points. */
+  armor: number;
 }
 
 /**
@@ -187,8 +196,11 @@ export interface BuyResult {
  * or into a new match.
  */
 export const LOADOUT_RULES = {
-  /** Gear a survivor keeps into the next round (weapons keep their magazine and reserve as they are). */
-  keepOnSurvive: { primary: true, secondary: true },
+  /**
+   * Gear a survivor keeps into the next round (weapons keep their magazine
+   * and reserve as they are; the vest keeps the armour points it has left).
+   */
+  keepOnSurvive: { primary: true, secondary: true, armor: true },
   /** Issued for free to everyone every round (a survivor already has it). */
   defaultIssue: [DEFAULT_MELEE_ID],
 } as const;
@@ -248,6 +260,13 @@ export class BuyLoadout {
     return this.boughtThisRound.has(id);
   }
 
+  /** What buying `item` would refund: the price of the weapon it replaces, if that was bought in this buy phase. */
+  refundFor(item: CatalogItem): number {
+    if (item.slot !== 'primary' && item.slot !== 'secondary') return 0;
+    const replaced = this.held(item.slot);
+    return replaced && replaced.id !== item.id && this.boughtThisRound.has(replaced.id) ? replaced.price : 0;
+  }
+
   held(slot: ItemSlot): CatalogItem | null {
     return slot === 'primary' ? this.primary : slot === 'secondary' ? this.secondary : slot === 'melee' ? this.melee : null;
   }
@@ -257,15 +276,30 @@ export class BuyLoadout {
   }
 
   /** Buys `id` for `buyer` from `economy`. Atomic: on failure neither money nor gear changes. */
-  buy(id: string, economy: TeamEconomy, buyer: string): BuyResult {
+  buy(id: string, economy: TeamEconomy, buyer: string, ctx: BuyContext = { armor: 0 }): BuyResult {
     const item = findItem(id) ?? null;
     const fail = (reason: BuyFailure, message: string): BuyResult => ({ ok: false, item, reason, message, spent: 0 });
     if (!item) return fail('unknown', '알 수 없는 장비입니다');
     if (!item.available) return fail('locked', `${item.id}: ${item.lockedReason ?? '준비 중'}`);
+    // ARMOR-01: a full vest is "owned"; a worn one can be topped up to full for the full price.
+    if (item.slot === 'armor') {
+      if (ctx.armor >= ARMOR_CONFIG.max) return fail('owned', `${item.id}: 이미 방어구가 가득합니다 (${ARMOR_CONFIG.max})`);
+      if (economy.money(buyer) < item.price) {
+        return fail('funds', `자금 부족: ${item.id} ${formatMoney(item.price)} (부족 ${formatMoney(item.price - economy.money(buyer))})`);
+      }
+      if (!economy.pay(buyer, item.price, 0)) return fail('funds', `자금 부족: ${item.id} ${formatMoney(item.price)}`);
+      return {
+        ok: true,
+        item,
+        spent: item.price,
+        armor: ARMOR_CONFIG.max,
+        message: ctx.armor > 0 ? `${item.id} 보충 ${ctx.armor} → ${ARMOR_CONFIG.max} (-${formatMoney(item.price)})` : `${item.id} 구매 완료 (-${formatMoney(item.price)})`,
+      };
+    }
     if (this.owns(item.id)) return fail('owned', `${item.id}: 이미 보유한 장비입니다`);
     if (item.slot !== 'primary' && item.slot !== 'secondary') return fail('locked', `${item.id}: 구매할 수 없는 장비입니다`);
     const replaced = this.held(item.slot);
-    const refund = replaced && this.boughtThisRound.has(replaced.id) ? replaced.price : 0;
+    const refund = this.refundFor(item);
     const money = economy.money(buyer);
     if (money + refund < item.price) {
       return fail('funds', `자금 부족: ${item.id} ${formatMoney(item.price)} (부족 ${formatMoney(item.price - money - refund)})`);

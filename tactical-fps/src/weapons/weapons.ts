@@ -78,6 +78,8 @@ export const AR_01: WeaponDefinition = {
 export const SR_01: WeaponDefinition = {
   id: 'sr01',
   displayName: 'SR-01',
+  // Right mouse: 4x scope, look slowed to 40 % while zoomed.
+  scope: { zoom: 4, sensitivity: 0.4 },
   category: 'sniper',
   fireMode: 'semi',
   // ~1.45 s between shots: the bolt cycle.

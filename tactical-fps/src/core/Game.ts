@@ -24,7 +24,7 @@ import { Hud } from '../ui/Hud';
 import { MatchHud } from '../ui/MatchHud';
 import { TeamHud } from '../ui/TeamHud';
 import { BuyMenu } from '../ui/BuyMenu';
-import { BuyLoadout, type BuyResult } from '../game/Economy';
+import { BuyLoadout, LOADOUT_RULES, type BuyResult } from '../game/Economy';
 import { CATALOG } from '../weapons/catalog';
 import { loadGltfScene } from '../weapons/view/GltfWeaponView';
 import { createWeaponView, loadWeaponView, preloadWeaponViews } from '../weapons/view/WeaponView';
@@ -113,6 +113,8 @@ export class Game {
   buyMenuOpen = false;
   /** Team match: number key (0 = "1") of each entry of the player's loadout; null outside the team match. */
   private playerSlotKeys: number[] | null = null;
+  /** Looking through a weapon scope this frame (derived every frame from button, weapon and state). */
+  scoped = false;
   /** Team match: which living teammate a dead player watches, and the fire button's last state (to cycle). */
   private spectateIndex = 0;
   private spectateFireHeld = false;
@@ -492,7 +494,8 @@ export class Game {
     if (keepWeapons) this.weapons?.clearTransient();
     else this.weapons?.resetForRespawn();
     this.body.reset();
-    this.combat?.reset();
+    // A team match survivor keeps the armour left on the vest (LOADOUT_RULES).
+    this.combat?.reset(keepWeapons && LOADOUT_RULES.keepOnSurvive.armor);
     this.hud.setDeath(null, RESPAWN_DELAY);
     this.trainingRange?.reset();
     this.impacts.clear();
@@ -845,6 +848,28 @@ export class Game {
       this.inputState.lookYaw = 0;
       this.inputState.lookPitch = 0;
     }
+    // Scope (SR-01): right button held with the weapon ready, playing, alive; look slowed while zoomed.
+    const held = this.weapons?.weapon;
+    const scope = held?.def.scope;
+    this.scoped =
+      !!scope &&
+      !!held &&
+      this.inputState.aim &&
+      this.input.active &&
+      !this.buyMenuOpen &&
+      (!combat || combat.alive) &&
+      held.status === 'ready' &&
+      held.timeSinceShot >= held.fireInterval * 0.85;
+    if (this.scoped && scope) {
+      this.inputState.lookYaw *= scope.sensitivity;
+      this.inputState.lookPitch *= scope.sensitivity;
+    }
+    const fov = this.scoped && scope ? scopedFov(CAMERA_CONFIG.fov, scope.zoom) : CAMERA_CONFIG.fov;
+    if (this.camera.fov !== fov) {
+      this.camera.fov = fov;
+      this.camera.updateProjectionMatrix();
+    }
+    this.hud.setScoped(this.scoped);
     const lookYaw = this.inputState.lookYaw;
     const lookPitch = this.inputState.lookPitch;
     this.weapons?.onLookInput(lookPitch);
@@ -943,9 +968,10 @@ export class Game {
     this.sky.follow(this.camera);
     this.renderer.clear();
     this.renderer.render(this.scene, this.camera);
-    // No weapon in hand while dead.
-    if (!dead) this.viewModel.render(this.renderer);
+    // No weapon in hand while dead; none while looking through the scope.
+    if (!dead && !this.scoped) this.viewModel.render(this.renderer);
     this.hud.setHealth(player.health);
+    this.hud.setArmor(this.combat?.armor ?? 0);
     if (this.teamMatch) this.hud.setDeath(dead ? 0 : null, 1);
     else this.hud.setDeath(dead ? combat!.respawnIn : null, RESPAWN_DELAY);
     this.updateWeaponHud();
@@ -1124,9 +1150,10 @@ export class Game {
       this.buyMenu.feedback(r.message, false);
       return r;
     }
-    const r = this.buyLoadout.buy(id, eco, 'local');
+    const r = this.buyLoadout.buy(id, eco, 'local', { armor: this.combat.armor });
     this.buyMenu.feedback(r.message, r.ok);
-    if (r.ok && r.item) this.applyBuyLoadout(r.item.id);
+    if (r.ok && r.armor !== undefined) this.combat.armor = r.armor;
+    else if (r.ok && r.item?.weapon) this.applyBuyLoadout(r.item.id);
     return r;
   }
 
@@ -1192,7 +1219,7 @@ export class Game {
   private updateBuyMenu(): void {
     const tm = this.teamMatch;
     if (!tm?.economy) return;
-    this.buyMenu.update({ timeLeft: tm.phaseLeft, money: tm.economy.money('local'), loadout: this.buyLoadout });
+    this.buyMenu.update({ timeLeft: tm.phaseLeft, money: tm.economy.money('local'), loadout: this.buyLoadout, armor: this.combat?.armor ?? 0 });
   }
 
   /** HUD slot strip; in the team match the numbers are the keys (1 primary, 2 secondary, 3 knife). */
@@ -1248,6 +1275,11 @@ export class Game {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.viewModel.setAspect(this.camera.aspect);
   };
+}
+
+/** Vertical field of view (degrees) that magnifies `base` by `zoom`. */
+function scopedFov(base: number, zoom: number): number {
+  return (2 * Math.atan(Math.tan((base * Math.PI) / 360) / zoom) * 180) / Math.PI;
 }
 
 /** Weapon card data straight from the weapon definition (no invented stats). */

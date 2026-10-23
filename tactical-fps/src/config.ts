@@ -33,6 +33,20 @@ export const PLAYER_CONFIG = {
   maxHealth: 100,
 } as const;
 
+/**
+ * ARMOR-01 (team match vest). Kept apart from health: a covered hit takes
+ * `absorb` of its damage out of the armour instead (as long as there is
+ * armour left), wearing `wearPerAbsorbed` armour points per point stopped.
+ * There is no helmet in the game, so head hits are never reduced.
+ */
+export const ARMOR_CONFIG = {
+  max: 100,
+  absorb: 0.3,
+  wearPerAbsorbed: 1,
+  /** Hit zones the vest covers (PlayerCombat zones: head / body / limb). */
+  zones: ['body'] as readonly string[],
+} as const;
+
 export const CAMERA_CONFIG = {
   fov: 78,
   near: 0.05,

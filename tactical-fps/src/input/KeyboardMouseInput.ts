@@ -30,6 +30,7 @@ export class KeyboardMouseInput implements InputSource {
     document.addEventListener('mouseup', this.handleMouseUp);
     document.addEventListener('wheel', this.handleWheel, { passive: true });
     document.addEventListener('pointerlockchange', this.handlePointerLockChange);
+    document.addEventListener('contextmenu', this.handleContextMenu);
   }
 
   get active(): boolean {
@@ -57,6 +58,8 @@ export class KeyboardMouseInput implements InputSource {
     out.crouch = held('crouch') || k.has('ControlLeft');
     out.walk = held('walk');
     out.fire = ((this.mouseButtons | this.latchedButtons) & 1) !== 0;
+    // Right button: held state only (a scope follows the button).
+    out.aim = (this.mouseButtons & 4) !== 0;
     out.reload = pressed('reload');
     out.equipSlot = this.requestedSlot;
     out.equipLast = l.has(b.lastWeapon);
@@ -84,7 +87,13 @@ export class KeyboardMouseInput implements InputSource {
     document.removeEventListener('mouseup', this.handleMouseUp);
     document.removeEventListener('wheel', this.handleWheel);
     document.removeEventListener('pointerlockchange', this.handlePointerLockChange);
+    document.removeEventListener('contextmenu', this.handleContextMenu);
   }
+
+  /** Right click while playing aims; never a browser context menu. */
+  private handleContextMenu = (e: MouseEvent): void => {
+    if (this.locked) e.preventDefault();
+  };
 
   private handleKeyDown = (e: KeyboardEvent): void => {
     if (!this.locked) return;

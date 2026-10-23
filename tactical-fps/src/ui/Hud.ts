@@ -1,4 +1,4 @@
-import { PLAYER_CONFIG } from '../config';
+import { ARMOR_CONFIG, PLAYER_CONFIG } from '../config';
 import { MainMenu, type MenuMap, type MenuOption, type MenuWeapon } from './MainMenu';
 import './theme.css';
 import './hud.css';
@@ -44,11 +44,19 @@ export class Hud {
         <span class="ch-line ch-left"></span><span class="ch-line ch-right"></span>
         <div class="hitmarker"><span class="hm hm-tl"></span><span class="hm hm-tr"></span><span class="hm hm-bl"></span><span class="hm hm-br"></span></div>
       </div>
+      <div class="scope" aria-hidden="true"><span class="scope-h"></span><span class="scope-v"></span></div>
       <div class="vitals">
         <div class="vitals-label">HP</div>
         <div class="vitals-main">
           <span class="health-value">100</span>
           <div class="health-track"><div class="health-bar"></div></div>
+        </div>
+        <div class="armor" hidden>
+          <div class="vitals-label">AP</div>
+          <div class="vitals-main">
+            <span class="armor-value">0</span>
+            <div class="health-track"><div class="armor-bar"></div></div>
+          </div>
         </div>
       </div>
       <div class="weapon">
@@ -112,6 +120,27 @@ export class Hud {
     this.deathSeconds.textContent = (tenths / 10).toFixed(1);
     this.deathBar.style.transform = `scaleX(${1 - Math.min(tenths / 10 / total, 1)})`;
   }
+
+  /** Scope view (SR-01): dark mask with a round field and fine cross-hairs; the normal crosshair hides. */
+  setScoped(on: boolean): void {
+    if (this.scoped === on) return;
+    this.scoped = on;
+    this.root.classList.toggle('scoped', on);
+  }
+
+  /** Armour points (ARMOR-01); hidden at 0. */
+  setArmor(value: number): void {
+    const ap = Math.max(0, Math.round(value));
+    if (ap === this.lastArmor) return;
+    this.lastArmor = ap;
+    const box = this.root.querySelector<HTMLElement>('.armor')!;
+    box.hidden = ap <= 0;
+    box.querySelector('.armor-value')!.textContent = String(ap);
+    box.querySelector<HTMLElement>('.armor-bar')!.style.transform = `scaleX(${Math.min(ap / ARMOR_CONFIG.max, 1)})`;
+  }
+
+  private scoped = false;
+  private lastArmor = -1;
 
   /**
    * Team match: no respawn countdown; the panel shows `note` (who is being

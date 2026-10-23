@@ -145,4 +145,10 @@ export interface WeaponDefinition {
    * (on top of the movement spread). Absent = one bullet per round.
    */
   pellets?: { count: number; spread: number };
+  /**
+   * Optical scope (right mouse held): the view zooms `zoom` times (field of
+   * view narrowed accordingly) and mouse look is scaled by `sensitivity`.
+   * Off while the weapon is not ready or still cycling after a shot.
+   */
+  scope?: { zoom: number; sensitivity: number };
 }

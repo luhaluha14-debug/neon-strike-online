@@ -1,3 +1,4 @@
+import { ARMOR_CONFIG } from '../config';
 import { catalogBySlot, formatMoney, type BuyLoadout } from '../game/Economy';
 import { itemStats, type CatalogItem, type ItemCategory } from '../weapons/catalog';
 import './buy.css';
@@ -8,6 +9,8 @@ export interface BuyMenuState {
   timeLeft: number;
   money: number;
   loadout: BuyLoadout;
+  /** Current armour points (ARMOR-01). */
+  armor: number;
 }
 
 export interface BuyMenuHandlers {
@@ -173,7 +176,7 @@ export class BuyMenu {
     this.lastState = s;
     const t = Math.ceil(Math.max(s.timeLeft, 0));
     const lo = s.loadout;
-    const key = `${t}|${s.money}|${lo.primary?.id}|${lo.secondary?.id}|${this.hovered?.id}`;
+    const key = `${t}|${s.money}|${lo.primary?.id}|${lo.secondary?.id}|${s.armor}|${this.hovered?.id}`;
     if (key === this.lastKey) return;
     this.lastKey = key;
     this.timer.textContent = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
@@ -184,20 +187,25 @@ export class BuyMenu {
       ['주무기', lo.primary?.id ?? '없음'],
       ['보조무기', lo.secondary?.id ?? '없음'],
       ['근접', lo.melee.id],
-      ['전술 장비', '없음'],
+      ['전술 장비', s.armor > 0 ? `ARMOR-01 ${Math.round(s.armor)}` : '없음'],
     ]
       .map(([k, v]) => `<span class="bl-item"><span class="bl-k">${k}</span><span class="bl-v${v === '없음' ? ' none' : ''}">${v}</span></span>`)
       .join('');
     for (const { el, item } of this.cards.values()) {
-      const owned = lo.owns(item.id);
+      const armor = item.slot === 'armor';
+      const owned = armor ? s.armor >= ARMOR_CONFIG.max : lo.owns(item.id);
       const free = item.price === 0;
-      const refund = item.slot === 'primary' || item.slot === 'secondary' ? (lo.held(item.slot)?.price ?? 0) : 0;
-      const short = item.available && !owned && !free && s.money + refund < item.price;
+      const short = item.available && !owned && !free && s.money + lo.refundFor(item) < item.price;
       const state = !item.available ? 'locked' : owned ? (free ? 'issued' : 'owned') : short ? 'short' : 'buyable';
       // Every card stays clickable: a refused one answers with the reason (자금 부족, 준비 중, ...).
       el.dataset.state = state;
       const tag = el.querySelector('.buy-tag')!;
-      tag.textContent = { locked: '준비 중', issued: '기본 지급', owned: '보유 중', short: '자금 부족', buyable: '구매' }[state];
+      tag.textContent =
+        armor && state === 'buyable' && s.armor > 0
+          ? `보충 (현재 ${Math.round(s.armor)})`
+          : armor && owned
+            ? `보유 중 (${Math.round(s.armor)})`
+            : { locked: '준비 중', issued: '기본 지급', owned: '보유 중', short: '자금 부족', buyable: '구매' }[state];
     }
   }
 
@@ -210,8 +218,8 @@ export class BuyMenu {
   private afterText(s: BuyMenuState): string {
     const item = this.hovered;
     if (!item || !item.available || item.price === 0 || s.loadout.owns(item.id)) return '';
-    const refund = item.slot === 'primary' || item.slot === 'secondary' ? (s.loadout.held(item.slot)?.price ?? 0) : 0;
-    const after = s.money + refund - item.price;
+    if (item.slot === 'armor' && s.armor >= ARMOR_CONFIG.max) return '';
+    const after = s.money + s.loadout.refundFor(item) - item.price;
     return after < 0 ? `${formatMoney(-after)} 부족` : `구매 후 ${formatMoney(after)}`;
   }
 
