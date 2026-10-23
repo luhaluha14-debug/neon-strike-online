@@ -16,7 +16,9 @@ const run = (n) => page.evaluate((n) => window.T.run(n), n);
 
 before(async () => {
   env = await startEnv();
-  page = await openGame(env, { map: 'warehouse', mode: 'team' });
+  // Elimination objective: bots carry no tactical orders, so the flash / smoke checks measure perception alone
+  // (with the C4 objective a bot that lost its target walks back to its post; bot tactics: tactics.test.mjs).
+  page = await openGame(env, { map: 'warehouse', mode: 'team', objective: 'elimination' });
   await page.click('.play-button');
   await page.waitForFunction(
     () => document.pointerLockElement === window.game.renderer.domElement && window.game.input.active && document.querySelector('.hud').classList.contains('playing'),
@@ -305,7 +307,14 @@ test('bot flashed: sees nobody and holds fire while blind, then engages again', 
     const shots0 = red.weapons.shotsFired;
     T.run(60);
     const during = { mode: red.mode, shots: red.weapons.shotsFired - shots0, blind: red.blindTime };
-    T.run(Math.ceil(red.blindTime * 60) + 60);
+    // Recovery: held on its spot facing the player (a bot that gave up searching would otherwise roam off at random).
+    const spot = c.position.clone();
+    const face = () => Math.atan2(-(g.player.position.x - spot.x), -(g.player.position.z - spot.z));
+    const frames = Math.ceil(red.blindTime * 60) + 60;
+    for (let i = 0; i < frames; i++) {
+      c.teleport(spot, face());
+      T.run(1);
+    }
     return { seen, blind, during, afterMode: red.mode, afterBlind: red.blindTime };
   });
   assert.equal(r.seen, true, 'engaging the player before the flash');
@@ -337,7 +346,7 @@ test('smoke: a cloud between bot and player blocks the bot’s sight; it lasts i
     const shots0 = red.weapons.shotsFired;
     // Held on its spot (perception only: walking into the cloud would put it inside, where it sees again).
     const spot = c.position.clone();
-    const yaw = c.yaw;
+    const yaw = Math.atan2(-(g.player.position.x - spot.x), -(g.player.position.z - spot.z)); // facing the player
     for (let i = 0; i < 90; i++) {
       T.run(1);
       c.teleport(spot, yaw);

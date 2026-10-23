@@ -372,27 +372,31 @@ test('half time: sides swap (BLUE defends), money and gear start over; a dropped
     g.combat.protection = 1e9;
     const carrierBot = g.squad.bots.find((b) => b.id === g.bomb.carrier);
     // The carrier dies: the bomb drops where it fell; another RED attacker walks onto it.
+    const fell = carrierBot.position.clone();
     T.kill(carrierBot.combat);
     T.run(1);
-    const drop = { state: g.bomb.state, at: g.bomb.position.distanceTo(carrierBot.position) };
+    // Dropped where the carrier died (its body may still slide on for a tick: at most its speed / 120 Hz).
+    const drop = { state: g.bomb.state, at: g.bomb.position.distanceTo(fell) };
     const other = g.squad.bots.find((b) => b.team === 'red' && b.alive);
     other.controller.teleport(g.bomb.position.clone().setY(g.bomb.position.y + 0.1), 0);
     T.run(1);
     const pickup = { state: g.bomb.state, carrier: g.bomb.carrier, expected: other.id };
-    // The new carrier plants at site B (held still there by the test; bot objective logic comes later).
+    // The new carrier plants at site B, held still there by the test with a plant order of its own
+    // (the team plan is switched off here: this checks the bomb, the bot tactics are in tactics.test.mjs).
+    g.director = null;
     const spot = T.siteSpot('B');
+    other.order = { role: 'carrier', goal: spot.clone(), look: null, use: true, tag: 'test:plant' };
     let n = 0;
     while (g.bomb.state !== 'planted' && n < 600) {
       other.controller.teleport(spot.clone().setY(spot.y + 0.1), 0);
-      other.useKey = true;
       T.run(1);
       n++;
     }
-    other.useKey = false;
+    other.order = null;
     T.spotB = spot;
     return { drop, pickup, planted: g.bomb.state, site: g.bomb.site, by: g.bomb.plantedBy, plantFrames: n, hud: T.hud() };
   });
-  assert.deepEqual([r.drop.state, r.drop.at < 0.01], ['dropped', true]);
+  assert.deepEqual([r.drop.state, r.drop.at < 0.1], ['dropped', true], `dropped ${r.drop.at} m from where the carrier died`);
   assert.deepEqual([r.pickup.state, r.pickup.carrier], ['carried', r.pickup.expected]);
   assert.deepEqual([r.planted, r.site], ['planted', 'B']);
   assert.ok(Math.abs(r.plantFrames / 60 - 3.2) < 0.1, `planted after ${(r.plantFrames / 60).toFixed(2)} s`);
