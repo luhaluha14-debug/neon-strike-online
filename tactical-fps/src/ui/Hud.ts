@@ -45,6 +45,8 @@ export class Hud {
         <div class="hitmarker"><span class="hm hm-tl"></span><span class="hm hm-tr"></span><span class="hm hm-bl"></span><span class="hm hm-br"></span></div>
       </div>
       <div class="scope" aria-hidden="true"><span class="scope-h"></span><span class="scope-v"></span></div>
+      <div class="smoke-veil" aria-hidden="true"></div>
+      <div class="flash-white" aria-hidden="true"></div>
       <div class="vitals">
         <div class="vitals-label">HP</div>
         <div class="vitals-main">
@@ -61,6 +63,7 @@ export class Hud {
       </div>
       <div class="weapon">
         <div class="loadout"></div>
+        <div class="utility" hidden><span class="ut ut-flash"></span><span class="ut ut-smoke"></span></div>
         <div class="weapon-name">AR-01</div>
         <div class="ammo"><span class="ammo-mag">30</span><span class="ammo-sep">/</span><span class="ammo-reserve">90</span></div>
         <div class="weapon-status"></div>
@@ -139,8 +142,46 @@ export class Hud {
     box.querySelector<HTMLElement>('.armor-bar')!.style.transform = `scaleX(${Math.min(ap / ARMOR_CONFIG.max, 1)})`;
   }
 
+  /** Flash blindness: white screen at `opacity` (0 = clear). */
+  setFlash(opacity: number): void {
+    const o = Math.round(Math.min(Math.max(opacity, 0), 1) * 100) / 100;
+    if (o === this.lastFlash) return;
+    this.lastFlash = o;
+    const el = this.root.querySelector<HTMLElement>('.flash-white')!;
+    el.style.opacity = String(o);
+    this.root.classList.toggle('flashed', o > 0);
+  }
+
+  /** Inside a smoke cloud: grey veil at `density` (0..1). */
+  setSmoke(density: number): void {
+    const d = Math.round(Math.min(Math.max(density, 0), 1) * 100) / 100;
+    if (d === this.lastSmoke) return;
+    this.lastSmoke = d;
+    this.root.querySelector<HTMLElement>('.smoke-veil')!.style.opacity = String(d);
+  }
+
+  /** Grenades carried (FLASH-01 / SMOKE-01) and the one in hand; hidden when there are none. */
+  setUtility(flash: number, smoke: number, held: 'flash' | 'smoke' | null): void {
+    const key = `${flash}|${smoke}|${held}`;
+    if (key === this.lastUtility) return;
+    this.lastUtility = key;
+    const box = this.root.querySelector<HTMLElement>('.utility')!;
+    box.hidden = flash + smoke === 0 && !held;
+    const f = box.querySelector<HTMLElement>('.ut-flash')!;
+    const sm = box.querySelector<HTMLElement>('.ut-smoke')!;
+    f.textContent = `섬광 ×${flash}`;
+    sm.textContent = `연막 ×${smoke}`;
+    f.hidden = flash === 0 && held !== 'flash';
+    sm.hidden = smoke === 0 && held !== 'smoke';
+    f.classList.toggle('held', held === 'flash');
+    sm.classList.toggle('held', held === 'smoke');
+  }
+
   private scoped = false;
   private lastArmor = -1;
+  private lastFlash = -1;
+  private lastSmoke = -1;
+  private lastUtility = '';
 
   /**
    * Team match: no respawn countdown; the panel shows `note` (who is being

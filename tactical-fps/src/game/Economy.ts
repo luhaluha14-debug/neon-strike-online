@@ -3,7 +3,8 @@
 // and calls it when a kill is credited and when a round is decided; Game
 // applies a BuyLoadout to the player's WeaponSystem.
 
-import { ARMOR_CONFIG } from '../config';
+import type { GrenadeKind } from '../combat/Grenades';
+import { ARMOR_CONFIG, GRENADE_CONFIG } from '../config';
 import { CATALOG, DEFAULT_MELEE_ID, findItem, type CatalogItem, type ItemSlot } from '../weapons/catalog';
 
 export interface EconomyConfig {
@@ -200,7 +201,7 @@ export const LOADOUT_RULES = {
    * Gear a survivor keeps into the next round (weapons keep their magazine
    * and reserve as they are; the vest keeps the armour points it has left).
    */
-  keepOnSurvive: { primary: true, secondary: true, armor: true },
+  keepOnSurvive: { primary: true, secondary: true, armor: true, utility: true },
   /** Issued for free to everyone every round (a survivor already has it). */
   defaultIssue: [DEFAULT_MELEE_ID],
 } as const;
@@ -225,6 +226,8 @@ export class BuyLoadout {
   primary: CatalogItem | null = null;
   secondary: CatalogItem | null = null;
   readonly melee: CatalogItem;
+  /** Grenades carried (thrown ones are taken off with useGrenade). */
+  readonly grenades: Record<GrenadeKind, number> = { flash: 0, smoke: 0 };
   /** Items bought in the current buy phase (refundable when replaced). */
   private readonly boughtThisRound = new Set<string>();
 
@@ -236,7 +239,16 @@ export class BuyLoadout {
   reset(): void {
     this.primary = null;
     this.secondary = null;
+    this.grenades.flash = 0;
+    this.grenades.smoke = 0;
     this.boughtThisRound.clear();
+  }
+
+  /** Takes one grenade of `kind` off the belt (thrown). False if none is left. */
+  useGrenade(kind: GrenadeKind): boolean {
+    if (this.grenades[kind] <= 0) return false;
+    this.grenades[kind]--;
+    return true;
   }
 
   /**
@@ -252,6 +264,7 @@ export class BuyLoadout {
     }
     if (!LOADOUT_RULES.keepOnSurvive.primary) this.primary = null;
     if (!LOADOUT_RULES.keepOnSurvive.secondary) this.secondary = null;
+    if (!LOADOUT_RULES.keepOnSurvive.utility) this.grenades.flash = this.grenades.smoke = 0;
     return true;
   }
 
@@ -272,6 +285,8 @@ export class BuyLoadout {
   }
 
   owns(id: string): boolean {
+    const g = findItem(id)?.grenade;
+    if (g) return this.grenades[g] >= GRENADE_CONFIG.maxCarry[g];
     return this.primary?.id === id || this.secondary?.id === id || this.melee.id === id;
   }
 
@@ -295,6 +310,18 @@ export class BuyLoadout {
         armor: ARMOR_CONFIG.max,
         message: ctx.armor > 0 ? `${item.id} 보충 ${ctx.armor} → ${ARMOR_CONFIG.max} (-${formatMoney(item.price)})` : `${item.id} 구매 완료 (-${formatMoney(item.price)})`,
       };
+    }
+    // Grenades: one more each time, up to the carry limit.
+    if (item.grenade) {
+      const kind = item.grenade;
+      const max = GRENADE_CONFIG.maxCarry[kind];
+      if (this.grenades[kind] >= max) return fail('owned', `${item.id}: 최대 ${max}개까지 보유할 수 있습니다`);
+      if (economy.money(buyer) < item.price) {
+        return fail('funds', `자금 부족: ${item.id} ${formatMoney(item.price)} (부족 ${formatMoney(item.price - economy.money(buyer))})`);
+      }
+      if (!economy.pay(buyer, item.price, 0)) return fail('funds', `자금 부족: ${item.id} ${formatMoney(item.price)}`);
+      this.grenades[kind]++;
+      return { ok: true, item, spent: item.price, message: `${item.id} 구매 완료 (${this.grenades[kind]}/${max}, -${formatMoney(item.price)})` };
     }
     if (this.owns(item.id)) return fail('owned', `${item.id}: 이미 보유한 장비입니다`);
     if (item.slot !== 'primary' && item.slot !== 'secondary') return fail('locked', `${item.id}: 구매할 수 없는 장비입니다`);

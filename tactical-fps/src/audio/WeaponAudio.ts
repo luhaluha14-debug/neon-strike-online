@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { HitscanResult } from '../combat/HitscanSystem';
 import type { Weapon } from '../weapons/Weapon';
 import type { AudioEngine } from './AudioEngine';
+import type { SoundId } from './weaponSounds';
 
 const SPEED_OF_SOUND = 343;
 const _dir = new THREE.Vector3();
@@ -54,6 +55,27 @@ export class WeaponAudio {
       delay: Math.min(d / SPEED_OF_SOUND, 0.4),
     });
     if (result.kind !== 'miss') this.impact(result.kind === 'target' ? 'impact.flesh' : 'impact', result.point, 0, listener);
+  }
+
+  /** A sound at a point in the world (grenades): quieter and later with distance, panned left/right. */
+  world(id: SoundId, point: THREE.Vector3, gain: number, listener: THREE.Camera, range = 150): void {
+    _dir.subVectors(point, listener.position);
+    const d = _dir.length();
+    if (d > range) return;
+    _dir.multiplyScalar(1 / Math.max(d, 1e-3));
+    _right.set(1, 0, 0).applyQuaternion(listener.quaternion);
+    this.engine.play(id, {
+      group: 'impact',
+      gain: gain / (1 + d / 10),
+      pan: _dir.dot(_right) * 0.7,
+      rateJitter: 0.04,
+      delay: Math.min(d / SPEED_OF_SOUND, 0.4),
+    });
+  }
+
+  /** Something in the player's own hands (no distance). */
+  local(id: SoundId, gain: number): void {
+    this.engine.play(id, { group: 'foley', gain, rateJitter: 0.02 });
   }
 
   onDryFire(weapon: Weapon): void {

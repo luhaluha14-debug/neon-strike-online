@@ -1,4 +1,4 @@
-import { ARMOR_CONFIG } from '../config';
+import { ARMOR_CONFIG, GRENADE_CONFIG } from '../config';
 import { catalogBySlot, formatMoney, type BuyLoadout } from '../game/Economy';
 import { itemStats, type CatalogItem, type ItemCategory } from '../weapons/catalog';
 import './buy.css';
@@ -187,7 +187,12 @@ export class BuyMenu {
       ['주무기', lo.primary?.id ?? '없음'],
       ['보조무기', lo.secondary?.id ?? '없음'],
       ['근접', lo.melee.id],
-      ['전술 장비', s.armor > 0 ? `ARMOR-01 ${Math.round(s.armor)}` : '없음'],
+      [
+        '전술 장비',
+        [s.armor > 0 ? `ARMOR-01 ${Math.round(s.armor)}` : '', lo.grenades.flash ? `FLASH ×${lo.grenades.flash}` : '', lo.grenades.smoke ? `SMOKE ×${lo.grenades.smoke}` : '']
+          .filter(Boolean)
+          .join(' · ') || '없음',
+      ],
     ]
       .map(([k, v]) => `<span class="bl-item"><span class="bl-k">${k}</span><span class="bl-v${v === '없음' ? ' none' : ''}">${v}</span></span>`)
       .join('');
@@ -200,8 +205,12 @@ export class BuyMenu {
       // Every card stays clickable: a refused one answers with the reason (자금 부족, 준비 중, ...).
       el.dataset.state = state;
       const tag = el.querySelector('.buy-tag')!;
-      tag.textContent =
-        armor && state === 'buyable' && s.armor > 0
+      const g = item.grenade;
+      tag.textContent = g
+        ? state === 'locked' || state === 'short'
+          ? { locked: '준비 중', short: '자금 부족' }[state]
+          : `${owned ? '보유 중' : '구매'} (${lo.grenades[g]}/${GRENADE_CONFIG.maxCarry[g]})`
+        : armor && state === 'buyable' && s.armor > 0
           ? `보충 (현재 ${Math.round(s.armor)})`
           : armor && owned
             ? `보유 중 (${Math.round(s.armor)})`

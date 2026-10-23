@@ -25,7 +25,11 @@ export type SoundId =
   | 'impact'
   | 'hit.body'
   | 'hit.head'
-  | 'impact.flesh';
+  | 'impact.flesh'
+  | 'grenade.pin'
+  | 'grenade.bounce'
+  | 'flash.bang'
+  | 'smoke.pop';
 
 /** Number of pre-rendered variants per sound. */
 export const VARIANTS: Record<SoundId, number> = {
@@ -49,6 +53,10 @@ export const VARIANTS: Record<SoundId, number> = {
   'hit.body': 2,
   'hit.head': 2,
   'impact.flesh': 3,
+  'grenade.pin': 1,
+  'grenade.bounce': 3,
+  'flash.bang': 2,
+  'smoke.pop': 1,
 };
 
 interface GunshotRecipe {
@@ -394,6 +402,60 @@ function impactFlesh(seed: number): Float32Array {
   return finish(out, 0.8, 1.5);
 }
 
+/** Grenade drawn: pin pulled, spoon held (two light metal clicks). */
+function grenadePin(seed: number): Float32Array {
+  const rand = rng(seed);
+  const out = buffer(0.3);
+  mix(out, click(rand, 3100, 0.006, 0.7), 1, 0.02);
+  mix(out, ring(0.2, [[4200, 0.18, 0.05], [6900, 0.1, 0.04]]), 1, 0.03);
+  mix(out, click(rand, 2400, 0.008, 0.6), 1, 0.14);
+  return finish(out, 0.55, 1.1);
+}
+
+/** Metal canister hitting the floor or a wall: a short clink with a dull knock. */
+function grenadeBounce(seed: number): Float32Array {
+  const rand = rng(seed);
+  const out = buffer(0.25);
+  const f = 1700 + rand() * 500;
+  mix(out, ring(0.25, [[f, 0.35, 0.045], [f * 2.7, 0.18, 0.03]]), 1, 0);
+  const knock = biquad(noise(0.05, rand), 'lowpass', 900);
+  shape(knock, expEnv(0.0004, 0.01));
+  mix(out, knock, 0.8);
+  return finish(out, 0.6, 1.1);
+}
+
+/** Flashbang: a sharp, very loud crack with a bright ring and a short rumble. */
+function flashBang(seed: number): Float32Array {
+  const rand = rng(seed);
+  const out = buffer(1.4);
+  const crack = biquad(noise(0.08, rand), 'highpass', 1800);
+  shape(crack, expEnv(0.0002, 0.012));
+  mix(out, crack, 1.3);
+  const body = biquad(noise(0.6, rand), 'lowpass', 1600);
+  shape(body, expEnv(0.001, 0.07));
+  mix(out, body, 1.1);
+  const boom = glideSine(0.5, 120, 45, 0.08);
+  shape(boom, expEnv(0.002, 0.12));
+  mix(out, boom, 0.6);
+  const tail = biquad(noise(1.3, rand), 'lowpass', 700);
+  shape(tail, expEnv(0.03, 0.35));
+  mix(out, tail, 0.25);
+  return finish(out, 0.95, 1.6);
+}
+
+/** Smoke grenade: a dull pop, then a long hiss of gas venting. */
+function smokePop(seed: number): Float32Array {
+  const rand = rng(seed);
+  const out = buffer(2.4);
+  const pop = biquad(noise(0.1, rand), 'lowpass', 900);
+  shape(pop, expEnv(0.0005, 0.02));
+  mix(out, pop, 1);
+  const hiss = biquad(noise(2.3, rand), 'bandpass', (t) => 3800 - 900 * t, 0.9);
+  shape(hiss, (t) => Math.min(t / 0.08, 1) * Math.exp(-t / 0.9));
+  mix(out, hiss, 0.55, 0.05);
+  return finish(out, 0.7, 1.1);
+}
+
 /** Renders one variant of one sound. */
 export function renderSound(id: SoundId, variant: number, opts: { srFireInterval: number }): Float32Array {
   const seed = hash(id) + variant * 7919;
@@ -438,6 +500,14 @@ export function renderSound(id: SoundId, variant: number, opts: { srFireInterval
       return hitHead(seed);
     case 'impact.flesh':
       return impactFlesh(seed);
+    case 'grenade.pin':
+      return grenadePin(seed);
+    case 'grenade.bounce':
+      return grenadeBounce(seed);
+    case 'flash.bang':
+      return flashBang(seed);
+    case 'smoke.pop':
+      return smokePop(seed);
   }
 }
 

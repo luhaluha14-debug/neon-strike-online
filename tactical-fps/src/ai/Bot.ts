@@ -74,6 +74,13 @@ export class Bot {
    * area (the enemy side) instead of anywhere on the map. null = anywhere.
    */
   roamTarget: THREE.Vector3 | null = null;
+  /** Seconds of flash blindness left: sees nobody and holds fire meanwhile. */
+  blindTime = 0;
+  /**
+   * Extra sight check (smoke): true when the line between two points is
+   * blocked by something other than the map. Set by whoever owns the bots.
+   */
+  sightBlocked: ((from: THREE.Vector3, to: THREE.Vector3) => boolean) | null = null;
   private teamId: string | undefined = undefined;
 
   private path: THREE.Vector3[] = [];
@@ -151,9 +158,15 @@ export class Bot {
     this.weapons.step(this.command, dt);
   }
 
+  /** Blinded by a flash for `seconds` (the longer of this and any blindness already on). */
+  blind(seconds: number): void {
+    this.blindTime = Math.max(this.blindTime, seconds);
+  }
+
   /** Puts the bot at a spawn, full health, fresh magazine, nothing in mind. */
   spawn(at: THREE.Vector3, yaw: number): void {
     this.controller.teleport(at.clone().setY(at.y + 0.1), yaw);
+    this.blindTime = 0;
     this.combat.reset();
     this.weapons.resetForRespawn();
     this.mode = 'wander';
@@ -173,6 +186,7 @@ export class Bot {
    */
   step(dt: number, enemies: readonly Combatant[], others: readonly Bot[]): void {
     this.combat.step(dt);
+    this.blindTime = Math.max(0, this.blindTime - dt);
     const c = this.controller;
     const input = this.input;
     if (!this.alive) {
@@ -278,7 +292,7 @@ export class Bot {
     const w = this.weapons.weapon;
     this.command.reload = false;
     this.command.fire = false;
-    if (this.mode === 'engage' && t && t.alive && this.seenFor >= this.skill.reaction && w.status === 'ready' && w.magazine > 0) {
+    if (this.mode === 'engage' && t && t.alive && this.blindTime <= 0 && this.seenFor >= this.skill.reaction && w.status === 'ready' && w.magazine > 0) {
       const err = Math.abs(wrap(wantYaw - c.yaw)) + Math.abs(wantPitch - c.pitch);
       const steady = this.peekTimer <= 0 && c.grounded && Math.hypot(c.velocity.x, c.velocity.z) < FIRE_MAX_SPEED;
       if (this.burstPause > 0) this.burstPause -= dt;
@@ -311,7 +325,8 @@ export class Bot {
     _eye.set(c.position.x, c.position.y + c.eyeHeight, c.position.z);
     let best: Combatant | null = null;
     let bestD = Infinity;
-    for (const e of enemies) {
+    // Blinded: nobody is seen (a target being engaged is lost and searched for afterwards).
+    for (const e of this.blindTime > 0 ? [] : enemies) {
       if (!e.alive || !this.isEnemy(e)) continue;
       const d = this.canSee(e);
       if (d !== null && d < bestD) {
@@ -383,6 +398,10 @@ export class Bot {
     if (dist > 4) {
       const ang = Math.abs(wrap(Math.atan2(-_to.x, -_to.z) - c.yaw));
       if (ang > FOV_HALF) return null;
+    }
+    if (this.sightBlocked) {
+      _aim.copy(_eye).add(_to);
+      if (this.sightBlocked(_eye, _aim)) return null;
     }
     _to.normalize();
     if (this.world.raycast(_eye, _to, dist) !== null) return null;

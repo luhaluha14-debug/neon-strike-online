@@ -1,4 +1,5 @@
 import type { FireMode, WeaponDefinition, WeaponViewSpec } from './WeaponDefinition';
+import type { GrenadeKind } from '../combat/Grenades';
 import { AR_01, KARAMBIT, PIS_01, SG_01, SMG_01, SR_01 } from './weapons';
 
 // Single catalog of everything the team match buy menu can show: weapons
@@ -37,6 +38,8 @@ export interface CatalogItem {
    * menu picture (not issued, no first-person pose tuned).
    */
   preview?: WeaponViewSpec;
+  /** Thrown utility: which grenade one purchase adds (carry limit: GRENADE_CONFIG.maxCarry). */
+  grenade?: GrenadeKind;
 }
 
 export const CATALOG: readonly CatalogItem[] = [
@@ -49,8 +52,9 @@ export const CATALOG: readonly CatalogItem[] = [
   { id: 'Knife', name: '근접 무기 (M9 총검)', slot: 'melee', category: 'knife', price: 0, weapon: KARAMBIT, available: true },
   // Armour points and absorption: ARMOR_CONFIG (config.ts). Body only (there is no helmet).
   { id: 'ARMOR-01', name: '방탄 조끼 (몸통)', slot: 'armor', category: 'armor', price: 650, weapon: null, available: true },
-  { id: 'FLASH-01', name: '섬광탄', slot: 'utility', category: 'grenade', price: 300, weapon: null, available: false, lockedReason: '준비 중: 투척·섬광 효과 미구현' },
-  { id: 'SMOKE-01', name: '연막탄', slot: 'utility', category: 'grenade', price: 400, weapon: null, available: false, lockedReason: '준비 중: 투척·연막 시야 차단 미구현' },
+  // Thrown with key 4 (Controls 'utility'); flight and effects: GrenadeSystem / GRENADE_CONFIG.
+  { id: 'FLASH-01', name: '섬광탄', slot: 'utility', category: 'grenade', price: 300, weapon: null, available: true, grenade: 'flash' },
+  { id: 'SMOKE-01', name: '연막탄', slot: 'utility', category: 'grenade', price: 400, weapon: null, available: true, grenade: 'smoke' },
 ];
 
 /** The free melee item every loadout starts with. */

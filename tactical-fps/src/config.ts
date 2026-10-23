@@ -47,6 +47,59 @@ export const ARMOR_CONFIG = {
   zones: ['body'] as readonly string[],
 } as const;
 
+/**
+ * Thrown utility (FLASH-01 / SMOKE-01): carry limits, throw, flight and
+ * effects. Prices are in the catalog. Everything grenade-related reads from here.
+ */
+export const GRENADE_CONFIG = {
+  /** Most of each type one player can carry. */
+  maxCarry: { flash: 2, smoke: 1 } as Record<'flash' | 'smoke', number>,
+  /** Seconds to draw a grenade before it can be thrown. */
+  drawTime: 0.35,
+  /** Throw speed (m/s) along the view, plus `throwLift` upward, plus the thrower's own velocity. */
+  throwSpeed: 15,
+  throwLift: 2.2,
+  /** Spawns this far in front of the eye. */
+  throwOffset: 0.35,
+  /** Flight: gravity (m/s²), ball radius (m), bounce (normal speed kept) and slide friction (tangential speed kept). */
+  gravity: 12,
+  radius: 0.05,
+  bounce: 0.42,
+  friction: 0.7,
+  /** Rolling on a floor: speed lost per second (exponential). */
+  rollDrag: 2.5,
+  flash: {
+    /** Fuse from the throw (s). */
+    fuse: 1.6,
+    /** Longest blind (s): at point blank, looking straight at it. */
+    maxBlind: 4.5,
+    /** No effect beyond this distance (m); falls off with (d / range)². */
+    range: 24,
+    /** Share of the blind when it is behind the viewer (0..1), ramping to 1 when looked at. */
+    behind: 0.12,
+    /** Ignored when the result is shorter than this (s). */
+    minBlind: 0.2,
+    /** Last part of the blind (s) in which the white screen fades out. */
+    fade: 1.4,
+  },
+  smoke: {
+    /** Pops once it has come to rest after at least `fuse` s, at the latest after `maxFuse` s. */
+    fuse: 1.2,
+    maxFuse: 3,
+    /** Seconds to grow to full size, seconds it lasts in all (incl. bloom), seconds it fades at the end. */
+    bloom: 1.1,
+    duration: 16,
+    fadeOut: 2.5,
+    /** Full radius (m) of the cloud, its centre this high above where the grenade stopped. */
+    radius: 3.6,
+    lift: 1.1,
+    /** A sight line passing closer than radius × this to the centre is blocked (bots). */
+    blockFactor: 0.9,
+    /** Puffs drawn per cloud. */
+    puffs: 22,
+  },
+} as const;
+
 export const CAMERA_CONFIG = {
   fov: 78,
   near: 0.05,

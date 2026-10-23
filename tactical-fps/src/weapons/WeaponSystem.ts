@@ -119,6 +119,13 @@ export class WeaponSystem {
     return true;
   }
 
+  /** Draws the weapon in hand again (after holding something else, e.g. a grenade). */
+  redraw(): void {
+    this.weapon.equip();
+    this.inspectRemaining = 0;
+    this.events.onEquip?.(this.weapon, this.slot);
+  }
+
   /** Call once per rendered frame with the player's raw vertical look input. */
   onLookInput(pitchDelta: number): void {
     this.recoil.absorbPlayerPitch(pitchDelta);

@@ -141,9 +141,10 @@ test('buy menu: B opens it without pausing, the mouse is free, view and trigger 
   assert.deepEqual([byId['AR-01'].price, byId['AR-01'].state, byId['AR-01'].tag], ['$2,700', 'buyable', '구매']);
   assert.deepEqual([byId['SR-01'].price, byId['SR-01'].state, byId['SR-01'].tag], ['$4,750', 'short', '자금 부족']);
   assert.deepEqual([byId.Knife.price, byId.Knife.state, byId.Knife.tag], ['무료', 'issued', '기본 지급']);
-  // Weapons with a model and real firing logic and the vest are on sale; equipment still waiting for its game system is locked.
+  // Every listed item has its game system now: all on sale (grenades show the count carried / the limit).
   for (const id of ['SMG-01', 'SG-01', 'PIS-01', 'ARMOR-01']) assert.deepEqual([byId[id].state, byId[id].tag], ['buyable', '구매'], id);
-  for (const id of ['FLASH-01', 'SMOKE-01']) assert.deepEqual([byId[id].state, byId[id].tag], ['locked', '준비 중'], id);
+  assert.deepEqual([byId['FLASH-01'].state, byId['FLASH-01'].tag], ['buyable', '구매 (0/2)']);
+  assert.deepEqual([byId['SMOKE-01'].state, byId['SMOKE-01'].tag], ['buyable', '구매 (0/1)']);
   assert.deepEqual(
     ['SMG-01', 'SG-01', 'PIS-01', 'ARMOR-01', 'FLASH-01', 'SMOKE-01'].map((id) => byId[id].price),
     ['$1,500', '$2,000', '$500', '$650', '$300', '$400'],

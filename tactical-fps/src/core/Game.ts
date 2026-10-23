@@ -4,8 +4,10 @@ import { preloadAgentModels } from '../ai/AgentModel';
 import type { Bot, Combatant } from '../ai/Bot';
 import { NavGrid } from '../ai/NavGrid';
 import { HitscanSystem } from '../combat/HitscanSystem';
+import { GrenadeSystem, type FlashObserver, type GrenadeKind } from '../combat/Grenades';
+import { GrenadeEffects } from '../fx/GrenadeEffects';
 import { TrainingRange } from '../combat/TrainingRange';
-import { CAMERA_CONFIG, PLAYER_CONFIG, QUALITY_PRESETS, SIM_CONFIG, type QualityLevel } from '../config';
+import { CAMERA_CONFIG, GRENADE_CONFIG, PLAYER_CONFIG, QUALITY_PRESETS, SIM_CONFIG, type QualityLevel } from '../config';
 import { AudioEngine } from '../audio/AudioEngine';
 import { WeaponAudio } from '../audio/WeaponAudio';
 import { BloodEffects } from '../fx/BloodEffects';
@@ -59,6 +61,9 @@ import { saveSettings, type Settings } from './Settings';
 const _muzzleWorld = new THREE.Vector3();
 const _specEye = new THREE.Vector3();
 const _specDir = new THREE.Vector3();
+const _throwEye = new THREE.Vector3();
+const _throwDir = new THREE.Vector3();
+const GRENADE_NAMES: Record<GrenadeKind, string> = { flash: 'FLASH-01', smoke: 'SMOKE-01' };
 
 /** Team match roster: the player leads BLUE with 4 bots; RED is 5 bots. */
 const TEAM_ROSTER: readonly SquadMember[] = [
@@ -115,6 +120,19 @@ export class Game {
   private playerSlotKeys: number[] | null = null;
   /** Looking through a weapon scope this frame (derived every frame from button, weapon and state). */
   scoped = false;
+  /** Thrown utility on the current map (FLASH-01 / SMOKE-01 of the team match). */
+  grenades: GrenadeSystem | null = null;
+  readonly grenadeFx = new GrenadeEffects();
+  /** Grenade in the player's hand instead of the weapon (null = the weapon). */
+  heldGrenade: GrenadeKind | null = null;
+  /** Seconds left drawing the grenade; the trigger's state on the last tick (a throw needs a fresh press). */
+  private grenadeDraw = 0;
+  private grenadeTriggerHeld = true;
+  /** The player's flash blindness left (s). */
+  flashBlind = 0;
+  /** First-person grenade (temporary procedural model), drawn in place of the weapon. */
+  private readonly handScene = new THREE.Scene();
+  private readonly handGrenade: THREE.Mesh;
   /** Team match: which living teammate a dead player watches, and the fire button's last state (to cycle). */
   private spectateIndex = 0;
   private spectateFireHeld = false;
@@ -213,7 +231,15 @@ export class Game {
     this.scene.add(this.impacts.group);
     this.scene.add(this.blood.group);
     this.scene.add(this.fx.group);
+    this.scene.add(this.grenadeFx.group);
     this.scene.add(this.body.object);
+    this.handGrenade = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.032, 0.032, 0.1, 14),
+      new THREE.MeshStandardMaterial({ color: 0x6f7780, roughness: 0.55, metalness: 0.1 }),
+    );
+    const handKey = new THREE.DirectionalLight(0xfff1dc, 2.2);
+    handKey.position.set(0.6, 1, 0.4);
+    this.handScene.add(this.handGrenade, handKey, new THREE.HemisphereLight(0xc9d4de, 0x4a4238, 1.6));
     // Sounds are synthesised in the background while the map downloads.
     this.audio = new AudioEngine(settings.volume, { srFireInterval: 60 / SR_01.fireRate });
     this.weaponAudio = new WeaponAudio(this.audio);
@@ -354,6 +380,8 @@ export class Game {
     this.combat = null;
     this.spawnPoint = null;
     this.lastHit = '';
+    this.grenades = null;
+    this.grenadeFx.clear();
     if (this.map) disposeMap(this.map);
     this.map = null;
     this.player = null;
@@ -414,6 +442,7 @@ export class Game {
 
     this.player = new PlayerController(map.collision);
     this.hitscan = new HitscanSystem(map.collision);
+    this.grenades = this.createGrenades(map);
     this.blood.setWorld(map.collision);
     this.weapons = new WeaponSystem(DEFAULT_LOADOUT, this.player, this.hitscan);
     this.combat = new PlayerCombat(this.player);
@@ -537,6 +566,7 @@ export class Game {
           this.teamMatch?.recordKill(e.sourceId, bot.id, e.weaponId, e.zone === 'head');
         },
       };
+      for (const b of squad.bots) b.sightBlocked = (a, c) => this.grenades?.sightBlocked(a, c) ?? false;
       this.squad = squad;
       this.scene.add(squad.group);
       if (team) {
@@ -592,6 +622,7 @@ export class Game {
     if (kept) this.playerSlotKeys = this.buyLoadout.weapons().map((e) => e.slotKey);
     else this.applyBuyLoadout();
     this.buyMenu.clearFeedback();
+    this.clearGrenades();
     this.respawn(kept);
     const next: Record<Team, number> = { blue: 1, red: 0 };
     const centre = (t: Team) => spawns[t].reduce((a, s) => a.add(s.position), new THREE.Vector3()).multiplyScalar(1 / spawns[t].length);
@@ -672,6 +703,7 @@ export class Game {
   }
 
   private teardownMode(): void {
+    this.clearGrenades();
     this.trainingRange?.dispose();
     this.trainingRange = null;
     this.squad?.dispose();
@@ -848,10 +880,12 @@ export class Game {
       this.inputState.lookYaw = 0;
       this.inputState.lookPitch = 0;
     }
+    this.updateGrenadeHand(!combat || combat.alive);
     // Scope (SR-01): right button held with the weapon ready, playing, alive; look slowed while zoomed.
     const held = this.weapons?.weapon;
     const scope = held?.def.scope;
     this.scoped =
+      !this.heldGrenade &&
       !!scope &&
       !!held &&
       this.inputState.aim &&
@@ -894,7 +928,16 @@ export class Game {
         const live = !tm || tm.phase === 'live';
         // A dead player still falls (gravity, collision) but neither moves nor shoots.
         player.step(alive && !frozen ? this.inputState : this.deadInput, tick);
-        if (alive) this.weapons?.step(live ? command : { ...command, fire: false }, tick);
+        if (this.heldGrenade) {
+          // Grenade in hand: the weapon is put away (no fire, no reload); a fresh press throws once the round is live.
+          if (alive) this.weapons?.step({ fire: false, reload: false }, tick);
+          this.stepGrenadeHand(tick, alive && live, command.fire);
+        } else if (alive) {
+          this.weapons?.step(live ? command : { ...command, fire: false }, tick);
+        }
+        if (!this.heldGrenade) this.grenadeTriggerHeld = command.fire;
+        this.grenades?.step(tick);
+        this.flashBlind = Math.max(0, this.flashBlind - tick);
         combat?.step(tick);
         this.trainingRange?.step(tick);
         if (this.match && !this.match.over) {
@@ -951,6 +994,7 @@ export class Game {
     this.blood.update(frameTime, this.camera);
     this.squad?.updateVisuals(frameTime);
     this.fx.update(frameTime, this.camera);
+    this.grenadeFx.update(frameTime, this.grenades);
     if (this.match) this.matchHud.update(this.match, this.scoreboardHeld && this.input.active);
     if (this.teamMatch) this.teamHud.update(this.teamMatch, this.teamAlive(), this.scoreboardHeld && this.input.active);
     this.viewModel.update(
@@ -968,8 +1012,15 @@ export class Game {
     this.sky.follow(this.camera);
     this.renderer.clear();
     this.renderer.render(this.scene, this.camera);
-    // No weapon in hand while dead; none while looking through the scope.
-    if (!dead && !this.scoped) this.viewModel.render(this.renderer);
+    // No weapon in hand while dead; none while looking through the scope; the grenade instead of the weapon.
+    if (!dead && this.heldGrenade) this.renderHandGrenade();
+    else if (!dead && !this.scoped) this.viewModel.render(this.renderer);
+    // Flash: white screen, full until the last `fade` seconds; smoke: grey veil with the eye inside a cloud.
+    this.hud.setFlash(this.flashBlind / GRENADE_CONFIG.flash.fade);
+    this.hud.setSmoke(this.grenades ? this.grenades.densityAt(this.camera.position) * 0.85 : 0);
+    const nades = this.buyLoadout.grenades;
+    if (this.teamMatch) this.hud.setUtility(nades.flash, nades.smoke, this.heldGrenade);
+    else this.hud.setUtility(0, 0, null);
     this.hud.setHealth(player.health);
     this.hud.setArmor(this.combat?.armor ?? 0);
     if (this.teamMatch) this.hud.setDeath(dead ? 0 : null, 1);
@@ -1063,12 +1114,125 @@ export class Game {
     };
   }
 
+  /** Grenades for a map: who a flash reaches (the player and the bots, alive), and their sounds / effects. */
+  private createGrenades(map: LoadedMap): GrenadeSystem {
+    const g = new GrenadeSystem(map.collision);
+    g.flashTargets = () => {
+      const out: FlashObserver[] = [];
+      const p = this.player;
+      if (p && this.combat?.alive) {
+        out.push({
+          id: 'local',
+          eye: new THREE.Vector3(p.position.x, p.position.y + p.eyeHeight, p.position.z),
+          view: viewDir(p.yaw, p.pitch, new THREE.Vector3()),
+          blind: (t) => (this.flashBlind = Math.max(this.flashBlind, t)),
+        });
+      }
+      for (const b of this.squad?.bots ?? []) {
+        if (!b.alive) continue;
+        const c = b.controller;
+        out.push({
+          id: b.id,
+          eye: new THREE.Vector3(c.position.x, c.position.y + c.eyeHeight, c.position.z),
+          view: viewDir(c.yaw, c.pitch, new THREE.Vector3()),
+          blind: (t) => b.blind(t),
+        });
+      }
+      return out;
+    };
+    g.events = {
+      onBounce: (n, speed) => this.weaponAudio.world('grenade.bounce', n.position, Math.min(speed / 8, 1) * 0.6, this.camera, 60),
+      onFlash: (n) => {
+        this.grenadeFx.flash(n.position);
+        this.weaponAudio.world('flash.bang', n.position, 1, this.camera, 200);
+      },
+      onSmoke: (n) => this.weaponAudio.world('smoke.pop', n.position, 0.8, this.camera, 120),
+    };
+    return g;
+  }
+
+  /** Round change / new match: no grenade, cloud or blindness carries over. */
+  private clearGrenades(): void {
+    this.grenades?.clear();
+    this.grenadeFx.clear();
+    this.flashBlind = 0;
+    this.putGrenadeAway(false);
+  }
+
+  /**
+   * Per frame: the utility key takes out a grenade (FLASH-01 first, then
+   * SMOKE-01 on the next press), a weapon key / Q / the wheel puts it away,
+   * and it goes when there is none left or the player is dead.
+   */
+  private updateGrenadeHand(alive: boolean): void {
+    const i = this.inputState;
+    const nades = this.buyLoadout.grenades;
+    if (!this.teamMatch || !alive) {
+      this.putGrenadeAway(false);
+      return;
+    }
+    if (this.heldGrenade && (i.equipSlot >= 0 || i.equipLast || i.equipCycle !== 0)) {
+      // The weapon key itself draws (or keeps) the weapon; just stop holding the grenade.
+      this.putGrenadeAway(true);
+    }
+    if (i.utility) {
+      const order: GrenadeKind[] = this.heldGrenade === 'flash' ? ['smoke', 'flash'] : ['flash', 'smoke'];
+      const next = order.find((k) => nades[k] > 0) ?? null;
+      if (next && next !== this.heldGrenade) {
+        this.heldGrenade = next;
+        this.grenadeDraw = GRENADE_CONFIG.drawTime;
+        this.grenadeTriggerHeld = true;
+        this.weaponAudio.local('grenade.pin', 0.6);
+      }
+    }
+    if (this.heldGrenade && nades[this.heldGrenade] <= 0) this.putGrenadeAway(true);
+  }
+
+  /** One tick with a grenade in hand: drawing, then a fresh trigger press throws it (live round only). */
+  private stepGrenadeHand(tick: number, canThrow: boolean, fire: boolean): void {
+    const kind = this.heldGrenade;
+    const p = this.player;
+    this.grenadeDraw = Math.max(0, this.grenadeDraw - tick);
+    const pressed = fire && !this.grenadeTriggerHeld;
+    this.grenadeTriggerHeld = fire;
+    if (!kind || !p || !this.grenades || !pressed || !canThrow || this.grenadeDraw > 0) return;
+    if (!this.buyLoadout.useGrenade(kind)) return;
+    _throwEye.set(p.position.x, p.position.y + p.eyeHeight, p.position.z);
+    viewDir(p.yaw, p.pitch, _throwDir);
+    this.grenades.throw(kind, 'local', _throwEye, _throwDir, p.velocity);
+    // Back to the weapon after a throw.
+    this.putGrenadeAway(true);
+  }
+
+  /** Stops holding a grenade; `redraw`: the weapon comes back up with its draw. */
+  private putGrenadeAway(redraw: boolean): void {
+    if (!this.heldGrenade) return;
+    this.heldGrenade = null;
+    this.grenadeDraw = 0;
+    if (redraw) this.weapons?.redraw();
+  }
+
+  /** The grenade in the right hand, rising into view while drawn. */
+  private renderHandGrenade(): void {
+    const k = 1 - this.grenadeDraw / GRENADE_CONFIG.drawTime;
+    const m = this.handGrenade;
+    m.position.set(0.16, -0.15 - (1 - k) * 0.18, -0.4);
+    m.rotation.set(0.25, 0.3, -0.15);
+    (m.material as THREE.MeshStandardMaterial).color.setHex(this.heldGrenade === 'smoke' ? 0x7d8a70 : 0x9aa3ad);
+    this.renderer.clearDepth();
+    this.renderer.render(this.handScene, this.viewModel.camera);
+  }
+
   /** Dev aid: `game.debugShots = true` in the console logs every shot result. */
   debugShots = false;
 
   private updateWeaponHud(): void {
     const w = this.weapons?.weapon;
     if (!w) return;
+    if (this.heldGrenade) {
+      this.hud.setWeapon(GRENADE_NAMES[this.heldGrenade], null, 0, 0, null);
+      return;
+    }
     this.hud.setWeapon(
       w.def.displayName,
       w.usesAmmo ? w.magazine : null,
@@ -1275,6 +1439,11 @@ export class Game {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.viewModel.setAspect(this.camera.aspect);
   };
+}
+
+/** Unit view direction for a yaw / pitch (the camera's -Z). */
+function viewDir(yaw: number, pitch: number, out: THREE.Vector3): THREE.Vector3 {
+  return out.set(-Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch));
 }
 
 /** Vertical field of view (degrees) that magnifies `base` by `zoom`. */

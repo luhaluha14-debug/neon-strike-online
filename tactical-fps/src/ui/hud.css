@@ -415,3 +415,31 @@ body {
   transform-origin: left center;
   transition: transform 0.2s ease-out;
 }
+
+/* FLASH-01: white screen while blinded (opacity set per frame); SMOKE-01: grey veil inside a cloud. */
+.flash-white,
+.smoke-veil {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+}
+.flash-white {
+  background: #fff;
+}
+.smoke-veil {
+  background: rgb(160, 164, 168);
+}
+/* Grenades carried, above the weapon name; the one in hand is lit. */
+.utility {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--hud-dim);
+}
+.utility .ut.held {
+  color: var(--hud-fg);
+  font-weight: 700;
+}
