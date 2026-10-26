@@ -45,6 +45,12 @@ export function errorMessage(error: EconomyError, ctx: { price?: number; credits
       return '저장하지 못했습니다. 아무것도 바뀌지 않았습니다. 잠시 후 다시 시도하세요.';
     case 'conflict':
       return '다른 창에서 계정이 바뀌었습니다. 아무것도 바뀌지 않았습니다. 새로고침 후 다시 시도하세요.';
+    case 'unauthenticated':
+      return '로그인이 필요합니다.';
+    case 'network':
+      return '서버에 연결하지 못했습니다. 아무것도 바뀌지 않았습니다.';
+    case 'unverified':
+      return '서버가 확인하지 않은 경기 결과는 반영되지 않습니다.';
   }
 }
 

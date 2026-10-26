@@ -91,3 +91,21 @@ Git 기준점: `05be091` (main, PR #20 병합 후). 이 문서는 1단계 조사
 - 동기화: 로컬 데이터와 서버 데이터가 다르면 자동 덮어쓰기 없이 `conflict`로 보고하고 사용자가 선택.
 - 거래(`economy/server/TradeService.ts`): 서버 전용. 상태 `open → (양측 확정) → completed | cancelled | expired | failed`,
   아이템 잠금·원자적 소유권 이전·멱등 요청·감사 기록·정지 계정 차단. 현금 결제·인출 없음.
+
+## 7. 구현 상태 (이번 작업)
+
+| 범위 | 상태 |
+| --- | --- |
+| 카탈로그·지갑·인벤토리·장착·상점·보상·미션 (`src/economy`) | 구현, Node 테스트 (`tests/grid-economy.test.mjs`) |
+| 상점·보관함·미션 화면, 실제 외형 적용 (`ui/GridStore.ts`, `skins/`) | 구현, 브라우저 테스트 (`tests/grid-store.test.mjs`) |
+| 로컬 저장소 (`LocalAccountRepository`, `grid.account.v1`) | 구현 — 신뢰하는 클라이언트(오프라인 전용) |
+| 계정 서버 API 참조 처리기 (`economy/server/AccountApi.ts`) | 구현, 실제 HTTP로 Node 테스트 — **배포된 서버 없음** |
+| 원격 클라이언트 (`economy/RemoteEconomyBackend.ts`) | 구현, 게임에 아직 연결하지 않음(서버가 없으므로) |
+| 인증 | 인터페이스(`TokenVerifier`)만. 실제 ID 제공자 연동 필요. 비밀번호를 저장하지 않음 |
+| 데이터베이스 | 인터페이스(`AccountRepository`, `TradeStore`)만. 트랜잭션 DB 구현 필요 |
+| 경기 결과 검증 | 온라인 처리기는 클라이언트 보고 결과를 거부(`unverified`). 서버가 경기를 직접 확인하는 게임 서버 필요 |
+| 사용자 간 거래 (`economy/server/TradeService.ts`) | 상태 기계·원자적 이전·멱등·잠금·만료·정지·감사 기록 모델과 테스트. **거래 UI·실서버 없음 — 실제 거래 기능은 미구현** |
+
+서버 구현 시 주의: `TradeService`의 원자성은 단일 스레드 메모리 안에서만 보장된다. 실제 서버에서는
+`TradeStore.commit`을 하나의 DB 트랜잭션(두 계정 행 잠금 + 감사 기록)으로 구현하고, 같은 아이템에 대한 동시 거래는
+행 잠금 또는 낙관적 버전 검사로 막아야 한다.

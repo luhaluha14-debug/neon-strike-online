@@ -118,7 +118,13 @@ export type EconomyError =
   | 'not_completed'
   | 'already_claimed'
   | 'storage_error'
-  | 'conflict';
+  | 'conflict'
+  /** Online: no valid sign-in for the request. */
+  | 'unauthenticated'
+  /** Online: the server could not be reached (nothing changed). */
+  | 'network'
+  /** Online: the server only accepts match results it verified itself. */
+  | 'unverified';
 
 /** A finished match as reported to the economy (locally by the game; online, verified by the server). */
 export interface MatchResult {
