@@ -226,3 +226,24 @@ test('sync: another device saved a newer record → this change is refused as a 
   assert.deepEqual([r.ok, r.error], [false, 'conflict']);
   assert.equal((await repo.load()).credits, 9999, 'the newer record is kept');
 });
+
+test('looks: every sold skin has a look of its own kind for real file materials; unknown or failed assets fall back to the factory look', async () => {
+  const L = await vite.ssrLoadModule('/src/skins/SkinLooks.ts');
+  const kindFor = { weapon: 'weapon', knife: 'weapon', gloves: 'arms', character: 'outfit' };
+  for (const s of M.SKIN_CATALOG) {
+    if (s.isDefault) {
+      assert.equal(s.assetId, 'default');
+      continue;
+    }
+    const look = L.lookOf(s.assetId, kindFor[s.category]);
+    assert.ok(look, `${s.skinId}: look ${s.assetId}`);
+    if (look.kind === 'weapon') {
+      const roles = L.WEAPON_MATERIAL_ROLES[s.targets[0]];
+      assert.ok(roles, `${s.skinId}: material roles for ${s.targets[0]}`);
+      for (const role of ['body', 'accent', 'metal']) if (look[role]) assert.ok(roles[role]?.length, `${s.skinId}: ${role} has materials`);
+    }
+  }
+  assert.equal(L.lookOf('finish:does-not-exist', 'weapon'), null);
+  assert.equal(L.lookOf('arms:gloves.coyote', 'weapon'), null, 'a look of the wrong kind is not used');
+  assert.equal(L.lookOf(undefined, 'outfit'), null);
+});
