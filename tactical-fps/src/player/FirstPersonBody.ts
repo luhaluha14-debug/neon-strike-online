@@ -2,6 +2,15 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { PLAYER_CONFIG } from '../config';
 import { getArmTextures } from '../weapons/view/ArmTextures';
+import { applyFinish, type BodyAppearance } from '../skins/SkinRenderer';
+
+/** Factory uniform (a character skin's empty fields fall back to these). */
+const BODY_FACTORY = {
+  pants: { color: 0x67644f, metalness: 0, roughness: 0.92 },
+  jacket: { color: 0x575c4a, metalness: 0, roughness: 0.92 },
+  gear: { color: 0x37393c, metalness: 0, roughness: 0.75 },
+  boot: { color: 0x433a30, metalness: 0, roughness: 0.7 },
+} as const;
 
 // Local player's lower body, seen when looking down (first-person "true legs").
 //
@@ -74,6 +83,8 @@ export class FirstPersonBody {
   private readonly legs: Leg[];
   private readonly geometries: THREE.BufferGeometry[] = [];
   private readonly materials: THREE.Material[] = [];
+  /** Uniform parts a character skin recolours. */
+  private readonly outfit: Record<'pants' | 'jacket' | 'gear' | 'boot', THREE.MeshStandardMaterial>;
   private bodyYaw = 0;
   private turning = false;
   private phase = 0;
@@ -90,6 +101,7 @@ export class FirstPersonBody {
     const gear = this.mat(0x37393c, 0.75, null, tex.gloveNormal);
     const boot = this.mat(0x433a30, 0.7, tex.gloveMap, tex.gloveNormal);
     const sole = this.mat(0x1c1c1c, 0.9);
+    this.outfit = { pants, jacket, gear, boot };
 
     // Waist: jacket hem, belt with a buckle and magazine / utility pouches up front.
     const p = this.pelvis;
@@ -223,6 +235,16 @@ export class FirstPersonBody {
   }
 
   /** Snap to the player's yaw (spawn / teleport) instead of turning toward it. */
+  /** Character skin (cosmetic: colours of this body's own materials; null = factory look). */
+  applyLook(look: BodyAppearance | null): void {
+    for (const part of ['pants', 'jacket', 'gear', 'boot'] as const) applyFinish(this.outfit[part], look?.[part] ?? null, BODY_FACTORY[part]);
+  }
+
+  /** Current uniform colours (tests). */
+  get lookColors(): Record<'pants' | 'jacket' | 'gear' | 'boot', number> {
+    return { pants: this.outfit.pants.color.getHex(), jacket: this.outfit.jacket.color.getHex(), gear: this.outfit.gear.color.getHex(), boot: this.outfit.boot.color.getHex() };
+  }
+
   reset(): void {
     this.initialized = false;
     this.phase = 0;

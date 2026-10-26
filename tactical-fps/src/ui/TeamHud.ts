@@ -78,6 +78,7 @@ export class TeamHud {
         <div class="results-panel">
           <div class="results-title"></div>
           <div class="results-sub"></div>
+          <div class="results-reward" aria-live="polite"></div>
           <ol class="round-history"></ol>
           <div class="results-teams"></div>
           <div class="results-actions">
@@ -180,6 +181,7 @@ export class TeamHud {
     this.results.hidden = false;
     this.results.classList.toggle('won', won);
     this.results.classList.toggle('forfeit', forfeit);
+    this.results.querySelector('.results-reward')!.textContent = '';
     this.results.querySelector('.results-title')!.textContent = forfeit ? (won ? '상대 포기 - 승리' : '대결 포기 - 패배') : winner ? `${TEAM_NAME[winner]} 승리` : '경기 종료';
     this.results.querySelector('.results-sub')!.textContent = `${won ? '승리' : '패배'} · BLUE ${m.roundWins.blue} : ${m.roundWins.red} RED · ${m.history.length}라운드${forfeit ? ' 진행 후 포기' : ''}`;
     this.results.querySelector('.round-history')!.innerHTML = m.history
@@ -192,6 +194,11 @@ export class TeamHud {
       .join('');
     this.results.querySelector('.results-teams')!.innerHTML = teamTables(m);
     this.boardKey = '';
+  }
+
+  /** GRID credit line under the result (set once the economy has answered). */
+  showReward(text: string): void {
+    this.results.querySelector('.results-reward')!.textContent = text;
   }
 
   hideResults(): void {

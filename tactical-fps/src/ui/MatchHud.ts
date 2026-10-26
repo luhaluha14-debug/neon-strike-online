@@ -39,6 +39,7 @@ export class MatchHud {
         <div class="results-panel">
           <div class="results-title"></div>
           <div class="results-sub"></div>
+          <div class="results-reward" aria-live="polite"></div>
           <table class="score-table results-table"></table>
           <div class="results-actions">
             <button type="button" class="btn btn-primary results-restart">다시 시작</button>
@@ -94,12 +95,18 @@ export class MatchHud {
     const won = m.playerWon;
     this.results.hidden = false;
     this.results.classList.toggle('won', won);
+    this.results.querySelector('.results-reward')!.textContent = '';
     this.results.querySelector('.results-title')!.textContent = won ? '승리' : '패배';
     const me = m.ranking.findIndex((s) => s.isPlayer) + 1;
     const why = m.endReason === 'kills' ? `${m.config.killTarget}킬 달성` : '시간 종료';
     this.results.querySelector('.results-sub')!.textContent = `${why} · ${me}위 / ${m.scores.size}`;
     this.boardKey = '';
     this.fillTable(this.results.querySelector('table')!, m);
+  }
+
+  /** GRID credit line under the result (set once the economy has answered). */
+  showReward(text: string): void {
+    this.results.querySelector('.results-reward')!.textContent = text;
   }
 
   hideResults(): void {

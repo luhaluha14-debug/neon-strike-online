@@ -398,3 +398,12 @@
 .hud:not(.playing) .team-hud .bomb-box {
   display: none;
 }
+
+/* GRID credits earned (or why not) under a match result. */
+.results-reward {
+  min-height: 1.3em;
+  margin-top: 6px;
+  color: var(--c-accent);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}

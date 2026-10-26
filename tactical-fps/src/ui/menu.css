@@ -31,6 +31,10 @@
   height: 100%;
   padding: clamp(24px, 6vh, 64px) var(--s-6) clamp(20px, 4vh, 40px) clamp(24px, 4.5vw, 72px);
 }
+/* Shop / inventory: room for cards side by side. */
+.menu.wide {
+  width: clamp(400px, 64vw, 980px);
+}
 .menu[hidden],
 .loading[hidden] {
   display: none;
@@ -62,6 +66,7 @@
 /* Tabs */
 .tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--s-1);
   margin-bottom: var(--s-4);
   border-bottom: 1px solid var(--c-border);

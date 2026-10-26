@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import type { ArmsAppearance } from '../../skins/SkinRenderer';
 import { FirstPersonArms } from './FirstPersonArms';
 import type { ViewmodelPose, WeaponCategory } from '../WeaponDefinition';
 import type { WeaponAnimState, WeaponView } from './WeaponView';
@@ -46,6 +47,8 @@ export class ViewModelLayer {
   restScale = 1;
   private view: WeaponView | null = null;
   private arms: FirstPersonArms | null = null;
+  /** Glove / sleeve skin, applied to every arm set this layer builds. */
+  private armsLook: ArmsAppearance | null = null;
   /** Motion pivot: position/rotation offsets are applied here. */
   private readonly pivot = new THREE.Group();
   private readonly flash: THREE.Mesh;
@@ -120,12 +123,19 @@ export class ViewModelLayer {
     this.pivot.add(view.object);
     // Arms attach to whatever anchors the weapon provides — no per-weapon code here.
     this.arms = new FirstPersonArms(view.gripAnchor, view.supportAnchor, view.magazine, view.rightHand, view.armPose);
+    this.arms.applyLook(this.armsLook);
     this.pivot.add(this.arms.object);
     view.muzzle?.add(this.flash);
     this.flashTime = 0;
     this.kick = this.kickVel = 0;
     this.magRestY = view.magazine?.position.y ?? 0;
     if (pose) this.setPose(pose);
+  }
+
+  /** Glove / sleeve skin for the current and every later arm set (null = factory). */
+  setArmsLook(look: ArmsAppearance | null): void {
+    this.armsLook = look;
+    this.arms?.applyLook(look);
   }
 
   setPose(pose: ViewmodelPose): void {

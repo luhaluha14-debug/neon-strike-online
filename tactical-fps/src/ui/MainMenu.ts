@@ -3,7 +3,7 @@ import './menu.css';
 
 import { ACTIONS, bindKey, defaultControls, keyLabel, RESERVED_KEYS, SENSITIVITY_MAX, SENSITIVITY_MIN, type ActionId, type ControlSettings } from '../input/Controls';
 
-export type MenuPage = 'play' | 'loadout' | 'settings' | 'controls';
+export type MenuPage = 'play' | 'loadout' | 'settings' | 'controls' | 'inventory' | 'shop' | 'missions';
 
 export interface MenuMap {
   id: string;
@@ -38,7 +38,14 @@ const PAGES: readonly { id: MenuPage; label: string }[] = [
   { id: 'loadout', label: '무기' },
   { id: 'settings', label: '설정' },
   { id: 'controls', label: '조작' },
+  // GRID skins and credits (ui/GridStore.ts fills these pages).
+  { id: 'inventory', label: '보관함' },
+  { id: 'shop', label: '상점' },
+  { id: 'missions', label: '미션' },
 ];
+
+/** Pages that need the wide menu (cards side by side). */
+const WIDE_PAGES: readonly MenuPage[] = ['inventory', 'shop'];
 
 /**
  * Start / pause menu and loading screen. Pure view: it renders what the
@@ -163,6 +170,9 @@ export class MainMenu {
           <section class="page" id="page-controls" data-page="controls" role="tabpanel" aria-labelledby="tab-controls" hidden>
             ${controlsHtml()}
           </section>
+          <section class="page grid-page" id="page-inventory" data-page="inventory" role="tabpanel" aria-labelledby="tab-inventory" hidden></section>
+          <section class="page grid-page" id="page-shop" data-page="shop" role="tabpanel" aria-labelledby="tab-shop" hidden></section>
+          <section class="page grid-page" id="page-missions" data-page="missions" role="tabpanel" aria-labelledby="tab-missions" hidden></section>
         </div>
         <footer class="menu-footer">
           <button type="button" class="btn btn-primary btn-block play-button" disabled>플레이</button>
@@ -362,7 +372,18 @@ export class MainMenu {
       tab.tabIndex = on ? 0 : -1;
     }
     for (const p of this.root.querySelectorAll<HTMLElement>('.page')) p.hidden = p.dataset.page !== page;
+    this.menu.classList.toggle('wide', WIDE_PAGES.includes(page));
     for (const l of this.pageListeners) l(page);
+  }
+
+  /** The container of a page (GRID pages are filled from outside). */
+  pageElement(page: MenuPage): HTMLElement {
+    return this.root.querySelector<HTMLElement>(`#page-${page}`)!;
+  }
+
+  /** The page currently shown. */
+  get currentPage(): MenuPage {
+    return (this.root.querySelector<HTMLElement>('.tab[aria-selected="true"]')?.dataset.page as MenuPage) ?? 'play';
   }
 
   onPageShown(listener: (page: MenuPage) => void): void {

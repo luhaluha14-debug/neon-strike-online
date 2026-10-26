@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { WeaponViewSpec } from '../weapons/WeaponDefinition';
-import { createWeaponView } from '../weapons/view/WeaponView';
+import { createWeaponView, type WeaponView } from '../weapons/view/WeaponView';
 
 const W = 224;
 const H = 112;
@@ -18,6 +18,8 @@ export async function renderWeaponThumbnails(
   environment: THREE.Texture | null,
   weapons: readonly { id: string; view: WeaponViewSpec }[],
   onThumbnail: (id: string, url: string) => void,
+  /** Optional: dress each view before its picture is taken (skin previews); may return a cleanup. */
+  decorate?: (id: string, view: WeaponView) => (() => void) | void,
 ): Promise<void> {
   const w = W * SCALE;
   const h = H * SCALE;
@@ -51,6 +53,7 @@ export async function renderWeaponThumbnails(
     for (const weapon of weapons) {
       await nextTask();
       const view = createWeaponView(weapon.view);
+      const cleanup = decorate?.(weapon.id, view);
       try {
         scene.add(view.object);
         view.object.updateMatrixWorld(true);
@@ -95,6 +98,7 @@ export async function renderWeaponThumbnails(
         renderer.setRenderTarget(prevTarget);
         renderer.setClearColor(prevClear, prevAlpha);
         scene.remove(view.object);
+        cleanup?.();
         view.dispose();
       }
     }

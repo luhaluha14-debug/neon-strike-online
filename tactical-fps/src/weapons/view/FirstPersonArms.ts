@@ -1,6 +1,15 @@
 import * as THREE from 'three';
 import { getArmTextures } from './ArmTextures';
+import { applyFinish, type ArmsAppearance } from '../../skins/SkinRenderer';
 import { PISTOL_GRIP, type ArmPose, type HandGripProfile } from './HandGrip';
+
+/** Factory glove / sleeve finishes (a skin's empty fields fall back to these). */
+const FACTORY = {
+  glove: { color: 0x1f2022, metalness: 0.0, roughness: 0.78 },
+  pad: { color: 0x34363a, metalness: 0.05, roughness: 0.55 },
+  sleeve: { color: 0x3b3f34, metalness: 0.0, roughness: 0.92 },
+  cuff: { color: 0x2b2d28, metalness: 0.0, roughness: 0.88 },
+} as const;
 
 /**
  * Procedural first-person arms: tactical gloves and jacket sleeves built from
@@ -50,10 +59,10 @@ export class FirstPersonArms {
     if (armPose?.leftElbow) this.leftElbow.set(...armPose.leftElbow);
     const tex = getArmTextures();
     // Synthetic glove shell, rubberised knuckle / palm pads, ripstop jacket sleeve.
-    this.glove = this.mat(0x1f2022, 0.0, 0.78, tex.gloveMap, tex.gloveNormal, 0.6);
-    this.pad = this.mat(0x34363a, 0.05, 0.55, null, tex.gloveNormal, 0.3);
-    this.sleeve = this.mat(0x3b3f34, 0.0, 0.92, tex.fabricMap, tex.fabricNormal, 0.55);
-    this.cuff = this.mat(0x2b2d28, 0.0, 0.88, tex.fabricMap, tex.fabricNormal, 0.5);
+    this.glove = this.mat(FACTORY.glove.color, FACTORY.glove.metalness, FACTORY.glove.roughness, tex.gloveMap, tex.gloveNormal, 0.6);
+    this.pad = this.mat(FACTORY.pad.color, FACTORY.pad.metalness, FACTORY.pad.roughness, null, tex.gloveNormal, 0.3);
+    this.sleeve = this.mat(FACTORY.sleeve.color, FACTORY.sleeve.metalness, FACTORY.sleeve.roughness, tex.fabricMap, tex.fabricNormal, 0.55);
+    this.cuff = this.mat(FACTORY.cuff.color, FACTORY.cuff.metalness, FACTORY.cuff.roughness, tex.fabricMap, tex.fabricNormal, 0.5);
 
     this.buildRightHand(grip);
     this.buildLeftHand();
@@ -69,6 +78,19 @@ export class FirstPersonArms {
       o.frustumCulled = false;
     });
     this.update(null);
+  }
+
+  /** Glove and sleeve skins (cosmetic: colours of this arm set's own materials; null = factory look). */
+  applyLook(look: ArmsAppearance | null): void {
+    applyFinish(this.glove, look?.glove ?? null, FACTORY.glove);
+    applyFinish(this.pad, look?.pad ?? null, FACTORY.pad);
+    applyFinish(this.sleeve, look?.sleeve ?? null, FACTORY.sleeve);
+    applyFinish(this.cuff, look?.cuff ?? null, FACTORY.cuff);
+  }
+
+  /** Current glove / sleeve colours (tests, previews). */
+  get lookColors(): { glove: number; pad: number; sleeve: number; cuff: number } {
+    return { glove: this.glove.color.getHex(), pad: this.pad.color.getHex(), sleeve: this.sleeve.color.getHex(), cuff: this.cuff.color.getHex() };
   }
 
   /** Call every frame after the weapon's own parts (magazine) have moved. */

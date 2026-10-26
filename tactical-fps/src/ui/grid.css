@@ -1,0 +1,351 @@
+/* GRID shop / inventory / missions pages. Same tokens and restraint as the rest of the menu
+   (theme.css): dark neutral panels, one orange accent, compact rectangles, no glow. */
+
+.grid-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.grid-page[hidden] {
+  display: none;
+}
+.grid-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2) var(--s-4);
+}
+.grid-credits {
+  color: var(--c-text-2);
+  font-size: var(--fs-sm);
+  letter-spacing: 0.04em;
+}
+.grid-credits b {
+  margin-left: var(--s-1);
+  color: var(--c-accent);
+  font-size: var(--fs-lg);
+  font-variant-numeric: tabular-nums;
+}
+.grid-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1);
+}
+.grid-chip {
+  min-height: 30px;
+  padding: 0 var(--s-3);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-bg-2);
+  color: var(--c-text-2);
+  font: 600 var(--fs-sm) var(--font);
+  cursor: pointer;
+}
+.grid-chip[aria-pressed='true'] {
+  border-color: var(--c-accent);
+  color: var(--c-text);
+  box-shadow: inset 0 -2px 0 var(--c-accent);
+}
+.grid-chip:focus-visible,
+.grid-card:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.grid-search {
+  flex: 1 1 160px;
+  min-width: 0;
+  min-height: 30px;
+  padding: 0 var(--s-2);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-bg-2);
+  color: var(--c-text);
+  font: var(--fs-sm) var(--font);
+}
+.grid-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: var(--s-2);
+}
+.grid-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  min-width: 0;
+  padding: var(--s-2);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-bg-2);
+  color: var(--c-text);
+  font: var(--fs-sm) var(--font);
+  text-align: left;
+}
+button.grid-card {
+  cursor: pointer;
+}
+button.grid-card:hover {
+  border-color: var(--c-border-strong);
+  background: var(--c-panel);
+}
+.grid-card.owned .gc-price {
+  color: var(--c-text-2);
+}
+.grid-card.short .gc-price {
+  color: var(--c-text-3);
+}
+.grid-card.equipped {
+  border-color: var(--c-accent);
+  box-shadow: inset 3px 0 0 var(--c-accent);
+}
+.gc-art {
+  position: relative;
+  display: block;
+  aspect-ratio: 2 / 1;
+  background: var(--c-bg) center / contain no-repeat;
+  border: 1px solid var(--c-border);
+}
+.gc-art.large {
+  aspect-ratio: 2 / 1;
+  width: 100%;
+}
+.gc-swatches {
+  position: absolute;
+  left: var(--s-1);
+  bottom: var(--s-1);
+  display: flex;
+  gap: 2px;
+}
+.gc-swatches i {
+  width: 12px;
+  height: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+.gc-art:not(.has-image) .gc-swatches i {
+  width: 22px;
+  height: 22px;
+}
+.gc-name {
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gc-target {
+  color: var(--c-text-3);
+}
+.gc-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s-1);
+}
+.gc-price {
+  color: var(--c-accent);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.gc-state {
+  color: var(--c-accent);
+}
+.gc-rarity {
+  color: var(--c-text-2);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.08em;
+}
+/* Rarity is told by a muted tone only (no glow, no rainbow). */
+.r-uncommon {
+  color: #9db48a;
+}
+.r-rare {
+  color: #8fa9c4;
+}
+.r-epic {
+  color: #c49a6c;
+}
+.gc-equip {
+  min-height: 30px;
+  font-size: var(--fs-sm);
+}
+.grid-slot {
+  margin-bottom: var(--s-4);
+}
+.grid-slot-title {
+  margin: 0 0 var(--s-2);
+  font-size: var(--fs-md);
+}
+.grid-note {
+  min-height: 1.4em;
+  margin: 0;
+  color: var(--c-text-2);
+  font-size: var(--fs-sm);
+}
+.grid-note.error,
+.gd-note.error {
+  color: var(--c-danger);
+}
+.gd-note.ok {
+  color: var(--c-accent);
+}
+.muted {
+  color: var(--c-text-3);
+  font-weight: 400;
+}
+
+/* Purchase dialog. */
+.grid-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: var(--s-4);
+  background: rgba(10, 11, 12, 0.72);
+}
+.grid-dialog[hidden] {
+  display: none;
+}
+.gd-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--s-4);
+  width: min(720px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  padding: var(--s-5);
+  background: var(--c-bg-2);
+  border: 1px solid var(--c-border);
+  border-top: 3px solid var(--c-accent);
+  border-radius: var(--radius);
+}
+.gd-name {
+  margin: var(--s-1) 0 var(--s-2);
+  font-size: var(--fs-xl);
+}
+.gd-desc {
+  margin: 0 0 var(--s-2);
+  color: var(--c-text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+}
+.gd-numbers {
+  display: grid;
+  gap: var(--s-1);
+  margin: var(--s-3) 0;
+}
+.gd-numbers div {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--fs-md);
+}
+.gd-numbers dt {
+  color: var(--c-text-2);
+}
+.gd-numbers dd {
+  margin: 0;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.gd-price {
+  color: var(--c-accent);
+}
+.gd-after.neg {
+  color: var(--c-danger);
+}
+.gd-note {
+  min-height: 1.4em;
+  color: var(--c-text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+.gd-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-2);
+}
+.gd-actions .btn {
+  min-height: 44px;
+  font-size: var(--fs-md);
+}
+
+/* Missions. */
+.grid-missions {
+  display: grid;
+  gap: var(--s-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.grid-mission {
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-bg-2);
+}
+.grid-mission.done {
+  border-color: var(--c-accent);
+}
+.gm-top,
+.gm-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+}
+.gm-title {
+  font-weight: 700;
+}
+.gm-reward {
+  color: var(--c-accent);
+  font-weight: 700;
+}
+.gm-track {
+  height: 4px;
+  margin: var(--s-2) 0;
+  background: var(--c-border);
+}
+.gm-bar {
+  height: 100%;
+  background: var(--c-accent);
+  transform-origin: left center;
+}
+.gm-progress,
+.gm-state {
+  color: var(--c-text-2);
+  font-size: var(--fs-sm);
+}
+.gm-claim {
+  min-height: 30px;
+  margin-left: auto;
+  font-size: var(--fs-sm);
+}
+.grid-ledger {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+.grid-ledger th,
+.grid-ledger td {
+  padding: var(--s-1) var(--s-2);
+  border-bottom: 1px solid var(--c-border);
+  text-align: left;
+}
+.grid-ledger td:nth-child(n + 3),
+.grid-ledger th:nth-child(n + 3) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.grid-ledger .neg {
+  color: var(--c-danger);
+}
+.grid-ledger .pos {
+  color: var(--c-accent);
+}
+
+@media (max-width: 640px) {
+  .gd-panel {
+    grid-template-columns: 1fr;
+    padding: var(--s-4);
+  }
+  .grid-cards {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  }
+}

@@ -60,8 +60,8 @@ export const SKIN_CATALOG: readonly SkinDef[] = [
   // AR-01
   weapon('ar01.fde', 'ar01', 'FDE 세라코트', '사막 지형용 플랫 다크 어스 세라코트. 총열과 금속 부품은 원래 색.', 400, 'common', [0x8a7553, 0x1a1b1d]),
   weapon('ar01.ranger', 'ar01', '레인저 그린', '숲 지형용 레인저 그린 세라코트 투톤.', 400, 'common', [0x4a5240, 0x1a1b1d]),
-  weapon('ar01.tungsten', 'ar01', '텅스텐 그레이', '도심용 무광 텅스텐 그레이 세라코트, 탄창은 검정.', 650, 'uncommon', [0x5c5f62, 0x151617]),
-  weapon('ar01.urban', 'ar01', '어반 투톤', '스나이퍼 그레이 몸체와 검정 레일 커버.', 900, 'rare', [0x7d8184, 0x101112]),
+  weapon('ar01.tungsten', 'ar01', '텅스텐 그레이', '도심용 무광 텅스텐 그레이 세라코트, 탄창은 검정.', 650, 'uncommon', [0x45484b, 0x151617]),
+  weapon('ar01.urban', 'ar01', '어반 투톤', '스나이퍼 그레이 몸체와 검정 레일 커버.', 900, 'rare', [0x575b5e, 0x101112]),
   // SR-01
   weapon('sr01.olive', 'sr01', 'OD 그린 스톡', '올리브 드랩 스톡과 파커라이징 강철.', 500, 'common', [0x4b4f36, 0x1a1b1d]),
   weapon('sr01.winter', 'sr01', '윈터 화이트', '설원 위장용 흰색 스톡과 회색 강철.', 900, 'rare', [0xd9dbd6, 0x6b6e70]),
