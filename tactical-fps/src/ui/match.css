@@ -399,11 +399,20 @@
   display: none;
 }
 
-/* GRID credits earned (or why not) under a match result. */
+/* GRID credits earned (or why not): in the panel's top padding, so the result layout keeps its size. */
+.results-panel {
+  position: relative;
+}
 .results-reward {
-  min-height: 1.3em;
-  margin-top: 6px;
+  position: absolute;
+  top: 5px;
+  right: 12px;
+  max-width: calc(100% - 24px);
+  overflow: hidden;
   color: var(--c-accent);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-xs);
   font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
