@@ -4,6 +4,10 @@
 
 ## 0. 상태 요약 — 무엇이 실제 DB로 동작하고 무엇이 아직 없는가
 
+> **현재 꺼 둠.** 로그인 기능은 코드만 남겨 두었습니다. 기본 빌드는 계정 서버를 찾지 않고(`/api/health` 요청 없음) 계정 줄도 없이
+> 오프라인 기록만 씁니다(`ACCOUNTS_ENABLED`, `src/economy/AccountSession.ts`). `VITE_GRID_ACCOUNTS=1`로 빌드하면 다시 켜집니다.
+> 루트 `render.yaml`에서도 서버·DB를 뺐고, 배포 구성은 `render.account-server.yaml`에 비활성으로 보관합니다.
+
 | 기능 | 상태 |
 | --- | --- |
 | 가입·로그인·로그아웃·세션 만료·정지 계정·로그인 제한 | **구현 · 실제 PostgreSQL 테스트** |
@@ -14,7 +18,7 @@
 | 클라이언트 경기 결과 보고 (`POST /api/match-results`) | 항상 403 `unverified` (지급 없음) |
 | 플레이어 간 거래 | **미구현** (`src/economy/server/TradeService.ts`는 메모리 모델 그대로, DB·API 없음) |
 | 오프라인 기록 → 계정 이전 | **하지 않음** (검증 불가). 로그인 시 알림만 |
-| 배포 | 루트 `render.yaml`: DB `grid-accounts`(basic-256mb) + 웹 서비스 `tactical-fps-online`(starter). 정적 사이트 `tactical-fps`는 오프라인 전용으로 유지 |
+| 배포 | **하지 않음.** `render.account-server.yaml`에 비활성으로 보관 (루트 `render.yaml`에는 없음) |
 
 ## 1. 조사 결과 (기존 코드)
 
@@ -149,7 +153,7 @@
 - **종료**: SIGTERM/SIGINT → 새 연결 거부, 진행 중 요청 완료 후 풀 종료, 10초 후 강제 종료.
 - **정리**: 1시간마다 만료 30일 지난 세션, 1일 지난 로그인 시도, 7일 지난 멱등 키 삭제.
 - **백업**: `pg_dump -Fc -f grid.dump "$DATABASE_URL"`. **복원**: 빈 DB에 `pg_restore --no-owner -d "$TARGET_URL" grid.dump` 후 서버 시작(마이그레이션은 "up to date"). 테스트에서 실제로 덤프→다른 DB 복원→같은 계정·로그인 확인. Render 유료 DB는 자동 백업·PITR 제공, 무료 DB는 30일 후 삭제·백업 없음 → 실제 계정에는 유료 플랜 필요.
-- **Render**: 루트 `render.yaml`의 DB `grid-accounts`(유료 basic-256mb, 내부 연결만) + 웹 서비스 `tactical-fps-online`(`healthCheckPath: /api/health`, `DATABASE_URL` fromDatabase). `NODE_ENV=production`이 빌드에도 적용되므로 `npm ci --include=dev`.
+- **Render**: `render.account-server.yaml`(비활성) — DB `grid-accounts`(유료 basic-256mb, 내부 연결만) + 웹 서비스 `tactical-fps-online`(`healthCheckPath: /api/health`, `DATABASE_URL` fromDatabase). 켤 때는 루트 `render.yaml`로 옮기고 빌드 환경 변수 `VITE_GRID_ACCOUNTS=1`을 추가. `NODE_ENV=production`이 빌드에도 적용되므로 `npm ci --include=dev`.
 - 현재 정적 사이트에는 `/api`가 없어 `/api/health`가 404 → 클라이언트는 오프라인 모드(정상 동작, 브라우저 콘솔에 404 한 줄).
 
 ## 9. 테스트

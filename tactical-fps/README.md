@@ -410,7 +410,7 @@ AI 봇 (예정) ──┘                 │
   훈련장·대결 포기·중도 이탈·1분 미만 경기는 0. 같은 경기는 한 번만 정산. 결과 화면에 지급액 표시. 수치는 `economy/EconomyRules.ts`.
 - **일일 미션**: 경기 1회 완료(100), 적 10명 처치(150), 라운드 3회 승리(150), SR-01로 3명 처치(200). 완료와 수령은 별개, 수령은 한 번. 기기 날짜가 바뀌면 초기화(온라인에서는 서버 날짜).
 - **저장**: 계정 서버가 없으면(지금의 정적 사이트, 개발 서버) **오프라인 기록** — `localStorage`의 `grid.account.v1`(revision으로 다른 탭과의 충돌 감지), 이 브라우저에만 있고 서버 검증은 없습니다.
-- **GRID 계정 서버**(구현 · 미배포): [`docs/grid-account-server.md`](docs/grid-account-server.md). Node 서버(`server/`)가 게임과 `/api`를 같은 출처로 제공하고 PostgreSQL에 저장합니다.
+- **GRID 계정 서버**(구현 · **꺼 둠**, `VITE_GRID_ACCOUNTS=1`로 켬 · 미배포): [`docs/grid-account-server.md`](docs/grid-account-server.md). Node 서버(`server/`)가 게임과 `/api`를 같은 출처로 제공하고 PostgreSQL에 저장합니다.
   GRID 페이지 위 계정 줄에서 가입·로그인하면 크레딧·스킨·장착·미션을 서버 계정에서 불러오며, 새로고침·다른 브라우저에서도 같습니다.
   구매는 서버 가격·서버 잔액으로 한 트랜잭션(멱등 키), 오프라인 기록은 계정으로 **옮겨지지 않습니다**(로그인 시 알림).
   경기 결과를 서버가 검증할 수단이 아직 없어 **온라인 계정은 경기·미션으로 크레딧을 얻지 않습니다**(클라이언트 보고는 403). 거래는 미구현(`economy/server/TradeService.ts` 메모리 모델만).
@@ -509,6 +509,6 @@ Blender 파일에 장면이 여러 개면 **활성 장면**(내보낼 때 선택
 
 정적 사이트라 서버처럼 잠들지 않고, 바로 열립니다.
 
-GRID 계정 서버(Node + PostgreSQL)는 같은 `render.yaml`의 `tactical-fps-online` 웹 서비스와 `grid-accounts` 데이터베이스(유료 플랜)로 배포됩니다.
-그 주소에서는 게임과 `/api`가 같은 출처로 제공되어 가입·로그인이 동작하고, 정적 사이트 `tactical-fps`는 오프라인 기록 전용으로 남습니다.
-환경 변수·백업·장애 대응은 [`docs/grid-account-server.md`](docs/grid-account-server.md) §8에 있습니다.
+GRID 계정 서버(Node + PostgreSQL)는 **꺼 두었습니다**(코드만 유지). 게임은 오프라인 기록만 쓰고 계정 줄·서버 확인이 없습니다.
+다시 켜려면 `VITE_GRID_ACCOUNTS=1`로 빌드하고 `render.account-server.yaml`의 DB·웹 서비스를 루트 `render.yaml`로 옮깁니다(유료).
+자세한 내용은 [`docs/grid-account-server.md`](docs/grid-account-server.md).

@@ -48,7 +48,7 @@ import { createSkyEnvironment, HORIZON_COLOR, SkyDome } from '../world/Sky';
 import { enhanceMapMaterials } from '../world/SurfaceMaterials';
 import { FRAME_LIMIT_OPTIONS, FrameLoop, type FrameLimit } from './FrameLoop';
 import { SwitchableEconomyBackend } from '../economy/AccountClient';
-import { AccountSession } from '../economy/AccountSession';
+import { ACCOUNTS_ENABLED, AccountSession } from '../economy/AccountSession';
 import { LocalEconomyBackend } from '../economy/EconomyBackend';
 import { AccountPanel } from '../ui/AccountPanel';
 import { LoadoutService } from '../economy/LoadoutService';
@@ -348,14 +348,18 @@ export class Game {
       backend: this.economy,
       requestPreviews: (skins, onPreview) => void this.renderSkinPreviews(skins, onPreview),
     });
-    new AccountPanel(this.hud.menu.root, [this.hud.menu.pageElement('shop'), this.hud.menu.pageElement('inventory'), this.hud.menu.pageElement('missions')], this.accountSession);
+    // GRID sign-in (off for now: ACCOUNTS_ENABLED).
+    if (ACCOUNTS_ENABLED)
+      new AccountPanel(this.hud.menu.root, [this.hud.menu.pageElement('shop'), this.hud.menu.pageElement('inventory'), this.hud.menu.pageElement('missions')], this.accountSession);
     this.economy.onChange = (a) => this.setAccount(a);
     void this.economy
       .getAccount()
       .then((a) => this.setAccount(a))
       .catch((err) => console.warn('[grid] account unavailable: default looks, no shop', err))
       // Then look for an account server (none: the offline record stays, the game is unaffected).
-      .finally(() => void this.accountSession.start());
+      .finally(() => {
+        if (ACCOUNTS_ENABLED) void this.accountSession.start();
+      });
     this.matchHud = new MatchHud(
       this.hud.root,
       () => {

@@ -46,6 +46,8 @@ before(async () => {
   await new Promise((r) => api.listen(0, '127.0.0.1', r));
   // The game's dev server forwards /api to it (vite.config.ts).
   process.env.GRID_API_PROXY = `http://127.0.0.1:${api.address().port}`;
+  // Sign-in is off by default (src/economy/AccountSession.ts): this build turns it on.
+  process.env.VITE_GRID_ACCOUNTS = '1';
   env = await startEnv();
   username = `e2e${Date.now().toString(36)}`;
 });
@@ -54,6 +56,7 @@ after(async () => {
   await page?.context().close();
   await env?.close();
   delete process.env.GRID_API_PROXY;
+  delete process.env.VITE_GRID_ACCOUNTS;
   await new Promise((r) => (api ? (api.closeAllConnections(), api.close(r)) : r()));
   await db?.end();
   await deadDb?.end();
