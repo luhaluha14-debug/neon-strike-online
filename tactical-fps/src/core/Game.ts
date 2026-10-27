@@ -44,6 +44,7 @@ import { WeaponSystem, type WeaponCommand } from '../weapons/WeaponSystem';
 import type { WeaponAnimState } from '../weapons/view/WeaponView';
 import { findMap, MAPS, type MapDefinition } from '../maps';
 import { disposeMap, loadMap, type LoadedMap, type SpawnPoint } from '../world/MapLoader';
+import { Pigeons, preloadPigeons } from '../world/Pigeons';
 import { createSkyEnvironment, HORIZON_COLOR, SkyDome } from '../world/Sky';
 import { enhanceMapMaterials } from '../world/SurfaceMaterials';
 import { FRAME_LIMIT_OPTIONS, FrameLoop, type FrameLimit } from './FrameLoop';
@@ -159,6 +160,8 @@ export class Game {
   /** The match being played (its economy result id), and whether its result was handed in. */
   matchRecord: { id: string; mode: GameMode; settled: boolean } | null = null;
   private matchSerial = 0;
+  /** Ambient pigeons of the current map (null while loading or without the model). */
+  pigeons: Pigeons | null = null;
   /** C4 objective of the team match (objective 'bomb' on a map with bomb sites). */
   bomb: BombObjective | null = null;
   readonly bombFx = new BombEffects();
@@ -431,6 +434,8 @@ export class Game {
     this.weaponModels = preloadWeaponViews(Object.values(WEAPONS).map((d) => d.view));
     // Bot character models (small): in before the first match is set up.
     this.agentModels = preloadAgentModels();
+    // Ambient pigeons (scenery only); a failed download just means none.
+    void preloadPigeons();
     if (!(await this.loadMapInto(this.mapDef))) return;
     this.timer.connect(document);
     this.loop.start();
@@ -451,6 +456,8 @@ export class Game {
     this.lastHit = '';
     this.grenades = null;
     this.grenadeFx.clear();
+    // The pigeons live under the map root: disposed with it.
+    this.pigeons = null;
     if (this.map) disposeMap(this.map);
     this.map = null;
     this.player = null;
@@ -508,6 +515,9 @@ export class Game {
     this.camera.far = env.viewDistance;
     this.camera.updateProjectionMatrix();
     this.fitShadowToMap(map.playBounds);
+    void Pigeons.create(map, def.id).then((p) => {
+      if (this.map === map) this.pigeons = p;
+    });
 
     this.player = new PlayerController(map.collision);
     this.hitscan = new HitscanSystem(map.collision);
@@ -1316,6 +1326,7 @@ export class Game {
     this.blood.update(frameTime, this.camera);
     this.squad?.updateVisuals(frameTime);
     this.fx.update(frameTime, this.camera);
+    this.pigeons?.update(frameTime);
     this.grenadeFx.update(frameTime, this.grenades);
     if (this.bombFx.update(frameTime, this.bomb) && this.bomb) this.weaponAudio.world('c4.beep', this.bomb.position, 0.45, this.camera, 70);
     if (this.teamMatch) this.teamHud.setBomb(this.bombHud());
