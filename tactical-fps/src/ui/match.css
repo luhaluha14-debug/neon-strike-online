@@ -90,7 +90,6 @@
   width: min(460px, calc(100vw - 32px));
   padding: 14px 16px;
   background: rgba(17, 19, 21, 0.86);
-  border-top: 2px solid var(--c-accent);
 }
 .score-table {
   width: 100%;

@@ -26,6 +26,13 @@ export interface OfflineSummary {
 
 const NOTICE_KEY = 'grid.offline-notice.v1';
 
+/**
+ * GRID sign-in is switched off for now (the code stays): the game uses the
+ * offline record only and never looks for an account server. A build with
+ * VITE_GRID_ACCOUNTS=1 turns it back on.
+ */
+export const ACCOUNTS_ENABLED = import.meta.env.VITE_GRID_ACCOUNTS === '1';
+
 export class AccountSession {
   mode: AccountMode = { kind: 'checking' };
   private readonly listeners: ((mode: AccountMode) => void)[] = [];

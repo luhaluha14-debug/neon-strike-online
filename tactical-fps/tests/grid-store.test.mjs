@@ -54,6 +54,17 @@ test('menu: 보관함 · 상점 · 미션 tabs after the existing four (order an
   await page.click('#tab-play');
 });
 
+test('sign-in is switched off: no account line, no account-server request; the offline record is used', async () => {
+  const r = await page.evaluate(() => ({
+    bars: document.querySelectorAll('.grid-account').length,
+    dialog: !!document.querySelector('.grid-auth'),
+    mode: window.game.accountSession.mode.kind,
+    kind: window.game.economy.kind,
+    api: performance.getEntriesByType('resource').filter((e) => new URL(e.name).pathname.startsWith('/api/')).length,
+  }));
+  assert.deepEqual(r, { bars: 0, dialog: false, mode: 'checking', kind: 'local', api: 0 });
+});
+
 test('shop: credits, four categories, every product with its catalog price; search filters; defaults are not sold', async () => {
   await page.click('#tab-shop');
   const read = () =>
