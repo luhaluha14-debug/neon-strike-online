@@ -349,3 +349,71 @@ button.grid-card:hover {
     grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   }
 }
+
+/* Account line (which account the GRID pages show) and the sign-in dialog. */
+.grid-account {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  margin-bottom: var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-bg-2);
+  color: var(--c-text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+.grid-account .ga-state {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.grid-account b {
+  color: var(--c-text);
+}
+.grid-account .warn,
+.grid-account .warn b {
+  color: var(--c-warn);
+}
+.grid-account .ga-btn {
+  min-height: 30px;
+  padding: 0 var(--s-3);
+  font-size: var(--fs-sm);
+}
+.ga-panel {
+  grid-template-columns: 1fr;
+  width: min(420px, 100%);
+}
+.ga-field {
+  display: grid;
+  gap: var(--s-1);
+  color: var(--c-text-2);
+  font-size: var(--fs-sm);
+}
+.ga-field input {
+  min-height: 36px;
+  padding: 0 var(--s-2);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-bg);
+  color: var(--c-text);
+  font: var(--fs-md) var(--font);
+}
+.ga-field input:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.ga-one {
+  grid-template-columns: 1fr;
+}
+.ga-switch {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--c-accent);
+  font: var(--fs-sm) var(--font);
+  text-decoration: underline;
+  cursor: pointer;
+}

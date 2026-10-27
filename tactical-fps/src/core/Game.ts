@@ -47,7 +47,10 @@ import { disposeMap, loadMap, type LoadedMap, type SpawnPoint } from '../world/M
 import { createSkyEnvironment, HORIZON_COLOR, SkyDome } from '../world/Sky';
 import { enhanceMapMaterials } from '../world/SurfaceMaterials';
 import { FRAME_LIMIT_OPTIONS, FrameLoop, type FrameLimit } from './FrameLoop';
-import { LocalEconomyBackend, type EconomyBackend } from '../economy/EconomyBackend';
+import { SwitchableEconomyBackend } from '../economy/AccountClient';
+import { AccountSession } from '../economy/AccountSession';
+import { LocalEconomyBackend } from '../economy/EconomyBackend';
+import { AccountPanel } from '../ui/AccountPanel';
 import { LoadoutService } from '../economy/LoadoutService';
 import { findSkin, PLAYER_TARGET } from '../economy/SkinCatalog';
 import type { AccountState, MatchResult, SkinDef } from '../economy/types';
@@ -142,8 +145,12 @@ export class Game {
   private liveTime = 0;
   /** `?seed=N`: bots' random choices from a fixed seed (reproducible runs); null = Math.random. */
   private readonly seed: number | null;
-  /** GRID credits, skins and missions (local backend: this browser's account, not server-verified). */
-  readonly economy: EconomyBackend = new LocalEconomyBackend();
+  /** This browser's offline GRID record (not server-verified). */
+  private readonly localEconomy = new LocalEconomyBackend();
+  /** GRID credits, skins and missions: the offline record, or the signed-in server account. */
+  readonly economy = new SwitchableEconomyBackend(this.localEconomy);
+  /** Account server on this origin (if any) and the sign-in state. */
+  readonly accountSession = new AccountSession(this.economy, this.localEconomy);
   /** The account as the economy last reported it (null until loaded). */
   account: AccountState | null = null;
   /** Puts equipped skins on the player's weapons, hands and body (cosmetic only). */
@@ -341,11 +348,14 @@ export class Game {
       backend: this.economy,
       requestPreviews: (skins, onPreview) => void this.renderSkinPreviews(skins, onPreview),
     });
+    new AccountPanel(this.hud.menu.root, [this.hud.menu.pageElement('shop'), this.hud.menu.pageElement('inventory'), this.hud.menu.pageElement('missions')], this.accountSession);
     this.economy.onChange = (a) => this.setAccount(a);
     void this.economy
       .getAccount()
       .then((a) => this.setAccount(a))
-      .catch((err) => console.warn('[grid] account unavailable: default looks, no shop', err));
+      .catch((err) => console.warn('[grid] account unavailable: default looks, no shop', err))
+      // Then look for an account server (none: the offline record stays, the game is unaffected).
+      .finally(() => void this.accountSession.start());
     this.matchHud = new MatchHud(
       this.hud.root,
       () => {
