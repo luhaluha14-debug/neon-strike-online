@@ -550,6 +550,24 @@ test('HUD: round wins, round number, clock and survivors; Tab shows both teams w
   assert.equal(board.rows.filter((x) => x[0] === 'red' && x[3] === '1').length, 1, 'one RED death');
 });
 
+test('Tab board (team): no bar on its top edge (the column header lines stay); closed on release and on focus loss', async () => {
+  await page.keyboard.down('Tab');
+  await page.evaluate(() => window.T.run(1));
+  const top = await page.evaluate(() => {
+    const b = document.querySelector('.team-hud .scoreboard');
+    const th = b.querySelector('thead th');
+    return { shown: !b.hidden, width: getComputedStyle(b).borderTopWidth, before: getComputedStyle(b, '::before').content, headerLine: getComputedStyle(th).borderBottomWidth, tables: b.querySelectorAll(':scope > table').length };
+  });
+  await page.keyboard.up('Tab');
+  assert.deepEqual(top, { shown: true, width: '0px', before: 'none', headerLine: '1px', tables: 2 });
+  const closed = () => page.evaluate(() => (window.T.run(1), document.querySelector('.team-hud .scoreboard').hidden));
+  assert.equal(await closed(), true);
+  await page.keyboard.down('Tab');
+  await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+  assert.equal(await closed(), true, 'a focus change while Tab is down does not leave the board open');
+  await page.keyboard.up('Tab');
+});
+
 test('simulation: 10 combatants play rounds out on their own; rounds end, nobody respawns mid-round, no friendly damage', async () => {
   const r = await page.evaluate(() => {
     const g = window.game;

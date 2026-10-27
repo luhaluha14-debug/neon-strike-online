@@ -245,6 +245,60 @@ test('HUD: timer and kills shown; Tab shows the scoreboard', async () => {
   assert.deepEqual(board, { shown: true, rows: 6 });
 });
 
+test('Tab board: held = open, released = closed (also after key repeat and quick taps); a release lost to a focus change or Alt/Cmd+Tab never leaves it open; no bar on its top edge', async () => {
+  const shown = async () => {
+    await page.evaluate(() => window.T.run(1));
+    return page.evaluate(() => !document.querySelector('.match-hud .scoreboard').hidden);
+  };
+  const key = (type, init) => page.evaluate(([type, init]) => window.dispatchEvent(new KeyboardEvent(type, { code: 'Tab', key: 'Tab', ...init })), [type, init]);
+  await page.keyboard.down('Tab');
+  assert.equal(await shown(), true, 'held');
+  for (let i = 0; i < 5; i++) await key('keydown', { repeat: true });
+  assert.equal(await shown(), true, 'auto-repeat keeps it open');
+  await page.keyboard.up('Tab');
+  assert.equal(await shown(), false, 'released');
+  for (let i = 0; i < 6; i++) await page.keyboard.press('Tab');
+  assert.equal(await shown(), false, 'quick taps end closed');
+  // Focus leaves while Tab is down (another window, a system dialog): the key-up never arrives.
+  await key('keydown');
+  assert.equal(await shown(), true);
+  await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+  assert.equal(await shown(), false, 'closed on focus loss, not stuck open');
+  await key('keydown');
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    delete document.hidden;
+  });
+  assert.equal(await shown(), false, 'closed when the tab is hidden');
+  // Alt+Tab / Cmd+Tab switch windows (their key-up is never delivered): no board.
+  await key('keydown', { altKey: true });
+  assert.equal(await shown(), false);
+  await key('keydown', { metaKey: true });
+  assert.equal(await shown(), false);
+  // Movement keys keep working with the board open.
+  await page.keyboard.down('Tab');
+  await page.keyboard.down('KeyW');
+  const move = await page.evaluate(() => {
+    window.T.run(3);
+    return { board: !document.querySelector('.match-hud .scoreboard').hidden, forward: window.game.input.keys.has('KeyW') };
+  });
+  await page.keyboard.up('KeyW');
+  await page.keyboard.up('Tab');
+  assert.deepEqual(move, { board: true, forward: true });
+  // The board starts with its header: no accent bar / border above it.
+  await page.keyboard.down('Tab');
+  await page.evaluate(() => window.T.run(1));
+  const top = await page.evaluate(() => {
+    const b = document.querySelector('.match-hud .scoreboard');
+    const cs = getComputedStyle(b);
+    return { width: cs.borderTopWidth, before: getComputedStyle(b, '::before').content, firstChild: b.firstElementChild.tagName };
+  });
+  await page.keyboard.up('Tab');
+  assert.deepEqual(top, { width: '0px', before: 'none', firstChild: 'TABLE' });
+  assert.equal(await shown(), false);
+});
+
 test('kill target reached: match over, results, mouse released; restart gives a fresh match', async () => {
   await page.evaluate(() => {
     const g = window.game;

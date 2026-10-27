@@ -400,7 +400,8 @@ export class Game {
         this.respawn();
       } else if (e.code === 'Tab') {
         e.preventDefault();
-        this.scoreboardHeld = true;
+        // Alt+Tab / Cmd+Tab switch windows: their key-up never reaches the page.
+        if (!e.altKey && !e.metaKey) this.scoreboardHeld = true;
       } else if (e.code === 'KeyB' && !e.repeat && this.teamMatch?.buyOpen) {
         // B toggles the buy menu during the prep phase (closing re-captures the mouse).
         if (this.buyMenuOpen) this.closeBuyMenu(true);
@@ -412,6 +413,11 @@ export class Game {
     });
     window.addEventListener('keyup', (e) => {
       if (e.code === 'Tab') this.scoreboardHeld = false;
+    });
+    // The board shows while Tab is held: a release the page never saw (focus left with Tab down) must not keep it open.
+    window.addEventListener('blur', () => (this.scoreboardHeld = false));
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) this.scoreboardHeld = false;
     });
   }
 
