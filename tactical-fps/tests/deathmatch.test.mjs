@@ -245,7 +245,7 @@ test('HUD: timer and kills shown; Tab shows the scoreboard', async () => {
   assert.deepEqual(board, { shown: true, rows: 6 });
 });
 
-test('Tab board: held = open, released = closed (also after key repeat and quick taps); a release lost to a focus change or Alt/Cmd+Tab never leaves it open; no bar on its top edge', async () => {
+test('Tab board: held = open, released = closed (also after key repeat and quick taps); a release lost to a focus change or Alt/Cmd+Tab never leaves it open; hidden = not drawn', async () => {
   const shown = async () => {
     await page.evaluate(() => window.T.run(1));
     return page.evaluate(() => !document.querySelector('.match-hud .scoreboard').hidden);
@@ -286,17 +286,19 @@ test('Tab board: held = open, released = closed (also after key repeat and quick
   await page.keyboard.up('KeyW');
   await page.keyboard.up('Tab');
   assert.deepEqual(move, { board: true, forward: true });
-  // The board starts with its header: no accent bar / border above it.
+  // Hidden means not drawn at all (no empty panel left on screen).
+  const drawn = () => page.evaluate(() => {
+    window.T.run(1);
+    const r = document.querySelector('.match-hud:not(.team-hud) .scoreboard').getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  });
+  assert.equal(await drawn(), false, 'released: nothing drawn');
   await page.keyboard.down('Tab');
   await page.evaluate(() => window.T.run(1));
-  const top = await page.evaluate(() => {
-    const b = document.querySelector('.match-hud .scoreboard');
-    const cs = getComputedStyle(b);
-    return { width: cs.borderTopWidth, before: getComputedStyle(b, '::before').content, firstChild: b.firstElementChild.tagName };
-  });
+  assert.equal(await drawn(), true, 'held: drawn');
   await page.keyboard.up('Tab');
-  assert.deepEqual(top, { width: '0px', before: 'none', firstChild: 'TABLE' });
-  assert.equal(await shown(), false);
+  await page.evaluate(() => window.T.run(1));
+  assert.equal(await drawn(), false, 'released again: nothing drawn');
 });
 
 test('kill target reached: match over, results, mouse released; restart gives a fresh match', async () => {
