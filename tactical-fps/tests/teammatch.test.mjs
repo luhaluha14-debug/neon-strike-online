@@ -550,21 +550,28 @@ test('HUD: round wins, round number, clock and survivors; Tab shows both teams w
   assert.equal(board.rows.filter((x) => x[0] === 'red' && x[3] === '1').length, 1, 'one RED death');
 });
 
-test('Tab board (team): no bar on its top edge (the column header lines stay); closed on release and on focus loss', async () => {
+test('Tab board (team): not drawn until Tab is held (no empty bar at the start of a round), drawn while held, gone again on release and on focus loss', async () => {
+  const drawn = () =>
+    page.evaluate(() => {
+      window.T.run(1);
+      const b = document.querySelector('.team-hud .scoreboard');
+      const r = b.getBoundingClientRect();
+      return { hidden: b.hidden, drawn: r.width > 0 && r.height > 0, display: getComputedStyle(b).display };
+    });
+  // A fresh match: the board has never been opened (empty), and must not show as a bar.
+  await page.evaluate(() => window.game.restartMatch());
+  assert.deepEqual(await drawn(), { hidden: true, drawn: false, display: 'none' }, 'round start: nothing on screen');
   await page.keyboard.down('Tab');
-  await page.evaluate(() => window.T.run(1));
-  const top = await page.evaluate(() => {
-    const b = document.querySelector('.team-hud .scoreboard');
-    const th = b.querySelector('thead th');
-    return { shown: !b.hidden, width: getComputedStyle(b).borderTopWidth, before: getComputedStyle(b, '::before').content, headerLine: getComputedStyle(th).borderBottomWidth, tables: b.querySelectorAll(':scope > table').length };
-  });
+  assert.deepEqual(await drawn(), { hidden: false, drawn: true, display: 'grid' }, 'held: both team tables');
+  assert.equal(await page.evaluate(() => document.querySelectorAll('.team-hud .scoreboard > table').length), 2);
   await page.keyboard.up('Tab');
-  assert.deepEqual(top, { shown: true, width: '0px', before: 'none', headerLine: '1px', tables: 2 });
-  const closed = () => page.evaluate(() => (window.T.run(1), document.querySelector('.team-hud .scoreboard').hidden));
-  assert.equal(await closed(), true);
+  assert.deepEqual(await drawn(), { hidden: true, drawn: false, display: 'none' }, 'released: closed');
   await page.keyboard.down('Tab');
+  await page.keyboard.up('Tab');
+  await page.keyboard.down('Tab');
+  assert.equal((await drawn()).drawn, true, 'opens again');
   await page.evaluate(() => window.dispatchEvent(new Event('blur')));
-  assert.equal(await closed(), true, 'a focus change while Tab is down does not leave the board open');
+  assert.equal((await drawn()).drawn, false, 'a focus change while Tab is down does not leave it open');
   await page.keyboard.up('Tab');
 });
 
