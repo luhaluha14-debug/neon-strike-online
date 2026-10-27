@@ -51,6 +51,8 @@ export function errorMessage(error: EconomyError, ctx: { price?: number; credits
       return '서버에 연결하지 못했습니다. 아무것도 바뀌지 않았습니다.';
     case 'unverified':
       return '서버가 확인하지 않은 경기 결과는 반영되지 않습니다.';
+    case 'suspended':
+      return '정지된 계정입니다.';
   }
 }
 
@@ -159,7 +161,10 @@ export class GridStore {
     });
     menu.onPageShown((page) => {
       if (page === 'shop' || page === 'inventory' || page === 'missions') {
-        void this.deps.backend.getAccount().then((a) => this.update(a));
+        void this.deps.backend
+          .getAccount()
+          .then((a) => this.update(a))
+          .catch(() => undefined); // server unreachable: the last shown account stays, requests report the error
         this.ensurePreviews();
       }
     });
@@ -361,7 +366,7 @@ export class GridStore {
   private renderMissions(): void {
     const a = this.account;
     if (!a) return;
-    this.missions.querySelector('.grid-day')!.textContent = `${a.missions.day} (기기 날짜 기준)`;
+    this.missions.querySelector('.grid-day')!.textContent = `${a.missions.day} (${this.deps.backend.kind === 'remote' ? '서버 날짜 기준' : '기기 날짜 기준'})`;
     this.missions.querySelector('.grid-missions')!.innerHTML = DAILY_MISSIONS.map((m) => {
       const p = a.missions.missions[m.missionId] ?? { progress: 0, completed: false, claimed: false };
       const state = p.claimed ? '수령함' : p.completed ? '완료' : '진행 중';

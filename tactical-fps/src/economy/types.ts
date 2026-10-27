@@ -124,7 +124,9 @@ export type EconomyError =
   /** Online: the server could not be reached (nothing changed). */
   | 'network'
   /** Online: the server only accepts match results it verified itself. */
-  | 'unverified';
+  | 'unverified'
+  /** Online: the account is suspended. */
+  | 'suspended';
 
 /** A finished match as reported to the economy (locally by the game; online, verified by the server). */
 export interface MatchResult {
