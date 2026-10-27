@@ -1,5 +1,16 @@
-# Render blueprint for NEON STRIKE: DROPZONE (online battle royale server).
+# Render blueprint for NEON STRIKE: DROPZONE (online battle royale server)
+# and the tactical FPS (static offline build + GRID account server).
 # The older neon_strike_online game keeps its own config in its folder.
+
+databases:
+  # GRID accounts (tactical-fps/server). Paid plan: free Render databases expire after 30 days and have no backups.
+  - name: grid-accounts
+    databaseName: grid
+    user: grid
+    plan: basic-256mb
+    postgresMajorVersion: "16"
+    ipAllowList: [] # internal connections only
+
 services:
   - type: web
     name: dropzone
@@ -32,3 +43,30 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
+
+  # Tactical FPS with the GRID account server: the game and /api on one origin, PostgreSQL storage.
+  # See tactical-fps/docs/grid-account-server.md.
+  - type: web
+    name: tactical-fps-online
+    runtime: node
+    plan: starter
+    rootDir: tactical-fps
+    # NODE_ENV=production also applies to the build: keep the dev dependencies (vite, typescript) for it.
+    buildCommand: npm ci --include=dev && npm run build && npm run build:server
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: grid-accounts
+          property: connectionString
+      - key: GRID_MISSION_TZ
+        value: Asia/Seoul
+      - key: GRID_COOKIE_SECURE
+        value: "true"
+      - key: GRID_TRUST_PROXY
+        value: "true"

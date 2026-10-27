@@ -509,6 +509,6 @@ Blender 파일에 장면이 여러 개면 **활성 장면**(내보낼 때 선택
 
 정적 사이트라 서버처럼 잠들지 않고, 바로 열립니다.
 
-GRID 계정 서버(Node + PostgreSQL)는 아직 배포하지 않았습니다. 구성은 `render.account-server.yaml`에 준비만 되어 있고
-(루트 `render.yaml`로 옮기면 Render가 유료 DB·웹 서비스를 만듭니다), 절차·환경 변수·백업은
-[`docs/grid-account-server.md`](docs/grid-account-server.md) §8에 있습니다.
+GRID 계정 서버(Node + PostgreSQL)는 같은 `render.yaml`의 `tactical-fps-online` 웹 서비스와 `grid-accounts` 데이터베이스(유료 플랜)로 배포됩니다.
+그 주소에서는 게임과 `/api`가 같은 출처로 제공되어 가입·로그인이 동작하고, 정적 사이트 `tactical-fps`는 오프라인 기록 전용으로 남습니다.
+환경 변수·백업·장애 대응은 [`docs/grid-account-server.md`](docs/grid-account-server.md) §8에 있습니다.
