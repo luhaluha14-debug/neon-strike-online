@@ -47,6 +47,14 @@ import { disposeMap, loadMap, type LoadedMap, type SpawnPoint } from '../world/M
 import { createSkyEnvironment, HORIZON_COLOR, SkyDome } from '../world/Sky';
 import { enhanceMapMaterials } from '../world/SurfaceMaterials';
 import { FRAME_LIMIT_OPTIONS, FrameLoop, type FrameLimit } from './FrameLoop';
+import { LocalEconomyBackend, type EconomyBackend } from '../economy/EconomyBackend';
+import { LoadoutService } from '../economy/LoadoutService';
+import { findSkin, PLAYER_TARGET } from '../economy/SkinCatalog';
+import type { AccountState, MatchResult, SkinDef } from '../economy/types';
+import { armsAppearance, bodyAppearance, SkinRenderer } from '../skins/SkinRenderer';
+import { errorMessage, GridStore } from '../ui/GridStore';
+import { FirstPersonArms } from '../weapons/view/FirstPersonArms';
+import type { KillEvent } from '../game/Match';
 
 const QUALITY_OPTIONS: readonly { value: QualityLevel; label: string }[] = [
   { value: 'low', label: '낮음 (성능 우선)' },
@@ -134,6 +142,16 @@ export class Game {
   private liveTime = 0;
   /** `?seed=N`: bots' random choices from a fixed seed (reproducible runs); null = Math.random. */
   private readonly seed: number | null;
+  /** GRID credits, skins and missions (local backend: this browser's account, not server-verified). */
+  readonly economy: EconomyBackend = new LocalEconomyBackend();
+  /** The account as the economy last reported it (null until loaded). */
+  account: AccountState | null = null;
+  /** Puts equipped skins on the player's weapons, hands and body (cosmetic only). */
+  readonly skins = new SkinRenderer();
+  private gridStore!: GridStore;
+  /** The match being played (its economy result id), and whether its result was handed in. */
+  matchRecord: { id: string; mode: GameMode; settled: boolean } | null = null;
+  private matchSerial = 0;
   /** C4 objective of the team match (objective 'bomb' on a map with bomb sites). */
   bomb: BombObjective | null = null;
   readonly bombFx = new BombEffects();
@@ -245,7 +263,7 @@ export class Game {
     this.camera.rotation.order = 'YXZ';
     this.viewModel = new ViewModelLayer(window.innerWidth / window.innerHeight);
     this.viewModel.initEnvironment(this.renderer);
-    this.showWeaponModel(DEFAULT_LOADOUT[0].view);
+    this.showWeaponModel(DEFAULT_LOADOUT[0]);
     this.scene.add(this.impacts.group);
     this.scene.add(this.blood.group);
     this.scene.add(this.fx.group);
@@ -318,6 +336,16 @@ export class Game {
       saveControls(c);
     });
     this.hud.onStart(() => this.input.requestLock());
+    // GRID shop / inventory / missions: menu pages over the economy backend.
+    this.gridStore = new GridStore(this.hud.menu, {
+      backend: this.economy,
+      requestPreviews: (skins, onPreview) => void this.renderSkinPreviews(skins, onPreview),
+    });
+    this.economy.onChange = (a) => this.setAccount(a);
+    void this.economy
+      .getAccount()
+      .then((a) => this.setAccount(a))
+      .catch((err) => console.warn('[grid] account unavailable: default looks, no shop', err));
     this.matchHud = new MatchHud(
       this.hud.root,
       () => {
@@ -470,11 +498,11 @@ export class Game {
     this.combat.onDamage = (e) => this.onPlayerDamaged(e);
     this.hitscan.register(this.combat);
     await Promise.all([this.weaponModels, this.agentModels]);
-    this.showWeaponModel(this.weapons.weapon.def.view);
+    this.showWeaponModel(this.weapons.weapon.def);
     this.updateLoadoutHud();
     this.weapons.events = {
       onEquip: (weapon, slot) => {
-        this.showWeaponModel(weapon.def.view);
+        this.showWeaponModel(weapon.def);
         this.weaponAudio.onEquip(weapon);
         this.updateLoadoutHud(slot);
       },
@@ -630,6 +658,7 @@ export class Game {
     this.hud.menu.setTeamOptionsVisible(team);
     this.hud.menu.setBotOptionsVisible(dm || team);
     if (!this.loadingMap) this.hud.setWeaponOptionsEnabled(!team);
+    this.beginMatchRecord();
   }
 
   /** Places everyone for the mode just set up: a first round (team), or spread out (deathmatch). */
@@ -969,6 +998,8 @@ export class Game {
     this.scoped = false;
     this.hud.setScoped(false);
     this.teamHud.showResults(tm);
+    // 대결 포기 pays nothing (EconomyRules), but the match id is closed so it can never be paid later.
+    this.settleMatch('forfeit');
     if (document.pointerLockElement) document.exitPointerLock();
     return true;
   }
@@ -1228,10 +1259,12 @@ export class Game {
       // Match over: freeze, release the mouse, show the results.
       if (this.match?.over && !this.matchHud.resultsShown) {
         this.matchHud.showResults(this.match);
+        this.settleMatch('completed');
         document.exitPointerLock();
       }
       if (this.teamMatch?.over && !this.teamHud.resultsShown) {
         this.teamHud.showResults(this.teamMatch);
+        this.settleMatch(this.teamMatch.forfeitedBy ? 'forfeit' : 'completed');
         document.exitPointerLock();
       }
     }
@@ -1343,18 +1376,123 @@ export class Game {
    * Shows a weapon model in the first-person hands at its configured pose.
    * GLB models show their procedural fallback until the file has loaded.
    */
-  private showWeaponModel(spec: WeaponViewSpec): void {
+  private showWeaponModel(def: WeaponDefinition): void {
+    const spec = def.view;
     this.shownSpec = spec;
-    this.viewModel.setView(createWeaponView(spec), spec.pose);
+    this.shownDef = def;
+    this.shownSkin = this.weaponSkinAsset(def);
+    const view = createWeaponView(spec);
+    this.skins.dressWeapon(view, def.id, this.shownSkin);
+    this.viewModel.setView(view, spec.pose);
     loadWeaponView(spec)
       ?.then((view) => {
-        if (this.shownSpec === spec) this.viewModel.setView(view, spec.pose);
-        else view.dispose();
+        if (this.shownSpec !== spec) return view.dispose();
+        this.skins.dressWeapon(view, def.id, this.shownSkin);
+        this.viewModel.setView(view, spec.pose);
       })
       .catch((err) => console.warn('[weapon] could not load GLB model, keeping the placeholder', err));
   }
 
+  /** Equipped skin asset of a weapon (the knife uses the knife slot); undefined = factory look. */
+  private weaponSkinAsset(def: WeaponDefinition): string | undefined {
+    if (!this.account) return undefined;
+    const asset = LoadoutService.equipped(this.account, def.category === 'melee' ? 'knife' : 'weapon', def.id)?.assetId;
+    return asset === 'default' ? undefined : asset;
+  }
+
+  /** The account changed (loaded, bought, equipped, rewarded): menus and the player's looks follow. */
+  private setAccount(a: AccountState): void {
+    this.account = a;
+    this.gridStore.update(a);
+    const asset = (cat: 'gloves' | 'character') => LoadoutService.equipped(a, cat, PLAYER_TARGET)?.assetId;
+    this.viewModel.setArmsLook(armsAppearance(asset('gloves'), asset('character')));
+    this.body.applyLook(bodyAppearance(asset('character')));
+    // Re-dress the weapon in hand only when its skin changed (no new view otherwise).
+    if (this.shownDef && this.weaponSkinAsset(this.shownDef) !== this.shownSkin) this.showWeaponModel(this.shownDef);
+  }
+
+  /**
+   * Menu pictures of skins (weapon / knife: the skinned model; gloves /
+   * character: hands and sleeve on the pistol). Rendered once, offscreen,
+   * yielding between pictures, after the weapon files have loaded.
+   */
+  private async renderSkinPreviews(skins: readonly SkinDef[], onPreview: (skinId: string, url: string) => void): Promise<void> {
+    await this.weaponModels;
+    const list = skins.map((s) => ({ id: s.skinId, view: (s.category === 'weapon' || s.category === 'knife' ? WEAPONS[s.targets[0]] : WEAPONS.pis01).view }));
+    await renderWeaponThumbnails(this.renderer, this.viewModel.scene.environment, list, onPreview, (id, view) => {
+      const s = findSkin(id);
+      if (!s) return;
+      if (s.category === 'weapon' || s.category === 'knife') {
+        this.skins.dressWeapon(view, s.targets[0], s.assetId);
+        return;
+      }
+      const arms = new FirstPersonArms(view.gripAnchor, view.supportAnchor, view.magazine, view.rightHand, view.armPose);
+      arms.applyLook(armsAppearance(s.category === 'gloves' ? s.assetId : undefined, s.category === 'character' ? s.assetId : undefined));
+      view.object.add(arms.object);
+      return () => {
+        arms.object.removeFromParent();
+        arms.dispose();
+      };
+    });
+  }
+
+  /** A new match began (any mode): a fresh result id; training has none (no rewards there). */
+  private beginMatchRecord(): void {
+    this.matchSerial++;
+    this.matchRecord =
+      this.mode === 'training' ? null : { id: `${this.mode}-${Date.now().toString(36)}-${this.matchSerial}-${Math.random().toString(36).slice(2, 8)}`, mode: this.mode, settled: false };
+  }
+
+  /**
+   * The match ended (results shown, or 대결 포기): hands its result to the
+   * economy once. A match left before its end (restart, mode / map change)
+   * is never handed in, so it pays nothing.
+   */
+  private settleMatch(outcome: 'completed' | 'forfeit'): void {
+    const rec = this.matchRecord;
+    if (!rec || rec.settled) return;
+    rec.settled = true;
+    const result = this.matchResult(rec, outcome);
+    if (!result) return;
+    const hud = rec.mode === 'team' ? this.teamHud : this.matchHud;
+    void this.economy
+      .submitMatchResult(result)
+      .then((r) => {
+        const credits = r.ok ? (r.value?.credits ?? 0) : 0;
+        hud.showReward(
+          !r.ok
+            ? `GRID 크레딧: ${errorMessage(r.error)}`
+            : credits > 0
+              ? `GRID 크레딧 +${credits} CR`
+              : outcome === 'forfeit'
+                ? 'GRID 크레딧: 대결 포기 — 보상 없음'
+                : 'GRID 크레딧: 보상 없음 (1분 미만 경기)',
+        );
+      })
+      .catch((err) => console.warn('[grid] match result not recorded', err));
+  }
+
+  private matchResult(rec: { id: string; mode: GameMode }, outcome: 'completed' | 'forfeit'): MatchResult | null {
+    const playerKills = (feed: readonly KillEvent[]) => {
+      const kills: Record<string, number> = {};
+      for (const k of feed) if (k.killer === 'local' && k.victim !== 'local') kills[k.weaponId] = (kills[k.weaponId] ?? 0) + 1;
+      return kills;
+    };
+    if (rec.mode === 'team' && this.teamMatch) {
+      const tm = this.teamMatch;
+      const team = (this.combat?.team ?? 'blue') as Team;
+      return { matchId: rec.id, mode: 'team', outcome, won: tm.winner === team, kills: playerKills(tm.feed), roundWins: tm.history.filter((h) => h.winner === team).length, durationSeconds: tm.elapsed };
+    }
+    if (rec.mode === 'deathmatch' && this.match) {
+      const m = this.match;
+      return { matchId: rec.id, mode: 'deathmatch', outcome, won: m.playerWon, kills: playerKills(m.feed), roundWins: 0, durationSeconds: m.elapsed };
+    }
+    return null;
+  }
+
   private shownSpec: WeaponViewSpec | null = null;
+  private shownDef: WeaponDefinition | null = null;
+  private shownSkin: string | undefined = undefined;
   /** Download of the loadout's weapon GLBs (settles even if one fails). */
   private weaponModels: Promise<void> = Promise.resolve();
   /** Download of the bot character GLBs (settles even if one fails). */
