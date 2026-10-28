@@ -69,6 +69,12 @@ export interface SettledRound {
  * already settled, or a victim already paid for in that round, is ignored.
  * Money is always kept within 0..maxMoney.
  */
+export interface EconomyState {
+  wallets: [string, number][];
+  lossStreak: [string, number][];
+  lastPayout: [string, Payout][];
+}
+
 export class TeamEconomy {
   private readonly wallets = new Map<string, number>();
   private readonly teamOf = new Map<string, string>();
@@ -168,7 +174,21 @@ export class TeamEconomy {
     for (const t of this.lossStreak.keys()) this.lossStreak.set(t, 0);
   }
 
-    isSettled(round: number): boolean {
+  /** Wallets, loss streaks and last payouts (multiplayer: the host's economy shown on the other players' screens). */
+  exportState(): EconomyState {
+    return { wallets: [...this.wallets], lossStreak: [...this.lossStreak], lastPayout: [...this.lastPayout] };
+  }
+
+  /** Shows `s` (multiplayer client); `rename` maps the host's ids to this game's. */
+  importState(s: EconomyState, rename: (id: string) => string = (id) => id): void {
+    this.wallets.clear();
+    for (const [id, v] of s.wallets) this.wallets.set(rename(id), v);
+    for (const [t, v] of s.lossStreak) this.lossStreak.set(t, v);
+    this.lastPayout.clear();
+    for (const [id, p] of s.lastPayout) this.lastPayout.set(rename(id), p);
+  }
+
+  isSettled(round: number): boolean {
     return this.settled.has(round);
   }
 }
@@ -248,6 +268,20 @@ export class BuyLoadout {
     this.grenades.flash = 0;
     this.grenades.smoke = 0;
     this.boughtThisRound.clear();
+  }
+
+  /**
+   * Multiplayer client: the gear the host holds for this player (catalog
+   * ids of its weapons, grenade counts). Buying itself happens on the host.
+   */
+  restore(ids: readonly string[], grenades: Record<GrenadeKind, number> | null): void {
+    const items = ids.map((id) => findItem(id)).filter((i): i is CatalogItem => !!i);
+    this.primary = items.find((i) => i.slot === 'primary') ?? null;
+    this.secondary = items.find((i) => i.slot === 'secondary') ?? null;
+    if (grenades) {
+      this.grenades.flash = Math.max(0, grenades.flash | 0);
+      this.grenades.smoke = Math.max(0, grenades.smoke | 0);
+    }
   }
 
   /** Takes one grenade of `kind` off the belt (thrown). False if none is left. */

@@ -5,7 +5,7 @@ import type { Bot, Combatant } from '../ai/Bot';
 import { NavGrid } from '../ai/NavGrid';
 import { TacticalDirector } from '../ai/TacticalDirector';
 import { TacticalMap } from '../ai/TacticalMap';
-import { HitscanSystem } from '../combat/HitscanSystem';
+import { HitscanSystem, type HitscanResult } from '../combat/HitscanSystem';
 import { GrenadeSystem, type FlashObserver, type GrenadeKind } from '../combat/Grenades';
 import { GrenadeEffects } from '../fx/GrenadeEffects';
 import { BombEffects } from '../fx/BombEffects';
@@ -52,6 +52,7 @@ import { SwitchableEconomyBackend } from '../economy/AccountClient';
 import { ACCOUNTS_ENABLED, AccountSession } from '../economy/AccountSession';
 import { LocalEconomyBackend } from '../economy/EconomyBackend';
 import { AccountPanel } from '../ui/AccountPanel';
+import { MultiplayerPanel } from '../ui/MultiplayerPanel';
 import { LoadoutService } from '../economy/LoadoutService';
 import { findSkin, PLAYER_TARGET } from '../economy/SkinCatalog';
 import type { AccountState, MatchResult, SkinDef } from '../economy/types';
@@ -59,6 +60,13 @@ import { armsAppearance, bodyAppearance, SkinRenderer } from '../skins/SkinRende
 import { errorMessage, GridStore } from '../ui/GridStore';
 import { FirstPersonArms } from '../weapons/view/FirstPersonArms';
 import type { KillEvent } from '../game/Match';
+import { Weapon as WeaponState } from '../weapons/Weapon';
+import { ROOM_CAPACITY, type RoomInfo } from '../net/Protocol';
+import type { NetSession } from '../net/NetSession';
+import { NetHost, type HostGame } from '../net/NetHost';
+import { NetClient, type ClientGame } from '../net/NetClient';
+import type { ToClient } from '../net/GameMessages';
+import { applyBomb, applyMatch, applyTeamMatch, type BombStateMsg, type MatchState, type TeamMatchState } from '../net/Mirror';
 
 const QUALITY_OPTIONS: readonly { value: QualityLevel; label: string }[] = [
   { value: 'low', label: '낮음 (성능 우선)' },
@@ -89,7 +97,7 @@ const TEAM_ROSTER: readonly SquadMember[] = [
 /** Seconds after dying before the team match camera switches to a living teammate. */
 const SPECTATE_AFTER = 1.5;
 
-export class Game {
+export class Game implements HostGame, ClientGame {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
@@ -160,6 +168,14 @@ export class Game {
   /** The match being played (its economy result id), and whether its result was handed in. */
   matchRecord: { id: string; mode: GameMode; settled: boolean } | null = null;
   private matchSerial = 0;
+  /** Multiplayer: the relay connection, and this game's role in its room (host runs the match; client plays one character). */
+  net: NetSession | null = null;
+  netHost: NetHost | null = null;
+  netClient: NetClient | null = null;
+  /** The player's team in a team match (BLUE in single player and for the room host). */
+  localTeam: Team = 'blue';
+  /** Effects of other players' weapons (sound needs a weapon state per definition). */
+  private readonly netWeapons = new Map<string, WeaponState>();
   /** Ambient pigeons of the current map (null while loading or without the model). */
   pigeons: Pigeons | null = null;
   /** C4 objective of the team match (objective 'bomb' on a map with bomb sites). */
@@ -351,6 +367,8 @@ export class Game {
       backend: this.economy,
       requestPreviews: (skins, onPreview) => void this.renderSkinPreviews(skins, onPreview),
     });
+    // Multiplayer lobby (멀티플레이 page).
+    new MultiplayerPanel(this.hud.menu, this);
     // GRID sign-in (off for now: ACCOUNTS_ENABLED).
     if (ACCOUNTS_ENABLED)
       new AccountPanel(this.hud.menu.root, [this.hud.menu.pageElement('shop'), this.hud.menu.pageElement('inventory'), this.hud.menu.pageElement('missions')], this.accountSession);
@@ -439,7 +457,30 @@ export class Game {
     if (!(await this.loadMapInto(this.mapDef))) return;
     this.timer.connect(document);
     this.loop.start();
+    document.addEventListener('visibilitychange', this.syncBackgroundTicker);
   }
+
+  /** Worker timer that keeps a hidden host tab running the room's match (browsers stop animation frames there). */
+  private backgroundTicker: Worker | null = null;
+  private syncBackgroundTicker = (): void => {
+    const want = document.hidden && !!this.netHost;
+    if (want && !this.backgroundTicker) {
+      const url = URL.createObjectURL(new Blob(['setInterval(() => postMessage(0), 33);'], { type: 'text/javascript' }));
+      const w = new Worker(url);
+      URL.revokeObjectURL(url);
+      let last = performance.now();
+      w.onmessage = () => {
+        const now = performance.now();
+        const dt = (now - last) / 1000;
+        last = now;
+        if (document.hidden) this.frame(now, dt);
+      };
+      this.backgroundTicker = w;
+    } else if (!want && this.backgroundTicker) {
+      this.backgroundTicker.terminate();
+      this.backgroundTicker = null;
+    }
+  };
 
   /** Swaps the current map for another one without reloading the page. */
   async switchMap(id: string): Promise<void> {
@@ -537,6 +578,9 @@ export class Game {
         this.updateLoadoutHud(slot);
       },
       onShot: (result, _origin, dir, weapon, pellet) => {
+        // Multiplayer: the host shows everyone this round; a room member's round is resolved by the host.
+        this.netHost?.broadcastShot('local', weapon.def.id, _origin, result);
+        this.netClient?.shot(weapon.def.id, _origin, dir);
         // Rounds resolved in later ticks of the same frame keep their real spacing.
         if (this.frameShotTick < 0) this.frameShotTick = this.tickInFrame;
         const delay = (this.tickInFrame - this.frameShotTick) / SIM_CONFIG.tickRate;
@@ -593,7 +637,7 @@ export class Game {
    */
   respawn(keepWeapons = false): void {
     if (!this.map || !this.player) return;
-    const spawn = this.teamMatch ? (this.teamSpawns ? this.spawnsOf('blue')[0] : undefined) : this.squad ? this.deathmatchSpawn() : this.safeSpawn(this.map);
+    const spawn = this.teamMatch ? (this.teamSpawns ? this.spawnsOf(this.localTeam)[0] : undefined) : this.squad ? this.deathmatchSpawn() : this.safeSpawn(this.map);
     this.spawnPoint = spawn ?? null;
     const pos = spawn ? spawn.position.clone() : this.map.playBounds.getCenter(new THREE.Vector3());
     // Spawn empties sit slightly above the floor; drop onto it from a little higher.
@@ -621,7 +665,16 @@ export class Game {
     this.teardownMode();
     const dm = this.mode === 'deathmatch';
     const team = this.mode === 'team';
-    if (!dm && !team) {
+    if (this.netClient) {
+      // Multiplayer member: everyone else comes from the host (puppets); the match is the host's.
+      this.match = null;
+      this.teamMatch = null;
+      hitscan.friendlyFire = !team;
+      const t = team ? this.localTeam : undefined;
+      if (this.combat) this.combat.team = t;
+      if (this.weapons) this.weapons.team = t;
+      if (team) this.applyBuyLoadout();
+    } else if (!dm && !team) {
       this.trainingRange = new TrainingRange(map, this.homeSpawn(map), hitscan);
       this.scene.add(this.trainingRange.group);
     } else {
@@ -630,11 +683,14 @@ export class Game {
       console.info(`[bots] nav grid ${this.nav.walkable.length} cells in ${this.nav.buildMs.toFixed(0)} ms`);
       // A fresh seeded stream per match: the same seed replays the same bot choices.
       const rand = this.seed === null ? Math.random : seededRandom(this.seed);
-      const squad = new BotSquad(map, this.nav, hitscan, team ? TEAM_ROSTER : this.matchSettings.bots, [AR_01], rand, this.matchSettings.botLook);
+      // Multiplayer host: a bot for every place in the room (other players take them over).
+      const bots = this.netHost ? ROOM_CAPACITY.deathmatch - 1 : this.matchSettings.bots;
+      const squad = new BotSquad(map, this.nav, hitscan, team ? TEAM_ROSTER : bots, [AR_01], rand, this.matchSettings.botLook);
       // Team match: deaths last until the round ends.
       squad.respawns = !team;
       squad.events = {
-        onShot: (_bot, result, origin, dir, weapon, muzzle) => {
+        onShot: (bot, result, origin, dir, weapon, muzzle) => {
+          this.netHost?.broadcastShot(bot.id, weapon.def.id, origin, result);
           this.weaponAudio.onRemoteShot(weapon, origin, result, this.camera);
           this.fx.flash(muzzle, dir);
           this.fx.tracer(muzzle, result.kind === 'miss' ? result.end : result.point);
@@ -642,6 +698,7 @@ export class Game {
           else if (result.kind === 'target') this.blood.spawn(result.point, dir, result.zone === 'head');
         },
         onDamage: (bot, e) => {
+          this.netHost?.onBotDamaged(bot, e);
           if (!e.killed) return;
           this.match?.recordKill(e.sourceId, bot.id, e.weaponId, e.zone === 'head');
           this.teamMatch?.recordKill(e.sourceId, bot.id, e.weaponId, e.zone === 'head');
@@ -653,8 +710,8 @@ export class Game {
       if (team) {
         // The player is BLUE; with friendly fire off, rounds pass through teammates.
         hitscan.friendlyFire = false;
-        if (this.combat) this.combat.team = 'blue';
-        if (this.weapons) this.weapons.team = 'blue';
+        if (this.combat) this.combat.team = this.localTeam;
+        if (this.weapons) this.weapons.team = this.localTeam;
         this.teamSpawns ??= this.buildTeamSpawns(map, this.nav);
         const ms = this.matchSettings;
         this.teamMatch = new TeamMatch({
@@ -689,10 +746,16 @@ export class Game {
     this.hud.menu.setBotOptionsVisible(dm || team);
     if (!this.loadingMap) this.hud.setWeaponOptionsEnabled(!team);
     this.beginMatchRecord();
+    this.netHost?.onSetup();
   }
 
   /** Places everyone for the mode just set up: a first round (team), or spread out (deathmatch). */
   private beginMode(): void {
+    if (this.netClient) {
+      // Until the host places this player.
+      this.respawn();
+      return;
+    }
     if (this.teamMatch) {
       this.startRound();
       return;
@@ -720,6 +783,7 @@ export class Game {
     const kept = this.buyLoadout.carryOver(carryOver && !swapped && !!this.combat?.alive);
     if (kept) this.playerSlotKeys = this.buyLoadout.weapons().map((e) => e.slotKey);
     else this.applyBuyLoadout();
+    this.netHost?.onRoundStart(carryOver, swapped);
     this.buyMenu.clearFeedback();
     this.clearGrenades();
     this.respawn(kept);
@@ -852,6 +916,7 @@ export class Game {
   private explodeBomb(at: THREE.Vector3): void {
     this.bombFx.explode(at);
     this.weaponAudio.world('c4.explode', at, 1, this.camera, 400);
+    this.netHost?.boom(at);
     const victims: { combat: PlayerCombat; pos: THREE.Vector3 }[] = [];
     if (this.combat && this.player) victims.push({ combat: this.combat, pos: this.player.position });
     for (const b of this.squad?.bots ?? []) victims.push({ combat: b.combat, pos: b.position });
@@ -872,7 +937,7 @@ export class Game {
     const bomb = this.bomb;
     const p = this.player;
     if (!tm || !bomb || !p) return null;
-    const attacker = tm.attackers === 'blue';
+    const attacker = tm.attackers === this.localTeam;
     const alive = !!this.combat?.alive;
     const out: BombHudState = { side: attacker ? '공격 · C4 설치' : '방어 · C4 저지', status: '', cls: '', timer: null, hint: '', progress: null };
     switch (bomb.state) {
@@ -917,6 +982,11 @@ export class Game {
   /** Living combatants per team (the player counts for BLUE). */
   teamAlive(): Record<Team, number> {
     const n: Record<Team, number> = { blue: 0, red: 0 };
+    if (this.netClient) {
+      if (this.combat?.alive) n[this.localTeam]++;
+      for (const p of this.netClient.puppets.all.values()) if (p.alive && (p.team === 'blue' || p.team === 'red')) n[p.team]++;
+      return n;
+    }
     if (this.combat?.alive) n.blue++;
     for (const b of this.squad?.bots ?? []) if (b.alive && b.team) n[b.team as Team]++;
     return n;
@@ -1037,6 +1107,8 @@ export class Game {
   /** New match on the same map: fresh scores, everyone respawned. */
   restartMatch(): void {
     if (!this.map) return;
+    // A room member's match is the host's: it restarts when the host does.
+    if (this.netClient) return;
     this.setupMode();
     this.beginMode();
     this.accumulator = 0;
@@ -1182,9 +1254,10 @@ export class Game {
     }
   }
 
-  private frame(timestamp: number): void {
+  /** `hiddenDelta`: frame time measured by the background ticker (the timer reports 0 while the page is hidden). */
+  private frame(timestamp: number, hiddenDelta?: number): void {
     this.timer.update(timestamp);
-    const frameTime = Math.min(this.timer.getDelta(), SIM_CONFIG.maxFrameTime);
+    const frameTime = Math.min(hiddenDelta ?? this.timer.getDelta(), SIM_CONFIG.maxFrameTime);
     const player = this.player;
     if (!player) {
       // Between maps: keep the screen alive behind the loading panel.
@@ -1235,7 +1308,9 @@ export class Game {
     player.applyLook(this.inputState);
 
     // The buy menu releases the mouse but the round clock keeps running behind it.
-    if (this.input.active || this.buyMenuOpen) {
+    // A multiplayer host runs the room's match even while its own player is in the menu.
+    const playing = this.input.active || this.buyMenuOpen;
+    if (playing || this.netHost) {
       const tick = 1 / SIM_CONFIG.tickRate;
       this.accumulator += frameTime;
       let ticks = 0;
@@ -1252,19 +1327,26 @@ export class Game {
         const frozen = tm?.phase === 'prep';
         const live = !tm || tm.phase === 'live';
         // A dead player still falls (gravity, collision) but neither moves nor shoots.
-        player.step(alive && !frozen ? this.inputState : this.deadInput, tick);
+        player.step(alive && !frozen && playing ? this.inputState : this.deadInput, tick);
         if (this.heldGrenade) {
           // Grenade in hand: the weapon is put away (no fire, no reload); a fresh press throws once the round is live.
           if (alive) this.weapons?.step({ fire: false, reload: false }, tick);
-          this.stepGrenadeHand(tick, alive && live, command.fire);
+          this.stepGrenadeHand(tick, alive && live && playing, command.fire);
         } else if (alive) {
-          this.weapons?.step(live ? command : { ...command, fire: false }, tick);
+          this.weapons?.step(live && playing ? command : { ...command, fire: false }, tick);
         }
         if (!this.heldGrenade) this.grenadeTriggerHeld = command.fire;
         this.grenades?.step(tick);
         this.flashBlind = Math.max(0, this.flashBlind - tick);
         combat?.step(tick);
         this.trainingRange?.step(tick);
+        // A room member only plays its own character: the match runs on the host.
+        if (this.netClient) {
+          command.equipSlot = -1;
+          command.equipLast = false;
+          this.accumulator -= tick;
+          continue;
+        }
         if (this.match && !this.match.over) {
           this.squad?.step(tick, this.playerCombatant);
           this.match.update(tick);
@@ -1277,6 +1359,7 @@ export class Game {
           this.stepBomb(tick);
           if (tm.update(tick, this.teamAlive()) === 'round-start') this.startRound(true);
         }
+        this.netHost?.afterTick();
         // Switch requests are one-shot: apply them on the first tick only.
         command.equipSlot = -1;
         command.equipLast = false;
@@ -1285,22 +1368,25 @@ export class Game {
       if (ticks > 0) this.input.clearLatches();
       // Team match: no respawn during a round (the next round brings everyone back).
       const fellOut = player.position.y < this.mapDef.killPlaneY && (!this.teamMatch || !!combat?.alive);
-      if ((combat?.respawnDue && !this.teamMatch) || fellOut) this.respawn();
-      // Match over: freeze, release the mouse, show the results.
-      if (this.match?.over && !this.matchHud.resultsShown) {
-        this.matchHud.showResults(this.match);
-        this.settleMatch('completed');
-        document.exitPointerLock();
-      }
-      if (this.teamMatch?.over && !this.teamHud.resultsShown) {
-        this.teamHud.showResults(this.teamMatch);
-        this.settleMatch(this.teamMatch.forfeitedBy ? 'forfeit' : 'completed');
-        document.exitPointerLock();
-      }
+      // A room member is placed by the host (its spawn message).
+      if (!this.netClient && ((combat?.respawnDue && !this.teamMatch) || fellOut)) this.respawn();
     }
+    // Match over: freeze, release the mouse, show the results (a room member's match ends on the host).
+    if (this.match?.over && !this.matchHud.resultsShown) {
+      this.matchHud.showResults(this.match);
+      this.settleMatch('completed');
+      if (document.pointerLockElement) document.exitPointerLock();
+    }
+    if (this.teamMatch?.over && !this.teamHud.resultsShown) {
+      this.teamHud.showResults(this.teamMatch);
+      this.settleMatch(this.teamMatch.forfeitedBy ? 'forfeit' : 'completed');
+      if (document.pointerLockElement) document.exitPointerLock();
+    }
+    this.netHost?.update(frameTime);
+    this.netClient?.update(frameTime);
     this.updateBuyPhase();
-    // 대결 포기: only in a team match still being played, once the player has started it.
-    this.hud.menu.setForfeit(!!this.teamMatch && !this.teamMatch.over && this.hasStarted);
+    // 대결 포기: only in a team match still being played, once the player has started it (a room's: only its host).
+    this.hud.menu.setForfeit(!!this.teamMatch && !this.teamMatch.over && this.hasStarted && !this.netClient);
     const dead = !!combat && !combat.alive;
 
     // Interpolate between the last two ticks for smooth motion at any refresh rate.
@@ -1345,11 +1431,14 @@ export class Game {
     );
 
     this.sky.follow(this.camera);
-    this.renderer.clear();
-    this.renderer.render(this.scene, this.camera);
-    // No weapon in hand while dead; none while looking through the scope; the grenade instead of the weapon.
-    if (!dead && this.heldGrenade) this.renderHandGrenade();
-    else if (!dead && !this.scoped) this.viewModel.render(this.renderer);
+    // A hidden tab (multiplayer host ticking in the background) draws nothing.
+    if (!document.hidden) {
+      this.renderer.clear();
+      this.renderer.render(this.scene, this.camera);
+      // No weapon in hand while dead; none while looking through the scope; the grenade instead of the weapon.
+      if (!dead && this.heldGrenade) this.renderHandGrenade();
+      else if (!dead && !this.scoped) this.viewModel.render(this.renderer);
+    }
     // Flash: white screen, full until the last `fade` seconds; smoke: grey veil with the eye inside a cloud.
     this.hud.setFlash(this.flashBlind / GRENADE_CONFIG.flash.fade);
     this.hud.setSmoke(this.grenades ? this.grenades.densityAt(this.camera.position) * 0.85 : 0);
@@ -1373,14 +1462,21 @@ export class Game {
     const fire = this.inputState.fire;
     const pressed = fire && !this.spectateFireHeld;
     this.spectateFireHeld = fire;
-    const allies = (this.squad?.bots ?? []).filter((b) => b.alive && b.team === this.combat?.team);
+    // Living teammates: the bots here, or (room member) the others as the host shows them.
+    const allies: { name: string; position: THREE.Vector3; eyeHeight: number; yaw: number; pitch: number }[] = this.netClient
+      ? [...this.netClient.puppets.all.values()]
+          .filter((p) => p.alive && p.team === this.localTeam)
+          .map((p) => ({ name: this.teamMatch?.name(p.id) ?? p.id, position: p.position, eyeHeight: p.height - 0.1, yaw: p.yaw, pitch: p.pitch }))
+      : (this.squad?.bots ?? [])
+          .filter((b) => b.alive && b.team === this.combat?.team)
+          .map((b) => ({ name: b.name, position: b.controller.position, eyeHeight: b.controller.eyeHeight, yaw: b.controller.yaw, pitch: b.controller.pitch }));
     if (deadTime < SPECTATE_AFTER || allies.length === 0 || !this.map) {
       this.hud.setDeathNote(allies.length ? '사망 — 라운드가 끝나면 다시 시작합니다' : '사망 — 남은 아군 없음');
       return;
     }
     if (pressed) this.spectateIndex++;
-    const b: Bot = allies[this.spectateIndex % allies.length];
-    const c = b.controller;
+    const b = allies[this.spectateIndex % allies.length];
+    const c = b;
     _specEye.set(c.position.x, c.position.y + c.eyeHeight, c.position.z);
     // Back along the bot's view and a little up, stopping short of walls.
     _specDir.set(Math.sin(c.yaw) * Math.cos(c.pitch), 0.25, Math.cos(c.yaw) * Math.cos(c.pitch)).normalize();
@@ -1640,6 +1736,8 @@ export class Game {
     _throwEye.set(p.position.x, p.position.y + p.eyeHeight, p.position.z);
     viewDir(p.yaw, p.pitch, _throwDir);
     this.grenades.throw(kind, 'local', _throwEye, _throwDir, p.velocity);
+    this.netHost?.broadcastThrow('local', kind, _throwEye, _throwDir, p.velocity);
+    this.netClient?.throwGrenade(kind, _throwEye, _throwDir, p.velocity);
     // Back to the weapon after a throw.
     this.putGrenadeAway(true);
   }
@@ -1754,6 +1852,11 @@ export class Game {
       this.buyMenu.feedback(r.message, false);
       return r;
     }
+    if (this.netClient) {
+      // The host buys (its money, its rules) and answers with the gear (netBuy).
+      this.netClient.buy(id);
+      return { ok: false, item: null, reason: 'phase', message: '구매 요청 중…', spent: 0 };
+    }
     const r = this.buyLoadout.buy(id, eco, 'local', { armor: this.combat.armor });
     this.buyMenu.feedback(r.message, r.ok);
     if (r.ok && r.armor !== undefined) this.combat.armor = r.armor;
@@ -1775,7 +1878,8 @@ export class Game {
 
   /** "출격 확정": the round goes live on the next tick for everyone at once. */
   confirmReady(): void {
-    this.teamMatch?.ready();
+    // Only the host ends the buy time for the room.
+    if (!this.netClient) this.teamMatch?.ready();
     this.closeBuyMenu(true);
   }
 
@@ -1868,6 +1972,286 @@ export class Game {
         await renderWeaponThumbnails(this.renderer, env, loaded, (id, url) => this.buyMenu.setThumbnail(id, url));
       })
       .catch((err) => console.warn('[menu] weapon thumbnails unavailable', err));
+  }
+
+  // --- Multiplayer ----------------------------------------------------------------
+
+  /** True in a multiplayer room (host or client). */
+  get online(): boolean {
+    return !!this.netHost || !!this.netClient;
+  }
+
+  get mapId(): string {
+    return this.mapDef.id;
+  }
+
+  get mapName(): string {
+    return this.mapDef.name;
+  }
+
+  get netAiming(): boolean {
+    return this.scoped || (this.inputState.aim && this.input.active);
+  }
+
+  get netWeaponId(): string {
+    return this.weapons?.weapon.def.id ?? '';
+  }
+
+  get netUse(): boolean {
+    return this.inputState.use && this.input.active && !this.buyMenuOpen;
+  }
+
+  /**
+   * Plays in the room `session` just entered: the host runs the match here
+   * (its mode and map); a member waits for the host's mode, loads it and
+   * gets a character.
+   */
+  async startMultiplayer(session: NetSession): Promise<void> {
+    const room = session.room;
+    if (!room) return;
+    this.net = session;
+    session.handlers = {
+      message: (from, d) => {
+        if (this.netHost) this.netHost.receive(from, d);
+        else if (from === this.net?.room?.hostId) this.netClient?.receive(d);
+      },
+      joined: (m) => {
+        this.netHost?.announce(m.id);
+        if (this.net?.room) this.onNetRoom?.(this.net.room);
+      },
+      gone: (id) => {
+        this.netHost?.memberGone(id);
+        if (this.net?.room) this.onNetRoom?.(this.net.room);
+      },
+      host: (id) => {
+        if (this.net?.room) this.onNetRoom?.(this.net.room);
+        void this.onNetHostChanged(id);
+      },
+      room: (r) => this.onNetRoom?.(r),
+      closed: () => this.leaveMultiplayer('closed'),
+    };
+    this.hud.menu.setMatchLocked(true);
+    this.hud.setMapSelectEnabled(false);
+    if (room.hostId === session.id) await this.becomeHost(room);
+    else this.becomeClient();
+  }
+
+  /** Called when the room changes (lobby view); set by the multiplayer panel. */
+  onNetRoom: ((room: RoomInfo) => void) | null = null;
+  /** Called when the game leaves multiplayer by itself (connection lost). */
+  onNetEnded: ((reason: 'closed' | 'left') => void) | null = null;
+
+  /** Back to single player (the room is left; the connection stays with the panel). */
+  leaveMultiplayer(reason: 'closed' | 'left' = 'left'): void {
+    if (!this.net) return;
+    const session = this.net;
+    this.net = null;
+    session.handlers = {};
+    if (reason === 'left') session.leave();
+    this.netHost?.stop();
+    this.netHost = null;
+    this.syncBackgroundTicker();
+    this.netClient?.dispose();
+    this.netClient = null;
+    this.localTeam = 'blue';
+    this.mode = this.matchSettings.mode;
+    this.hud.menu.setMatchLocked(false);
+    this.hud.setMapSelectEnabled(!this.loadingMap);
+    if (this.map) this.restartMatch();
+    this.onNetEnded?.(reason);
+  }
+
+  private async becomeHost(room: RoomInfo): Promise<void> {
+    this.netClient?.dispose();
+    this.netClient = null;
+    this.localTeam = 'blue';
+    this.mode = room.mode;
+    this.netHost = new NetHost(this, this.net!);
+    this.syncBackgroundTicker();
+    if (room.map !== this.mapDef.id && MAPS.some((m) => m.id === room.map)) await this.switchMap(room.map);
+    else this.restartMatch();
+  }
+
+  private becomeClient(): void {
+    this.netHost?.stop();
+    this.netHost = null;
+    this.syncBackgroundTicker();
+    this.netClient?.dispose();
+    this.netClient = new NetClient(this, this.net!, this.matchSettings.botLook);
+    this.scene.add(this.netClient.puppets.group);
+    // Waiting for the host's mode: nobody to fight yet.
+    this.teardownMode();
+    this.match = null;
+    this.teamMatch = null;
+    this.matchHud.setVisible(false);
+    this.teamHud.setVisible(false);
+  }
+
+  private async onNetHostChanged(id: string): Promise<void> {
+    if (!this.net?.room) return;
+    if (id === this.net.id) await this.becomeHost(this.net.room);
+    else this.netClient?.hostChanged();
+  }
+
+  async netMode(mode: 'deathmatch' | 'team', map: string): Promise<void> {
+    while (this.loadingMap) await new Promise((r) => setTimeout(r, 100));
+    this.mode = mode;
+    if (map !== this.mapDef.id && MAPS.some((m) => m.id === map)) await this.switchMap(map);
+    else if (this.map) {
+      this.setupMode();
+      this.beginMode();
+      this.accumulator = 0;
+    }
+  }
+
+  netYou(_id: string, team: string | null): void {
+    this.localTeam = team === 'red' ? 'red' : 'blue';
+    const t = this.mode === 'team' ? this.localTeam : undefined;
+    if (this.combat) this.combat.team = t;
+    if (this.weapons) this.weapons.team = t;
+  }
+
+  netMatch(m: MatchState | TeamMatchState, bomb: BombStateMsg | null): void {
+    const c = this.netClient;
+    if (!c) return;
+    const rename = (id: string) => c.id(id);
+    if (m.kind === 'dm') {
+      this.match = applyMatch(this.match, m, rename);
+      this.teamMatch = null;
+    } else {
+      this.teamMatch = applyTeamMatch(this.teamMatch, m, rename);
+      this.match = null;
+    }
+    if (bomb && this.map) {
+      this.bomb ??= new BombObjective(this.map.bombSites);
+      applyBomb(this.bomb, bomb, rename);
+    } else if (!bomb) this.bomb = null;
+  }
+
+  netSpawn(m: Extract<ToClient, { k: 'spawn' }>): void {
+    const p = this.player;
+    if (!p) return;
+    if (m.round) {
+      this.closeBuyMenu(false, true);
+      this.clearGrenades();
+      this.buyMenu.clearFeedback();
+      this.impacts.clear();
+      this.blood.clear();
+      this.fx.clear();
+      this.spectateIndex = 0;
+      this.hud.setDeathNote(null);
+    }
+    p.teleport(new THREE.Vector3(...m.p), m.yaw);
+    p.velocity.set(0, 0, 0);
+    if (m.loadout) this.setNetLoadout(m.loadout, m.grenades);
+    else if (m.alive) this.weapons?.resetForRespawn();
+    this.combat?.setFromHost(m.hp, m.armor, m.alive);
+    this.body.reset();
+    this.hud.setDeath(null, RESPAWN_DELAY);
+    this.prevPos.copy(p.position);
+    this.prevEyeHeight = p.eyeHeight;
+  }
+
+  netHurt(m: Extract<ToClient, { k: 'hurt' }>): void {
+    const p = this.player;
+    if (!p) return;
+    const fx = -Math.sin(p.yaw);
+    const fz = -Math.cos(p.yaw);
+    const sx = -m.d[0];
+    const sz = -m.d[2];
+    this.hud.showDamage(m.amount, Math.atan2(sx * -fz + sz * fx, sx * fx + sz * fz));
+    if (m.killed) this.audio.stopGroup('foley');
+  }
+
+  netFx(m: Extract<ToClient, { k: 'fx' }>, muzzle: THREE.Vector3 | null, mine: boolean): void {
+    const def = WEAPONS[m.w];
+    const origin = new THREE.Vector3(...m.o);
+    const end = new THREE.Vector3(...m.e);
+    const dir = end.clone().sub(origin).normalize();
+    const normal = m.n ? new THREE.Vector3(...m.n) : new THREE.Vector3(0, 1, 0);
+    if (m.kind === 'target') this.blood.spawn(end, dir, m.head);
+    // This player's own rounds already showed their tracer, sound and wall marks.
+    if (mine) return;
+    if (def) {
+      let w = this.netWeapons.get(def.id);
+      if (!w) {
+        w = new WeaponState(def);
+        this.netWeapons.set(def.id, w);
+      }
+      const result = (m.kind === 'miss' ? { kind: 'miss', end } : { kind: m.kind, point: end, normal, distance: origin.distanceTo(end) }) as HitscanResult;
+      this.weaponAudio.onRemoteShot(w, origin, result, this.camera);
+      if (def.category !== 'melee') {
+        const from = muzzle ?? origin;
+        this.fx.flash(from, dir);
+        this.fx.tracer(from, end);
+      }
+    }
+    if (m.kind === 'world') this.impacts.spawn(end, normal);
+  }
+
+  netHit(m: Extract<ToClient, { k: 'hit' }>): void {
+    this.hud.showHitMarker(m.head, m.kill);
+  }
+
+  netThrow(m: Extract<ToClient, { k: 'throw' }>): void {
+    this.grenades?.throw(m.kind, m.by, new THREE.Vector3(...m.eye), new THREE.Vector3(...m.dir).normalize(), new THREE.Vector3(...m.carry));
+  }
+
+  netBuy(m: Extract<ToClient, { k: 'buy' }>): void {
+    this.buyMenu.feedback(m.message, m.ok);
+    if (this.combat) this.combat.armor = m.armor;
+    if (m.ok) this.setNetLoadout(m.loadout, m.grenades);
+  }
+
+  netBoom(m: Extract<ToClient, { k: 'boom' }>): void {
+    const at = new THREE.Vector3(...m.p);
+    this.bombFx.explode(at);
+    this.weaponAudio.world('c4.explode', at, 1, this.camera, 400);
+  }
+
+  netRestart(): void {
+    this.matchHud.hideResults();
+    this.teamHud.hideResults();
+    this.match = null;
+    this.teamMatch = null;
+    this.bomb = null;
+    this.bombFx.clear();
+    this.clearGrenades();
+    this.impacts.clear();
+    this.blood.clear();
+    this.fx.clear();
+    this.buyLoadout.reset();
+    this.beginMatchRecord();
+  }
+
+  /** The host's word on this player's gear (team match): catalog ids → the weapon system. */
+  private setNetLoadout(ids: readonly string[], grenades: { flash: number; smoke: number } | null): void {
+    this.buyLoadout.restore(ids, grenades);
+    if (this.teamMatch || this.mode === 'team') this.applyBuyLoadout();
+  }
+
+  /** A round fired by a remote player, resolved here: what the host sees of it. */
+  showNetShot(bot: Bot, weapon: WeaponDefinition, origin: THREE.Vector3, dir: THREE.Vector3, result: HitscanResult): void {
+    const i = this.squad?.bots.indexOf(bot) ?? -1;
+    const model = i >= 0 ? this.squad!.models[i] : null;
+    const muzzle = new THREE.Vector3();
+    if (model) {
+      model.onShot();
+      model.object.updateMatrixWorld(true);
+      model.muzzle.getWorldPosition(muzzle);
+    } else muzzle.copy(origin);
+    let w = this.netWeapons.get(weapon.id);
+    if (!w) {
+      w = new WeaponState(weapon);
+      this.netWeapons.set(weapon.id, w);
+    }
+    this.weaponAudio.onRemoteShot(w, origin, result, this.camera);
+    if (weapon.category !== 'melee') {
+      this.fx.flash(muzzle, dir);
+      this.fx.tracer(muzzle, result.kind === 'miss' ? result.end : result.point);
+    }
+    if (result.kind === 'world') this.impacts.spawn(result.point, result.normal);
+    else if (result.kind === 'target') this.blood.spawn(result.point, dir, result.zone === 'head');
   }
 
   private hasStarted = false;

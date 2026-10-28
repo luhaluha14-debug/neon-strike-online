@@ -1,12 +1,10 @@
-import { createReadStream } from 'node:fs';
-import { stat } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { extname, join, normalize, resolve, sep } from 'node:path';
 import { ACCOUNT_SERVICE, CSRF_HEADER, type AuthError } from '../src/economy/AccountProtocol';
 import { accountSummary, login, logout, sessionAccount, signup } from './auth';
 import { missionDay, type ServerConfig } from './config';
 import { dbHealthy, describeDbError, type Db } from './db';
 import { claimMission, equip, loadAccount, purchase, type EconomyAnswer, type RequestContext } from './economyDb';
+import { createStaticHandler } from './static';
 
 // HTTP layer: routes, JSON bodies, cookies, CSRF check, static files.
 // Logs carry method, path, status and time only: no bodies, cookies,
@@ -38,7 +36,7 @@ export function createApp(opts: AppOptions): (req: IncomingMessage, res: ServerR
   const { db, config } = opts;
   const day = opts.day ?? (() => missionDay(config.missionTimeZone));
   const log = opts.log ?? ((line: string) => console.log(line));
-  const staticRoot = config.staticDir ? resolve(config.staticDir) : null;
+  const serveStatic = createStaticHandler(config.staticDir);
 
   const send = (res: ServerResponse, status: number, body: unknown, headers: Record<string, string | string[]> = {}) => {
     const data = JSON.stringify(body);
@@ -127,39 +125,6 @@ export function createApp(opts: AppOptions): (req: IncomingMessage, res: ServerR
     send(res, a.status, a.body);
   }
 
-  async function serveStatic(req: IncomingMessage, res: ServerResponse, path: string): Promise<boolean> {
-    if (!staticRoot || (req.method !== 'GET' && req.method !== 'HEAD')) return false;
-    let rel: string;
-    try {
-      rel = normalize(decodeURIComponent(path)).replace(/^([/\\])+/, '');
-    } catch {
-      return false;
-    }
-    let file = join(staticRoot, rel);
-    if (file !== staticRoot && !file.startsWith(staticRoot + sep)) return false;
-    let info = await stat(file).catch(() => null);
-    if (info?.isDirectory()) {
-      file = join(file, 'index.html');
-      info = await stat(file).catch(() => null);
-    }
-    if (!info?.isFile()) {
-      // Client-side routes fall back to the game page; missing assets stay 404.
-      if (rel.startsWith('assets') || extname(rel)) return false;
-      file = join(staticRoot, 'index.html');
-      info = await stat(file).catch(() => null);
-      if (!info?.isFile()) return false;
-    }
-    const top = rel.split(/[/\\]/)[0];
-    res.writeHead(200, {
-      'content-type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream',
-      'content-length': info.size,
-      // Same caching as the static site (render.yaml): hashed bundles forever, map files a day.
-      'cache-control': top === 'assets' ? 'public, max-age=31536000, immutable' : top === 'maps' ? 'public, max-age=86400' : 'no-cache',
-    });
-    if (req.method === 'HEAD') res.end();
-    else createReadStream(file).pipe(res);
-    return true;
-  }
 
   return (req, res) => {
     const started = Date.now();
@@ -248,27 +213,3 @@ async function readJson(req: IncomingMessage): Promise<Json> {
     throw new HttpError(400, 'invalid_request');
   }
 }
-
-const MIME: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.mjs': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp',
-  '.ico': 'image/x-icon',
-  '.glb': 'model/gltf-binary',
-  '.gltf': 'model/gltf+json',
-  '.bin': 'application/octet-stream',
-  '.ktx2': 'image/ktx2',
-  '.hdr': 'application/octet-stream',
-  '.wav': 'audio/wav',
-  '.mp3': 'audio/mpeg',
-  '.ogg': 'audio/ogg',
-  '.woff2': 'font/woff2',
-  '.txt': 'text/plain; charset=utf-8',
-};
