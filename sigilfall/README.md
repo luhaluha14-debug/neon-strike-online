@@ -317,11 +317,49 @@ node sigilfall/tools/preview-artifact.js          # http://localhost:8090 에서
 SIGILFALL_URL=http://localhost:8090/ node sigilfall/test/browser-tablet.cjs
 ```
 
-## 12. 인터넷에 공개하기
+## 12. Render 에 올리기
 
-`render.yaml` 이 들어 있어 [Render](https://render.com) 에서 **New → Blueprint** 로 바로 배포됩니다.
-직접 설정한다면 Build `npm install`, Start `npm start`, 포트는 `PORT` 환경변수를 씁니다.
-Fly.io, Railway 등 다른 Node 호스팅도 같은 방식으로 동작하고, 접속은 자동으로 `wss://` 를 사용합니다.
+저장소 루트의 `render.yaml` 이 설정을 전부 들고 있습니다.
 
-무료 플랜에서는 한동안 접속이 없으면 서버가 잠들어 첫 접속이 느릴 수 있고,
-서버가 재시작되면 진행 중이던 방은 사라집니다.
+1. [render.com](https://render.com) 로그인 → **New → Blueprint**
+2. 이 저장소(`luhaluha14-debug/neon-strike-online`)를 고릅니다
+3. Render 가 `render.yaml` 을 읽어 서비스 하나를 제안합니다 → **Apply**
+4. 2~3분 뒤 나오는 `https://sigilfall-xxxx.onrender.com` 주소가 게임 주소입니다
+
+설정 파일이 정하는 것:
+
+| 항목 | 값 | 이유 |
+|---|---|---|
+| `runtime` | node | |
+| `region` | singapore | 무료 리전 중 한국에서 가장 가까움. FPS는 핑이 체감됩니다 |
+| `branch` | `claude/jujutsu-action-fps-game-8u0ng8` | 아직 작업 브랜치에 있어서. main 으로 합치면 이 줄을 `main` 으로 바꾸세요 |
+| `buildCommand` | `npm ci --omit=dev` | 잠금 파일 그대로 설치. 테스트용 의존성은 받지 않음 |
+| `startCommand` | `npm start` | `node sigilfall/server/server.js` |
+| `healthCheckPath` | `/health` | Render 가 살아 있는지 확인하는 경로 |
+| `NODE_VERSION` | 22 | |
+
+직접 손으로 설정한다면 **New → Web Service** 에서 Build `npm ci --omit=dev`, Start `npm start`
+만 넣으면 됩니다. 포트는 Render 가 주는 `PORT` 환경변수를 서버가 그대로 씁니다.
+
+접속은 페이지 주소를 따라가므로, `https://` 로 열면 웹소켓도 자동으로 `wss://` 가 됩니다.
+Fly.io, Railway 같은 다른 Node 호스팅도 같은 방식으로 동작합니다.
+
+### 무료 플랜에서 알아 둘 것
+
+- **15분 정도 아무도 안 들어오면 서버가 잠듭니다.** 다시 깨어나는 데 30초~1분 걸리므로,
+  친구와 약속한 시간이라면 먼저 혼자 한 번 열어서 깨워 두세요.
+- **서버가 재시작되면 진행 중이던 방이 사라집니다.** 방 정보는 메모리에만 있습니다.
+- 무료 인스턴스는 메모리 512MB입니다. 이 게임은 방 하나당 수십 KB 수준이라 넉넉합니다.
+
+### 배포 전에 똑같이 리허설하기
+
+실제 배포와 같은 순서로 로컬에서 확인할 수 있습니다.
+
+```bash
+git clone <저장소> /tmp/rehearsal && cd /tmp/rehearsal
+npm ci --omit=dev
+PORT=10000 npm start
+SIGILFALL_URL=http://localhost:10000/ node sigilfall/test/browser-smoke.cjs
+```
+
+마지막 줄은 브라우저 두 개를 띄워 온라인 대전까지 실제로 돌려 봅니다.

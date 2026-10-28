@@ -11,3 +11,9 @@ npm start            # SIGILFALL   http://localhost:8080
 npm run start:legacy # NEON STRIKE http://localhost:8080
 npm test
 ```
+
+## 인터넷에 올리기
+
+저장소 루트의 `render.yaml` 로 [Render](https://render.com) 에서 **New → Blueprint** 하면
+그대로 배포됩니다. 자세한 설명과 무료 플랜 주의사항은
+[`sigilfall/README.md`](sigilfall/README.md#12-render-에-올리기) 에 있습니다.

@@ -8,8 +8,9 @@ let chromium;
 try { ({ chromium } = require('playwright')); }
 catch (e) { console.log('playwright is not installed - skipping the PC control test'); process.exit(0); }
 
+const { launchChromium } = require('./browser-env.cjs');
+
 const URL = process.env.SIGILFALL_URL || 'http://localhost:8080/';
-const CHROME = process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 
 const fail = [];
 function check(cond, what) {
@@ -58,10 +59,7 @@ function placeInOpen() {
 }
 
 (async () => {
-  const browser = await chromium.launch({
-    executablePath: CHROME,
-    args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--no-sandbox', '--disable-dev-shm-usage']
-  });
+  const browser = await launchChromium(chromium);
   const page = await (await browser.newContext({ viewport: { width: 1100, height: 700 } })).newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));

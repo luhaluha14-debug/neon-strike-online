@@ -7,6 +7,7 @@
    it skips itself when playwright is not installed, so `npm test` stays light.
    ========================================================================== */
 const path = require('path');
+const { launchChromium } = require('./browser-env.cjs');
 
 let chromium;
 try { ({ chromium } = require('playwright')); }
@@ -20,7 +21,6 @@ const MOBILE = process.argv.includes('--mobile');
 const KEEP = process.argv.includes('--screenshots');
 const URL = process.env.SIGILFALL_URL || 'http://localhost:8080/';
 const OUT = process.env.SIGILFALL_SHOTS || path.join(__dirname, '..', '..', 'shots');
-const CHROME = process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 
 const MOBILE_CTX = {
   viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2,
@@ -298,10 +298,7 @@ async function online(browser) {
 }
 
 (async () => {
-  const browser = await chromium.launch({
-    executablePath: CHROME,
-    args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--no-sandbox', '--disable-dev-shm-usage']
-  });
+  const browser = await launchChromium(chromium);
   try {
     await offline(browser);
     await online(browser);

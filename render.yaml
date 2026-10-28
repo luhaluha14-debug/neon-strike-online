@@ -1,8 +1,20 @@
+# Render blueprint.  New → Blueprint on render.com, point it at this repo, and
+# everything below is filled in for you.
+#
+# branch: the game lives on the feature branch while it is being built.  once
+# it is merged, change this to main (or delete the line to use the repo's
+# default branch) and Render will follow that instead.
 services:
   - type: web
     name: sigilfall
-    env: node
+    runtime: node
     plan: free
-    buildCommand: npm install
+    region: singapore          # closest free region to Korea; an FPS feels ping
+    branch: claude/jujutsu-action-fps-game-8u0ng8
+    buildCommand: npm ci --omit=dev
     startCommand: npm start
     healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"

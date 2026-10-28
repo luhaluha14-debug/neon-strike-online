@@ -7,8 +7,9 @@ let chromium;
 try { ({ chromium } = require('playwright')); }
 catch (e) { console.log('playwright is not installed - skipping the interface test'); process.exit(0); }
 
+const { launchChromium } = require('./browser-env.cjs');
+
 const URL = process.env.SIGILFALL_URL || 'http://localhost:8080/';
-const CHROME = process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const MOBILE = process.argv.includes('--mobile');
 
 const fail = [];
@@ -18,10 +19,7 @@ function check(cond, what) {
 }
 
 (async () => {
-  const browser = await chromium.launch({
-    executablePath: CHROME,
-    args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--no-sandbox', '--disable-dev-shm-usage']
-  });
+  const browser = await launchChromium(chromium);
   const ctx = await browser.newContext(MOBILE
     ? { viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2,
         userAgent: 'Mozilla/5.0 (Linux; Android 13; Pixel 7) Mobile Safari/537.36' }

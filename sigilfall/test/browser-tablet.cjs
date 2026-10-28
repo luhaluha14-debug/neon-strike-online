@@ -8,8 +8,9 @@ let chromium;
 try { ({ chromium } = require('playwright')); }
 catch (e) { console.log('playwright is not installed - skipping the tablet test'); process.exit(0); }
 
+const { launchChromium } = require('./browser-env.cjs');
+
 const URL = process.env.SIGILFALL_URL || 'http://localhost:8080/';
-const CHROME = process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 
 /* the exact user agent iPadOS 17 Safari sends: it says Macintosh */
 const IPAD_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15';
@@ -30,10 +31,7 @@ function check(cond, what) {
 }
 
 (async () => {
-  const browser = await chromium.launch({
-    executablePath: CHROME,
-    args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--no-sandbox', '--disable-dev-shm-usage']
-  });
+  const browser = await launchChromium(chromium);
 
   for (const prof of PROFILES) {
     console.log('\n' + prof.name + '  ' + prof.w + 'x' + prof.h);
