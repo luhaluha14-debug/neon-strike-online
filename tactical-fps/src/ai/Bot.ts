@@ -98,6 +98,14 @@ const _aim = new THREE.Vector3();
  * them CS-style (stop, counter-strafe, short burst, then maybe a short peek
  * step before the next one), and search where it last saw them.
  */
+/** Drives a bot a remote player plays (multiplayer host): see Bot.remote. */
+export interface RemoteControl {
+  /** Puts that player's latest reported state on the bot (position, view, crouch, use key). */
+  apply(bot: Bot, dt: number): void;
+  /** Aiming down the weapon (body pose). */
+  readonly aiming: boolean;
+}
+
 export class Bot {
   readonly controller: PlayerController;
   readonly combat: PlayerCombat;
@@ -128,6 +136,14 @@ export class Bot {
   order: BotOrder | null = null;
   /** Called when this bot spots an enemy (its team hears about it: TacticalDirector.report). */
   onSpot: ((enemy: Combatant) => void) | null = null;
+  /**
+   * Multiplayer: a human in another browser plays this bot (the host's game
+   * keeps it in the match, the hitscan and the rules). No AI then: its
+   * position, view and use key come from that player (`apply`, each tick).
+   */
+  remote: RemoteControl | null = null;
+  /** Called after every spawn (multiplayer host: tells the remote player where it starts). */
+  onSpawn: ((at: THREE.Vector3, yaw: number) => void) | null = null;
   /** Goal the current path was searched for (NaN = none). */
   private readonly pathGoal = new THREE.Vector3(NaN, NaN, NaN);
   /** Last far enemy passed on to the team without engaging (reported once). */
@@ -153,7 +169,8 @@ export class Bot {
 
   constructor(
     readonly id: string,
-    readonly name: string,
+    /** Shown in the match (a remote player's name while one plays this bot). */
+    public name: string,
     private readonly world: CollisionWorld,
     hitscan: HitscanSystem,
     loadout: readonly WeaponDefinition[],
@@ -200,6 +217,7 @@ export class Bot {
    * not shooting; timers, gravity and a death fall still run.
    */
   hold(dt: number): void {
+    if (this.remote) return this.stepRemote(dt, this.remote);
     this.combat.step(dt);
     const input = this.input;
     input.moveX = input.moveY = 0;
@@ -235,6 +253,22 @@ export class Bot {
     this.peekTimer = 0;
     this.stuckTimer = 0;
     this.stuckFrom.copy(this.controller.position);
+    this.onSpawn?.(this.controller.position, yaw);
+  }
+
+  /** A tick of a bot a remote player moves: timers and the death fall here, the rest from that player. */
+  private stepRemote(dt: number, remote: RemoteControl): void {
+    this.combat.step(dt);
+    this.blindTime = 0;
+    if (this.alive) {
+      remote.apply(this, dt);
+      return;
+    }
+    const input = this.input;
+    input.moveX = input.moveY = 0;
+    input.jump = input.crouch = false;
+    this.controller.step(input, dt);
+    this.useKey = false;
   }
 
   /**
@@ -242,6 +276,7 @@ export class Bot {
    * `others` the other bots, to keep some distance from them.
    */
   step(dt: number, enemies: readonly Combatant[], others: readonly Bot[]): void {
+    if (this.remote) return this.stepRemote(dt, this.remote);
     this.combat.step(dt);
     this.blindTime = Math.max(0, this.blindTime - dt);
     const c = this.controller;

@@ -30,7 +30,7 @@ after(async () => {
 
 test('menu: 보관함 · 상점 · 미션 tabs after the existing four (order and arrow keys unchanged); each page fits at three sizes', async () => {
   const tabs = await page.evaluate(() => [...document.querySelectorAll('.tab')].map((t) => t.textContent));
-  assert.deepEqual(tabs, ['플레이', '무기', '설정', '조작', '보관함', '상점', '미션']);
+  assert.deepEqual(tabs, ['플레이', '무기', '설정', '조작', '보관함', '상점', '미션', '멀티플레이']);
   for (const [w, h] of [
     [1600, 900],
     [1024, 640],

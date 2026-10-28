@@ -1,0 +1,76 @@
+/* Multiplayer lobby page (ui/MultiplayerPanel.ts). Tokens in theme.css. */
+.mp-input {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 var(--s-2);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-bg-2);
+  color: var(--c-text);
+  font: var(--fs-md) var(--font);
+}
+.mp-input:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.mp-actions,
+.mp-join {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-2);
+  margin-top: var(--s-3);
+}
+.mp-lobby .field-hint {
+  display: block;
+  margin-top: var(--s-3);
+}
+.mp-code {
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+}
+.mp-server.ok {
+  color: var(--c-accent);
+}
+.mp-room-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--s-2);
+  align-items: baseline;
+}
+.mp-room-code {
+  color: var(--c-accent);
+  font-size: var(--fs-xl);
+  letter-spacing: 0.18em;
+}
+.mp-members {
+  margin: var(--s-3) 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--s-1);
+}
+.mp-members li {
+  padding: var(--s-2) var(--s-3);
+  background: var(--c-bg-2);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  overflow-wrap: anywhere;
+}
+.mp-members li.me {
+  border-color: var(--c-accent);
+}
+.mp-host {
+  margin-left: var(--s-1);
+  padding: 0 var(--s-1);
+  color: var(--c-accent-ink);
+  background: var(--c-accent);
+  border-radius: var(--radius);
+  font-size: var(--fs-xs);
+}
+.mp-error {
+  min-height: 1.4em;
+  margin: var(--s-2) 0 0;
+  color: var(--c-danger);
+  font-size: var(--fs-sm);
+}

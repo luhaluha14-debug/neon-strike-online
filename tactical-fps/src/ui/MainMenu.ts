@@ -3,7 +3,7 @@ import './menu.css';
 
 import { ACTIONS, bindKey, defaultControls, keyLabel, RESERVED_KEYS, SENSITIVITY_MAX, SENSITIVITY_MIN, type ActionId, type ControlSettings } from '../input/Controls';
 
-export type MenuPage = 'play' | 'loadout' | 'settings' | 'controls' | 'inventory' | 'shop' | 'missions';
+export type MenuPage = 'play' | 'loadout' | 'settings' | 'controls' | 'inventory' | 'shop' | 'missions' | 'multi';
 
 export interface MenuMap {
   id: string;
@@ -42,6 +42,8 @@ const PAGES: readonly { id: MenuPage; label: string }[] = [
   { id: 'inventory', label: '보관함' },
   { id: 'shop', label: '상점' },
   { id: 'missions', label: '미션' },
+  // Multiplayer lobby (net/MultiplayerPanel.ts fills it).
+  { id: 'multi', label: '멀티플레이' },
 ];
 
 /** Pages that need the wide menu (cards side by side). */
@@ -173,6 +175,7 @@ export class MainMenu {
           <section class="page grid-page" id="page-inventory" data-page="inventory" role="tabpanel" aria-labelledby="tab-inventory" hidden></section>
           <section class="page grid-page" id="page-shop" data-page="shop" role="tabpanel" aria-labelledby="tab-shop" hidden></section>
           <section class="page grid-page" id="page-missions" data-page="missions" role="tabpanel" aria-labelledby="tab-missions" hidden></section>
+          <section class="page mp-page" id="page-multi" data-page="multi" role="tabpanel" aria-labelledby="tab-multi" hidden></section>
         </div>
         <footer class="menu-footer">
           <button type="button" class="btn btn-primary btn-block play-button" disabled>플레이</button>
@@ -279,6 +282,14 @@ export class MainMenu {
 
   private closeConfirm(): void {
     this.root.querySelector<HTMLElement>('.confirm')!.hidden = true;
+  }
+
+  /** In a multiplayer room the room decides mode and rules: their selects are locked. */
+  setMatchLocked(locked: boolean): void {
+    for (const k of ['mode', 'bots', 'time-limit', 'kill-target', 'objective', 'rounds-to-win', 'round-time']) {
+      const el = this.root.querySelector<HTMLSelectElement>(`select[data-setting="${k}"]`);
+      if (el) el.disabled = locked;
+    }
   }
 
   /** Match options only matter in deathmatch. */

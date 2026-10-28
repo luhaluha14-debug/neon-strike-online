@@ -1,5 +1,6 @@
 # Render blueprint for NEON STRIKE: DROPZONE (online battle royale server)
-# and the tactical FPS (static site). The GRID account server
+# and the tactical FPS: a static site (single player) and its multiplayer
+# relay (free web service serving the game + /mp). The GRID account server
 # (tactical-fps/server) is not deployed: sign-in is switched off for now.
 # The older neon_strike_online game keeps its own config in its folder.
 
@@ -35,3 +36,24 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
+
+  # Tactical FPS multiplayer: the game plus the room relay (WebSocket /mp) on one origin.
+  # Rooms run in the host player's browser; the relay only manages rooms and forwards
+  # messages, so the free plan is enough (it sleeps when idle: the first visit wakes it, ~1 min).
+  - type: web
+    name: tactical-fps-mp
+    runtime: node
+    plan: free
+    rootDir: tactical-fps
+    # NODE_ENV=production also applies to the build: keep the dev dependencies (vite, typescript) for it.
+    buildCommand: npm ci --include=dev && npm run build && npm run build:mp
+    startCommand: npm run start:mp
+    healthCheckPath: /mp/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      # Pages of the static sites may connect too (once they are pointed at this relay).
+      - key: GRID_MP_ORIGINS
+        value: https://tactical-fps.onrender.com,https://tactical-fps-bmsr.onrender.com

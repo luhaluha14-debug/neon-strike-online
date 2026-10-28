@@ -142,7 +142,7 @@ export class BotSquad {
       _pose.pitch = c.pitch;
       _pose.velocity.copy(c.velocity);
       _pose.grounded = c.grounded;
-      _pose.aiming = b.mode === 'engage' && b.alive;
+      _pose.aiming = (b.remote ? b.remote.aiming : b.mode === 'engage') && b.alive;
       _pose.alive = b.alive;
       _pose.deadTime = b.combat.deadTime;
       this.models[i].update(dt, _pose);

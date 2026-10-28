@@ -125,6 +125,23 @@ export class PlayerCombat implements Damageable {
   }
 
   /**
+   * Multiplayer client: the host decides health, armour and death; this
+   * shows its verdict (no damage is worked out here).
+   */
+  setFromHost(hp: number, armor: number, alive: boolean, deadTime = 0): void {
+    this.player.health = Math.max(0, Math.min(hp, PLAYER_CONFIG.maxHealth));
+    this.armor = Math.max(0, armor);
+    if (alive && this.dead) {
+      this.dead = false;
+      this.deadTime = 0;
+    } else if (!alive && !this.dead) {
+      this.dead = true;
+      this.deadTime = deadTime;
+    }
+    this.protection = 0;
+  }
+
+  /**
    * Alive at full health with fresh spawn protection (called on every
    * (re)spawn). Armour is removed unless `keepArmor` (team match survivor).
    */
