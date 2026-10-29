@@ -1,0 +1,1523 @@
+/* =========================================================================
+   DROPZONE client entry.
+   App   : renderer, menus, settings, input, audio (lives for the page)
+   Session: one match (fixed 60 Hz ticks + interpolated rendering).
+           offline: the browser runs the Match itself (vs bots)
+           online : the server runs it; the browser keeps a mirror Match fed by
+                    snapshots, predicts its own movement and replays unacked
+                    input on every snapshot, and draws others ~100 ms behind
+   ========================================================================= */
+import * as THREE from 'three';
+import { BUILD } from '../build-config.js';
+import { buildMap } from '../shared/mapgen.js';
+import { NavGrid } from '../shared/nav.js';
+import { Match, TICK, CRATE_H, rayHitPlayer, emptyCommand, moveInput } from '../shared/game.js';
+import { INTERP_DELAY, unpackPlayer, unpackMe, applyBody, unpackVehicle, applyWorld, applyItemEvent } from '../shared/net.js';
+import { Lobby } from './net.js';
+import { WEAPONS } from '../shared/weapons.js';
+import { ITEMS, invCount } from '../shared/items.js';
+import { THROWABLES, throwLaunch, predictThrow } from '../shared/throwables.js';
+import { eyeHeight, stepBody } from '../shared/movement.js';
+import { anglesFromDir, lerp, wrapAngle, clamp } from '../shared/util.js';
+import { loadSettings, saveSettings, defaults, gfx, ACTIONS, DEFAULT_KEYS, keyLabel } from './settings.js';
+import { Input } from './input.js';
+import { TouchControls, isTouchDevice } from './touch.js';
+import { Audio } from './audio.js';
+import { WorldView } from './render/world-view.js';
+import { FX } from './render/fx.js';
+import { Soldier, itemGeometry, weaponGeometry, MUZZLE, planeGeometry, propGeometry, SOLDIER_MAT, crateGeometry, makeChute } from './render/models.js';
+import { ViewModel } from './render/viewmodel.js';
+import { VehicleView } from './render/vehicles.js';
+import { VEHICLES } from '../shared/vehicles.js';
+import { CameraRig } from './camera.js';
+import { HUD } from './hud.js';
+import { DevTools } from './debug.js';
+
+const $ = (id) => document.getElementById(id);
+const MODEL = { kestrel: 'rifle', wasp: 'smg', breaker: 'shotgun', hornet: 'pistol', longbow: 'sniper', fists: 'none' };
+/** model shown in hand for a slot (throwables use their own grenade model) */
+function modelFor(sl) { return !sl ? null : sl.id === 'throw' ? (sl.type ? 'g_' + sl.type : 'none') : MODEL[sl.id]; }
+const LOCAL_ID = 1;
+const SQUAD_COLORS = ['#f2a33a', '#4ad0ff', '#7dff6a', '#ff7ad9'];
+
+/* ======================================================================= */
+class App {
+  constructor() {
+    this.touch = isTouchDevice();
+    document.body.classList.toggle('touch', this.touch);
+    this.settings = loadSettings(this.touch);
+    this.canvas = $('game');
+    this.input = new Input(this.settings, this.canvas);
+    this.input.touchMode = this.touch;
+    this.audio = new Audio();
+    this.audio.setVolume(this.settings.volume);
+    this.hud = new HUD();
+    this.session = null;
+    this.world = buildMap();
+    this.nav = new NavGrid(this.world);
+    this.mapImage = makeMapImage(this.world);
+    this.touchUI = new TouchControls($('touch'), this.input, this.settings, () => saveSettings(this.settings));
+    this.dev = BUILD.dev ? new DevTools(this) : null;
+    this.applyUIScale();
+    this.initRenderer();
+    this.bindMenus();
+    this.input.onLockChange = (locked) => {
+      // losing the mouse mid-fight pauses the offline match — but not when the
+      // result screen / spectating released it on purpose
+      const s = this.session;
+      if (!locked && s && s.canPause && !this.touch && !s.uiOpen) this.pause(true);
+    };
+    addEventListener('resize', () => this.resize());
+    this.resize();
+    this.last = performance.now();
+    this.lastRender = 0;
+    requestAnimationFrame((t) => this.loop(t));
+    $('ver').textContent = `v${BUILD.version}${BUILD.dev ? ' · DEV BUILD (F3 디버그)' : ''}`;
+    $('loading').classList.add('hide');
+  }
+
+  initRenderer() {
+    const q = this.q = gfx(this.settings);
+    if (this.renderer) {
+      this.renderer.dispose();
+      // antialias can only be chosen at context creation -> swap the canvas
+      const c = this.canvas.cloneNode();
+      this.canvas.replaceWith(c);
+      this.canvas = c;
+      this.input.canvas = c;
+      c.addEventListener('mousedown', (e) => this.input.onMouse(e, true));
+      c.addEventListener('click', () => this.onCanvasClick());
+    } else this.canvas.addEventListener('click', () => this.onCanvasClick());
+    const r = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: q.antialias, powerPreference: 'high-performance', stencil: false });
+    r.setPixelRatio(Math.min(2, (window.devicePixelRatio || 1) * q.pixelRatio));
+    r.shadowMap.enabled = q.shadows > 0;
+    r.shadowMap.type = THREE.PCFShadowMap;
+    r.outputColorSpace = THREE.SRGBColorSpace;
+    r.toneMapping = q.material === 'standard' ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping;
+    r.toneMappingExposure = 1.05;
+    r.autoClear = false;
+    r.info.autoReset = false;
+    this.renderer = r;
+    this.scene = new THREE.Scene();
+    this.camera = new THREE.PerspectiveCamera(this.settings.fov, innerWidth / innerHeight, 0.08, q.viewDist + 300);
+    this.worldView = new WorldView(this.scene, this.world, q);
+    this.fx = new FX(this.scene, q);
+    this.vm = new ViewModel(innerWidth / innerHeight);
+    this.gfxKey = JSON.stringify(q);
+    this.resize();
+  }
+
+  applyUIScale() { document.documentElement.style.setProperty('--ui', this.settings.uiScale); }
+
+  resize() {
+    if (!this.renderer) return;
+    this.renderer.setSize(innerWidth, innerHeight, false);
+    this.camera.aspect = innerWidth / innerHeight;
+    this.camera.updateProjectionMatrix();
+  }
+
+  onCanvasClick() {
+    this.audio.init();
+    if (this.session && this.session.state === 'playing' && !this.touch && !this.session.uiOpen) this.input.requestLock();
+    if (this.session && this.session.spectating) this.session.nextSpectate();
+  }
+
+  /* ---------------- menus ---------------- */
+  screen(id) {
+    for (const s of document.querySelectorAll('.screen')) s.classList.toggle('hide', s.id !== id);
+    this.curScreen = id;
+  }
+
+  bindMenus() {
+    const S = this.settings;
+    $('pName').value = S.name;
+    $('pBots').value = S.bots; $('pBotsV').textContent = S.bots;
+    $('pBots').oninput = () => { S.bots = +$('pBots').value; $('pBotsV').textContent = S.bots; saveSettings(S); };
+    $('pName').onchange = () => { S.name = $('pName').value.trim().slice(0, 12) || 'PLAYER'; saveSettings(S); };
+    segment($('pDiff'), () => S.difficulty, (v) => { S.difficulty = v; saveSettings(S); });
+    segment($('pView'), () => S.view, (v) => { S.view = v; saveSettings(S); });
+    segment($('pMode'), () => String(S.mode || 1), (v) => { S.mode = +v; saveSettings(S); });
+    $('bPlay').onclick = () => { this.audio.init(); this.startMatch(); };
+    this.lobby = new Lobby(this);
+    // the online server is the one serving this page; a static copy has no server to talk to
+    if (!BUILD.online) { $('bOnline').disabled = true; $('bOnline').textContent = '온라인 대전 · 게임 서버로 접속하면 가능'; }
+    $('bOnline').onclick = () => { this.audio.init(); this.lobby.open(); };
+    $('bSettings').onclick = () => { this.settingsBack = 'menu'; this.openSettings(); };
+    $('bHelp').onclick = () => { this.buildHelp(); this.screen('help'); };
+    for (const b of document.querySelectorAll('[data-back]')) b.onclick = () => this.back();
+    $('bResume').onclick = () => this.pause(false);
+    $('bPSettings').onclick = () => { this.settingsBack = 'pause'; this.openSettings(); };
+    $('bQuit').onclick = () => this.endSession();
+    $('bAgain').onclick = () => { const on = this.session && this.session.online; this.endSession(); if (on) this.lobby.open(); else this.startMatch(); };
+    $('bLobby').onclick = () => { const on = this.session && this.session.online; this.endSession(); if (on) this.lobby.open(); };
+    $('bSpectate').onclick = () => { $('result').classList.add('hide'); if (this.session) this.session.startSpectate(); };
+    $('invClose').onclick = () => this.session && this.session.toggleInventory(false);
+    $('mapClose').onclick = () => this.session && this.session.toggleMap(false);
+    $('bLayout').onclick = () => this.editLayout(true);
+    $('bLayoutDone').onclick = () => this.editLayout(false);
+    $('bLayoutReset').onclick = () => this.touchUI.resetLayout();
+    $('bResetSet').onclick = () => {
+      const keepLayout = S.layout;
+      const name = S.name;
+      Object.assign(S, defaults(this.touch));
+      S.layout = keepLayout; S.name = name;
+      saveSettings(S); this.input.buildMap(); this.openSettings(this.setTab);
+    };
+    // inventory clicks (delegated)
+    const inv = $('inv');
+    inv.addEventListener('click', (e) => this.session && this.session.invClick(e, false));
+    inv.addEventListener('contextmenu', (e) => { e.preventDefault(); if (this.session) this.session.invClick(e, true); });
+    let pressT = null;
+    inv.addEventListener('touchstart', (e) => { pressT = setTimeout(() => { pressT = 'long'; if (this.session) this.session.invClick(e, true); }, 550); }, { passive: true });
+    inv.addEventListener('touchend', (e) => { if (pressT === 'long') e.preventDefault(); else clearTimeout(pressT); pressT = null; });
+    $('prompt').addEventListener('pointerdown', () => this.input.tap(this.session && this.session.me.air ? 'jump' : 'interact'));
+    // full map: click / tap to place a destination marker, click it again to remove
+    $('bigmapCv').addEventListener('pointerdown', (e) => {
+      const s = this.session; if (!s) return;
+      const cv = $('bigmapCv'), r = cv.getBoundingClientRect();
+      const half = this.world.half;
+      const x = ((e.clientX - r.left) / r.width) * half * 2 - half, z = ((e.clientY - r.top) / r.height) * half * 2 - half;
+      if (s.marker && Math.hypot(s.marker.x - x, s.marker.z - z) < 8) s.setMarker(null);
+      else s.setMarker(x, z);
+    });
+    this.screen('menu');
+  }
+
+  back() {
+    if (this.curScreen === 'settings') {
+      saveSettings(this.settings);
+      this.input.buildMap();
+      this.applyUIScale();
+      this.touchUI.layout();
+      this.audio.setVolume(this.settings.volume);
+      if (JSON.stringify(gfx(this.settings)) !== this.gfxKey && !this.session) this.initRenderer();
+      if (this.session) this.session.applySettings();
+      this.screen(this.settingsBack === 'pause' ? 'pause' : 'menu');
+      if (this.settingsBack === 'pause') $('pause').classList.remove('hide');
+      return;
+    }
+    this.screen('menu');
+  }
+
+  buildHelp() {
+    const k = this.settings.keys;
+    const rows = ACTIONS.map(([a, label]) => `<div><span>${label}</span><b>${(k[a] || []).map(keyLabel).join(' / ')}</b></div>`);
+    rows.push('<div><span>무기 교체</span><b>마우스 휠</b></div>', '<div><span>일시정지</span><b>ESC</b></div>');
+    $('helpKeys').innerHTML = rows.join('');
+  }
+
+  openSettings(tab) {
+    const S = this.settings;
+    const tabs = [['controls', '조작'], ['graphics', '그래픽'], ['audio', '사운드'], ['mobile', '모바일'], ['keys', '키 설정']];
+    this.setTab = tab || this.setTab || (this.touch ? 'mobile' : 'controls');
+    $('setTabs').innerHTML = tabs.map(([id, n]) => `<button data-t="${id}" class="${id === this.setTab ? 'on' : ''}">${n}</button>`).join('');
+    for (const b of $('setTabs').children) b.onclick = () => this.openSettings(b.dataset.t);
+    const body = $('setBody');
+    body.innerHTML = '';
+    const row = (label, ctl, val, note) => {
+      const d = document.createElement('div'); d.className = 'srow';
+      d.innerHTML = `<span>${label}</span><div></div><span class="val"></span>`;
+      d.children[1].appendChild(ctl);
+      if (val) d.children[2].textContent = val;
+      if (note) { const n = document.createElement('div'); n.className = 'note'; n.textContent = note; d.appendChild(n); }
+      body.appendChild(d);
+      return d;
+    };
+    const slider = (label, key, min, max, step, fmt = (v) => v, note) => {
+      const inp = document.createElement('input'); inp.type = 'range'; inp.min = min; inp.max = max; inp.step = step; inp.value = S[key];
+      const d = row(label, inp, fmt(S[key]), note);
+      inp.oninput = () => { S[key] = +inp.value; d.children[2].textContent = fmt(S[key]); if (key === 'volume') this.audio.setVolume(S.volume); };
+    };
+    const seg = (label, key, opts, note) => {
+      const div = document.createElement('div'); div.className = 'seg';
+      for (const [v, n] of opts) { const b = document.createElement('button'); b.dataset.v = JSON.stringify(v); b.textContent = n; div.appendChild(b); }
+      const paint = () => { for (const b of div.children) b.classList.toggle('on', b.dataset.v === JSON.stringify(S[key])); };
+      for (const b of div.children) b.onclick = () => { S[key] = JSON.parse(b.dataset.v); paint(); if (key === 'quality') { S.shadows = S.antialias = S.effects = S.viewDist = S.renderScale = null; this.openSettings('graphics'); } };
+      paint();
+      row(label, div, '', note);
+    };
+    const onoff = [[true, '켜기'], [false, '끄기']];
+    if (this.setTab === 'controls') {
+      slider('마우스 감도', 'sens', 0.1, 3, 0.05, (v) => v.toFixed(2));
+      slider('조준 감도', 'adsSens', 0.1, 2, 0.05, (v) => v.toFixed(2));
+      slider('시야각 (FOV)', 'fov', 60, 105, 1, (v) => v + '°');
+      seg('Y축 반전', 'invertY', onoff);
+      seg('조준 방식', 'adsHold', [[true, '누르고 있기'], [false, '토글']]);
+      seg('앉기 방식', 'crouchHold', [[false, '토글'], [true, '누르고 있기']]);
+      seg('기본 시점', 'view', [['tps', '3인칭'], ['fps', '1인칭']]);
+      seg('자동 줍기', 'autoPickup', onoff, '탄약과 회복 아이템을 지나가면 자동으로 줍습니다');
+      seg('자동 재장전', 'autoReload', onoff, '탄창이 비면 가방의 탄약으로 자동 재장전합니다');
+    } else if (this.setTab === 'graphics') {
+      seg('그래픽 품질', 'quality', [['low', 'LOW'], ['medium', 'MEDIUM'], ['high', 'HIGH'], ['ultra', 'ULTRA']], '아래 개별 옵션은 품질 프리셋을 덮어씁니다');
+      const q = gfx(S);
+      seg('그림자', 'shadows', [[null, `자동(${['끔', '낮음', '중간', '높음'][q.shadows]})`], [0, '끔'], [1, '낮음'], [2, '중간'], [3, '높음']]);
+      seg('안티앨리어싱', 'antialias', [[null, `자동(${q.antialias ? '켬' : '끔'})`], [true, '켜기'], [false, '끄기']], '변경 시 다음 경기부터 적용');
+      seg('효과 품질', 'effects', [[null, '자동'], [0, '낮음'], [1, '중간'], [2, '높음']]);
+      seg('렌더 거리', 'viewDist', [[null, `자동(${q.viewDist}m)`], [150, '150m'], [250, '250m'], [350, '350m'], [450, '450m']]);
+      seg('렌더 해상도', 'renderScale', [[null, '자동'], [0.5, '50%'], [0.75, '75%'], [1, '100%'], [1.5, '150%']]);
+      seg('FPS 제한', 'fpsCap', [[30, '30'], [60, '60'], [90, '90'], [120, '120'], [0, '무제한']]);
+      const n = document.createElement('p'); n.className = 'sub'; n.textContent = '그래픽 변경은 로비에서 즉시, 경기 중에는 다음 경기부터 적용됩니다.'; body.appendChild(n);
+    } else if (this.setTab === 'audio') {
+      slider('전체 음량', 'volume', 0, 1, 0.05, (v) => Math.round(v * 100) + '%');
+    } else if (this.setTab === 'mobile') {
+      slider('터치 감도', 'touchSens', 0.2, 3, 0.05, (v) => v.toFixed(2));
+      slider('UI 크기', 'uiScale', 0.7, 1.4, 0.05, (v) => Math.round(v * 100) + '%');
+      slider('버튼 크기', 'btnScale', 0.6, 1.6, 0.05, (v) => Math.round(v * 100) + '%');
+      slider('버튼 투명도', 'btnOpacity', 0.2, 1, 0.05, (v) => Math.round(v * 100) + '%');
+      seg('자동 사격', 'autoFire', onoff, '조준선이 적 위에 있으면 자동으로 발사합니다');
+      seg('조준 보조', 'aimAssist', onoff, '적 근처에서 조준 속도가 느려지고 살짝 따라갑니다 (터치 전용)');
+      seg('자이로 조작', 'gyro', onoff, '기기를 기울여 조준을 미세 조정합니다 (지원 기기)');
+      slider('자이로 감도', 'gyroSens', 0.2, 3, 0.1, (v) => v.toFixed(1));
+      seg('진동', 'vibrate', onoff);
+      seg('자동 줍기', 'autoPickup', onoff);
+      seg('자동 재장전', 'autoReload', onoff);
+    } else if (this.setTab === 'keys') {
+      for (const [a, label] of ACTIONS) {
+        const b = document.createElement('button'); b.className = 'kb';
+        b.textContent = (S.keys[a] || []).map(keyLabel).join(' / ') || '—';
+        b.onclick = () => {
+          b.classList.add('wait'); b.textContent = '키를 누르세요… (ESC 취소)';
+          this.input.onRebind = (code) => {
+            if (code) {
+              // steal the key from other actions so one key never does two things
+              for (const k in S.keys) S.keys[k] = S.keys[k].filter((c) => c !== code);
+              S.keys[a] = [code];
+            }
+            this.input.buildMap(); saveSettings(S); this.openSettings('keys');
+          };
+        };
+        row(label, b, '');
+      }
+      const rb = document.createElement('button'); rb.className = 'btn sm'; rb.textContent = '키 설정 초기화';
+      rb.onclick = () => { S.keys = JSON.parse(JSON.stringify(DEFAULT_KEYS)); this.input.buildMap(); saveSettings(S); this.openSettings('keys'); };
+      body.appendChild(rb);
+    }
+    this.screen('settings');
+  }
+
+  editLayout(on) {
+    $('layoutBar').classList.toggle('hide', !on);
+    if (on) {
+      if (!$('bSzUp')) {
+        const bar = $('layoutBar');
+        const up = document.createElement('button'); up.className = 'btn sm'; up.id = 'bSzUp'; up.textContent = '선택 버튼 크게'; up.onclick = () => this.touchUI.resizeSel(1.1);
+        const dn = document.createElement('button'); dn.className = 'btn sm'; dn.id = 'bSzDn'; dn.textContent = '작게'; dn.onclick = () => this.touchUI.resizeSel(1 / 1.1);
+        bar.insertBefore(dn, bar.children[1]); bar.insertBefore(up, dn);
+      }
+      $('settings').classList.add('hide');
+      $('touch').classList.remove('hide');
+      this.touchUI.setEdit(true);
+    } else {
+      this.touchUI.setEdit(false);
+      saveSettings(this.settings);
+      $('touch').classList.toggle('hide', !(this.session && this.touch && this.session.state === 'playing'));
+      this.screen('settings');
+    }
+  }
+
+  /* ---------------- match lifecycle ---------------- */
+  /** the server said go: same Session, fed by the network */
+  startOnline(net, start) { if (this.session) this.endSession(true); this.startMatch({ net, start }); }
+
+  startMatch(online = null) {
+    if (JSON.stringify(gfx(this.settings)) !== this.gfxKey) this.initRenderer();
+    this.screen(null);
+    $('result').classList.add('hide');
+    this.session = new Session(this, online);
+    this.hud.show(true);
+    this.touchUI.setVisible(this.touch);
+    this.touchUI.visible = this.touch;
+    this.input.enabled = true;
+    this.input.clearEdges();
+    if (!this.touch) this.input.requestLock();
+    if (this.touch) tryFullscreen();
+  }
+
+  endSession(keepNet = false) {
+    // leaving an online match: tell the server (a bot takes the player over)
+    if (this.session && this.session.online && !keepNet && this.lobby.net) this.lobby.net.send({ t: 'leave' });
+    if (this.session) this.session.dispose();
+    this.session = null;
+    this.hud.show(false);
+    this.touchUI.setVisible(false);
+    this.touchUI.visible = false;
+    this.input.enabled = false;
+    this.input.exitLock();
+    $('inv').classList.add('hide'); $('bigmap').classList.add('hide'); $('result').classList.add('hide'); $('pause').classList.add('hide');
+    this.screen('menu');
+  }
+
+  pause(on) {
+    if (!this.session) return;
+    this.session.paused = on;
+    $('pause').classList.toggle('hide', !on);
+    if (on) { this.curScreen = 'pause'; this.pausedAt = performance.now(); this.input.releaseAll(); this.input.exitLock(); }
+    else { this.curScreen = null; this.input.clearEdges(); if (!this.touch) this.input.requestLock(); }
+    this.input.enabled = !on;
+  }
+
+  /* ---------------- main loop ---------------- */
+  loop(t) {
+    requestAnimationFrame((tt) => this.loop(tt));
+    const cap = this.settings.fpsCap;
+    if (cap > 0 && t - this.lastRender < 1000 / cap - 1.5) return;
+    this.lastRender = t;
+    let dt = (t - this.last) / 1000;
+    this.last = t;
+    if (!(dt > 0)) return;
+    dt = Math.min(dt, 0.1);
+    try {
+      if (this.dev) this.dev.handleKeys(this.input);
+      if (this.input.consume('escape')) this.onEscape();
+      this.renderer.info.reset();
+      this.renderer.clear();
+      if (this.session) this.session.frame(dt);
+      else this.menuFrame(dt);
+      if (this.dev) this.dev.frame(dt);
+    } catch (err) {
+      showFatal(err);
+      throw err;
+    }
+  }
+
+  onEscape() {
+    const s = this.session;
+    if (!s) { if (this.curScreen === 'settings' || this.curScreen === 'help') this.back(); return; }
+    if (s.invOpen) { s.toggleInventory(false); return; }
+    if (s.mapOpen) { s.toggleMap(false); return; }
+    if (this.curScreen === 'settings') { this.back(); return; }
+    // the browser also exits pointer lock on ESC (which already paused us)
+    if (s.paused && performance.now() - (this.pausedAt || 0) < 400) return;
+    if (s.paused || s.canPause) this.pause(!s.paused);
+  }
+
+  menuFrame(dt) {
+    // slow fly-over of the island behind the menu
+    this.menuT = (this.menuT || 0) + dt * 0.04;
+    const c = this.camera;
+    c.position.set(Math.cos(this.menuT) * 230, 90, Math.sin(this.menuT) * 230);
+    c.far = this.q.viewDist + 60; this.scene.fog.far = this.q.viewDist; this.scene.fog.near = this.q.viewDist * 0.35;
+    this.worldView.sky.scale.setScalar((c.far * 0.92) / 900);
+    c.lookAt(0, 5, 0);
+    c.fov = 60; c.updateProjectionMatrix();
+    this.worldView.update(dt, c.position, null);
+    this.worldView.zoneWall.visible = false;
+    this.renderer.render(this.scene, c);
+  }
+}
+
+function segment(root, get, set) {
+  const paint = () => { for (const b of root.children) b.classList.toggle('on', b.dataset.v === get()); };
+  for (const b of root.children) b.onclick = () => { set(b.dataset.v); paint(); };
+  paint();
+}
+
+function tryFullscreen() {
+  const el = document.documentElement;
+  try { if (!document.fullscreenElement && el.requestFullscreen) el.requestFullscreen({ navigationUI: 'hide' }).catch(() => {}); } catch { /* ignore */ }
+  try { if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {}); } catch { /* ignore */ }
+}
+
+function showFatal(err) {
+  const f = $('fatal');
+  f.classList.remove('hide');
+  f.textContent = '오류: ' + (err && err.stack ? err.stack : String(err));
+}
+
+/* ======================================================================= */
+class Session {
+  constructor(app, online = null) {
+    this.app = app;
+    const S = app.settings;
+    this.world = app.world;
+    if (online) {
+      // mirror of the server's match: same options -> same loot, cars, ids
+      const st = online.start;
+      this.online = true;
+      this.net = online.net;
+      this.seed = st.seed;
+      this.match = new Match({ world: app.world, nav: app.nav, seed: st.seed, bots: st.bots, difficulty: st.difficulty, teamSize: st.teamSize, humans: st.humans, mirror: true });
+      for (const p of this.match.players) p.brain = null;
+      this.me = this.match.byId.get(st.you);
+      this.netQueue = [];
+      this.snaps = [];
+      this.history = [];
+      this.seq = 0;
+      this.clockOff = null;
+      this.pendingCmd = {};
+      this.net.on('e', (m) => this.netQueue.push(m));
+      this.net.on('s', (m) => this.netQueue.push(m));
+    } else {
+      this.online = false;
+      this.seed = (Math.random() * 1e9) >>> 0;
+      this.match = new Match({ world: app.world, nav: app.nav, seed: this.seed, bots: S.bots, difficulty: S.difficulty, teamSize: S.mode || 1, humans: [{ id: LOCAL_ID, name: S.name }] });
+      this.me = this.match.byId.get(LOCAL_ID);
+    }
+    this.initSquad();
+    this.me.autoPickup = S.autoPickup;
+    this.state = 'playing';
+    this.paused = false;
+    this.acc = 0;
+    this.time = 0;
+    this.simMs = 0;
+    this.view = S.view;
+    this.camera = app.camera;
+    this.rig = new CameraRig(app.camera, app.world);
+    this.rig.mode = this.view;
+    this.rig.yaw = this.me.yaw;
+    this.hud = app.hud;
+    this.fx = app.fx;
+    this.vm = app.vm;
+    this.mapImage = app.mapImage;
+    this.recentShots = [];
+    this.soldiers = new Map();
+    this.prev = new Map();
+    this.itemMeshes = new Map();
+    this.itemMat = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x2a2418 });
+    this.itemGroup = new THREE.Group();
+    app.scene.add(this.itemGroup);
+    this.adsBlend = 0;
+    this.invOpen = false; this.mapOpen = false;
+    this.spectating = false; this.specId = null;
+    this.muzzleV = new THREE.Vector3();
+    this.steps = new Map();
+    this.gyro = { on: false, lastA: null, lastB: null };
+    for (const p of this.match.players) {
+      const s = new Soldier(p.skin, app.q.shadows > 1);
+      app.scene.add(s.root);
+      this.soldiers.set(p.id, s);
+      this.prev.set(p.id, { x: p.body.pos.x, y: p.body.pos.y, z: p.body.pos.z, yaw: p.yaw });
+    }
+    this.syncItems();
+    this.marker = null;                 // destination picked on the full map
+    this.supplyViews = new Map();       // id -> mesh (supply planes and crates)
+    this.lootedCrates = new Set();
+    this.vehViews = new Map();
+    this.vehPrev = new Map();
+    this.lastLookT = 0;
+    this.nadeMeshes = new Map();
+    this.arc = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 0.35, gapSize: 0.25, transparent: true, opacity: 0.85, depthTest: false }));
+    this.arc.frustumCulled = false; this.arc.renderOrder = 60; this.arc.visible = false;
+    this.arcEnd = new THREE.Mesh(new THREE.RingGeometry(0.35, 0.5, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffd24a, transparent: true, opacity: 0.9, depthTest: false }));
+    this.arcEnd.renderOrder = 61; this.arcEnd.visible = false;
+    app.scene.add(this.arc, this.arcEnd);
+    this.nadeMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+    if (this.match.plane) {
+      const pm = new THREE.Group();
+      const body = new THREE.Mesh(planeGeometry(), SOLDIER_MAT);
+      body.castShadow = app.q.shadows > 0;
+      pm.add(body);
+      this.props = [-7, 7].map((x) => { const pr = new THREE.Mesh(propGeometry(), new THREE.MeshBasicMaterial({ color: 0x222222, transparent: true, opacity: 0.55 })); pr.position.set(x, 1.15, -6.3); pm.add(pr); return pr; });
+      pm.scale.setScalar(1.4);
+      app.scene.add(pm);
+      this.planeMesh = pm;
+      this.planePrev = { x: this.match.plane.x, z: this.match.plane.z };
+      this.rig.yaw = this.match.plane.yaw; this.rig.pitch = -0.25;
+      this.hud.banner('수송기 탑승 중 · M 지도를 클릭해 목적지를 찍으세요', 'zone', 5);
+    } else this.hud.banner('자기장이 곧 줄어듭니다 · 무기를 찾으세요', 'zone', 4);
+    this.applySettings();
+  }
+
+  applySettings() {
+    const S = this.app.settings;
+    this.me.autoPickup = S.autoPickup;
+    this.me.autoReload = S.autoReload;
+    if (this.online) this.net.send({ t: 'act', a: 'opts', autoPickup: S.autoPickup, autoReload: S.autoReload });
+    if (S.gyro && !this.gyroHandler) {
+      this.gyroHandler = (e) => this.onGyro(e);
+      try {
+        if (typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission) DeviceOrientationEvent.requestPermission().catch(() => {});
+      } catch { /* ignore */ }
+      addEventListener('deviceorientation', this.gyroHandler);
+    } else if (!S.gyro && this.gyroHandler) { removeEventListener('deviceorientation', this.gyroHandler); this.gyroHandler = null; }
+  }
+  onGyro(e) {
+    if (e.beta === null || e.gamma === null) return;
+    const landscape = (screen.orientation ? screen.orientation.angle : window.orientation || 0) % 180 !== 0;
+    const a = landscape ? e.beta : e.gamma, b = landscape ? e.gamma : e.beta;
+    if (this.gyro.lastA !== null && this.app.input.enabled) {
+      let da = a - this.gyro.lastA, db = b - this.gyro.lastB;
+      if (Math.abs(da) > 20) da = 0; if (Math.abs(db) > 20) db = 0;
+      const k = this.app.settings.gyroSens * 0.017;
+      this.rig.look(-da * k * (landscape ? -1 : 1), -db * k);
+    }
+    this.gyro.lastA = a; this.gyro.lastB = b;
+  }
+
+  dispose() {
+    const sc = this.app.scene;
+    $('tags').innerHTML = '';
+    for (const s of this.soldiers.values()) sc.remove(s.root);
+    sc.remove(this.itemGroup);
+    if (this.planeMesh) sc.remove(this.planeMesh);
+    sc.remove(this.arc, this.arcEnd);
+    for (const vv of this.vehViews.values()) vv.dispose(sc);
+    for (const sv of this.supplyViews.values()) sc.remove(sv);
+    this.app.audio.setEngines([]);
+    for (const mm of this.nadeMeshes.values()) sc.remove(mm);
+    this.app.audio.setFlightSounds(1e9, false, 0);
+    this.fx.reset();
+    if (this.gyroHandler) removeEventListener('deviceorientation', this.gyroHandler);
+    if (this.net) { this.net.on('e', null); this.net.on('s', null); }
+    $('netInfo').textContent = '';
+  }
+
+  get uiOpen() { return this.invOpen || this.mapOpen; }
+  get canPause() { return this.state === 'playing' && this.me.alive && !this.spectating && this.app.curScreen !== 'result'; }
+
+  /* ---------------- per frame ---------------- */
+  frame(dt) {
+    const app = this.app, input = app.input, S = app.settings;
+    this.time += dt;
+    // ---- UI toggles ----
+    if (input.consume('inventory')) this.toggleInventory(!this.invOpen);
+    if (input.consume('map')) this.toggleMap(!this.mapOpen);
+    if (input.consume('view')) { this.view = this.view === 'tps' ? 'fps' : 'tps'; this.rig.mode = this.view; }
+    // ---- look ----
+    const lk = input.takeLook();
+    const me = this.me;
+    const w = this.match.weaponOf(me);
+    const zoom = 1 + (w.zoom - 1) * this.adsBlend;
+    let sens = 0.0022 * S.sens * (this.adsBlend > 0.5 ? S.adsSens / zoom : 1);
+    if (input.lastDevice === 'touch') sens = 0.0022 * (this.adsBlend > 0.5 ? S.adsSens / zoom : 1) * this.aimAssistMul();
+    const invert = S.invertY ? -1 : 1;
+    this.rig.freeLook = input.held('freelook') && this.view === 'tps';
+    if (lk.x || lk.y) this.lastLookT = this.time;
+    if (!this.spectating) {
+      this.rig.look(lk.x * sens, lk.y * sens * invert);
+      this.vm.sway(lk.x, lk.y);
+    }
+    if (input.lastDevice === 'touch' && S.aimAssist && me.alive) this.aimAssistPull(dt);
+
+    // ---- simulation (online never stops: the server keeps going) ----
+    if (!this.paused || this.online) {
+      this.acc = Math.min(this.acc + dt, 0.25);
+      while (this.acc >= TICK) {
+        this.acc -= TICK;
+        this.tick();
+      }
+    }
+    const alpha = this.acc / TICK;
+    this.render(dt, alpha);
+  }
+
+  aimAssistMul() {
+    // slow down the look speed when the crosshair is over / near an enemy
+    return this.nearTarget ? 0.55 : 1;
+  }
+  aimAssistPull(dt) {
+    const t = this.nearTarget;
+    if (!t || !this.app.input.held('fire') && this.adsBlend < 0.5) return;
+    const e = this.match.eye(this.me);
+    const a = anglesFromDir(t.x - e.x, t.y - e.y, t.z - e.z);
+    const dy = wrapAngle(a.yaw - this.rig.yaw), dp = a.pitch - this.rig.pitch;
+    const k = Math.min(1, dt * 2.2);
+    this.rig.yaw += dy * k * 0.35; this.rig.pitch += dp * k * 0.25;
+  }
+
+  tick() {
+    if (this.online) { this.tickOnline(); return; }
+    const m = this.match, me = this.me;
+    for (const p of m.players) {
+      const pr = this.prev.get(p.id);
+      pr.x = p.body.pos.x; pr.y = p.body.pos.y; pr.z = p.body.pos.z; pr.yaw = p.yaw;
+    }
+    if (m.plane) { this.planePrev.x = m.plane.x; this.planePrev.z = m.plane.z; }
+    for (const v of m.vehicles) {
+      let pv = this.vehPrev.get(v.id);
+      if (!pv) { pv = {}; this.vehPrev.set(v.id, pv); }
+      pv.x = v.x; pv.y = v.y; pv.z = v.z; pv.yaw = v.yaw;
+    }
+    if (me.alive && this.state === 'playing') m.setCommand(me.id, this.buildCommand());
+    else m.setCommand(me.id, emptyCommand());
+    const t0 = performance.now();
+    m.step(TICK);
+    this.simMs = this.simMs * 0.95 + (performance.now() - t0) * 0.05;
+    for (const e of m.drainEvents()) this.onEvent(e);
+  }
+
+  /* ---------------- player requests (local match or server) ---------------- */
+  actPick(it) { if (this.online) this.net.send({ t: 'act', a: 'pick', id: it.id }); else this.match.pickup(this.me, it); }
+  actDrop(key, n) { if (this.online) this.net.send({ t: 'act', a: 'drop', key, n }); else this.match.requestDrop(this.me.id, key, n); }
+  /** one-off command fields (slot, throwable type, item use) for the next tick */
+  actCmd(fields) {
+    if (this.online) Object.assign(this.pendingCmd, fields);
+    else this.match.setCommand(this.me.id, Object.assign(emptyCommand(), fields, { yaw: this.rig.yaw, pitch: this.rig.pitch }));
+  }
+
+  /* ---------------- online ---------------- */
+  /** own movement is predicted only on foot; planes, cars and crawling follow the server */
+  predictable() { const me = this.me; return me.alive && !me.air && !me.veh && !me.downed && this.state === 'playing'; }
+
+  tickOnline() {
+    const m = this.match, me = this.me;
+    for (const p of m.players) {
+      const pr = this.prev.get(p.id);
+      pr.x = p.body.pos.x; pr.y = p.body.pos.y; pr.z = p.body.pos.z; pr.yaw = p.yaw;
+    }
+    if (m.plane) { this.planePrev.x = m.plane.x; this.planePrev.z = m.plane.z; }
+    for (const v of m.vehicles) {
+      let pv = this.vehPrev.get(v.id);
+      if (!pv) { pv = {}; this.vehPrev.set(v.id, pv); }
+      pv.x = v.x; pv.y = v.y; pv.z = v.z; pv.yaw = v.yaw;
+    }
+    m.time += TICK;
+    // ---- network: events first (items, hits), then state ----
+    const q = this.netQueue;
+    this.netQueue = [];
+    for (const msg of q) {
+      if (msg.t === 's') this.applySnapshot(msg);
+      else for (const e of msg.ev) this.applyNetEvent(e);
+    }
+    m.rebuildObstacles();
+    // ---- input -> server (and our own prediction) ----
+    let c;
+    if (me.alive && this.state === 'playing' && !this.paused) c = this.buildCommand();
+    else { c = emptyCommand(); c.yaw = this.rig.yaw; c.pitch = this.rig.pitch; c.aimYaw = c.yaw; c.aimPitch = c.pitch; }
+    Object.assign(c, this.pendingCmd);
+    this.pendingCmd = {};
+    this.seq++;
+    this.net.send({ t: 'in', s: this.seq, c });
+    this.history.push({ s: this.seq, c });
+    if (this.history.length > 180) this.history.shift();
+    if (this.predictable()) this.predictStep(c);
+    else me.yaw = c.yaw;
+    // ---- everybody else: ~100 ms in the past, between two snapshots ----
+    this.interpolate();
+    m.stepBullets(TICK);
+    for (const g of m.projectiles) if (g.tx !== undefined) { g.x += (g.tx - g.x) * 0.4; g.y += (g.ty - g.y) * 0.4; g.z += (g.tz - g.z) * 0.4; }
+    if ((this.netInfoT = (this.netInfoT || 0) - TICK) <= 0) {
+      this.netInfoT = 0.5;
+      $('netInfo').textContent = this.net.open ? `ONLINE · ${Math.round(this.net.ping)} ms` : 'OFFLINE';
+    }
+  }
+
+  applyNetEvent(e) {
+    const m = this.match;
+    applyItemEvent(m, e);
+    if (e.t === 'shot') m.spawnShotVisual(e);
+    else if (e.t === 'kill') { const v = m.byId.get(e.id); if (v) { v.alive = false; v.downed = false; v.place = e.place; v.deathT = m.time; } }
+    else if (e.t === 'down') { const v = m.byId.get(e.id); if (v) { v.downed = true; v.dhp = 100; v.hp = 0; } }
+    else if (e.t === 'end') { m.state = 'ended'; m.winner = e.winner; m.winnerTeam = e.team; for (const p of m.players) if (p.team === e.team) p.place = 1; }
+    else if (e.t === 'takeover') { const p = m.byId.get(e.id); if (p) { p.name = e.name; p.isBot = true; } }
+    this.onEvent(e);
+  }
+
+  applySnapshot(s) {
+    const m = this.match, me = this.me;
+    // server clock: the earliest-arriving snapshot tells us the offset best
+    const now = performance.now() / 1000, off = s.time - now;
+    if (this.clockOff === null || off > this.clockOff || off < this.clockOff - 0.5) this.clockOff = off;
+    else this.clockOff -= 0.0004;
+    applyWorld(m, s);
+    const snap = { t: s.time, p: new Map(), v: new Map(), pd: s.plane ? s.plane[0] : null };
+    for (const a of s.p) { const p = m.byId.get(a[0]); if (!p) continue; unpackPlayer(p, a); snap.p.set(a[0], a); }
+    for (const a of s.v) { const v = m.vehById.get(a[0]); if (!v) continue; unpackVehicle(v, a); snap.v.set(a[0], a); }
+    this.snaps.push(snap);
+    while (this.snaps.length > 40) this.snaps.shift();
+    // own private state + reconciliation: server body at the last input it used, then replay the rest
+    unpackMe(me, s.me);
+    this.history = this.history.filter((h) => h.s > s.me.ack);
+    if (this.predictable()) {
+      const ox = me.body.pos.x, oy = me.body.pos.y, oz = me.body.pos.z;
+      applyBody(me.body, s.me.b);
+      for (const h of this.history) this.predictStep(h.c);
+      const ex = ox - me.body.pos.x, ey = oy - me.body.pos.y, ez = oz - me.body.pos.z;
+      this.predErr = Math.hypot(ex, ez);
+      const C = this.corr || (this.corr = { x: 0, y: 0, z: 0 });
+      // small errors are smoothed, big ones (teleport, knockback) snap
+      if (this.predErr < 2 && Math.abs(ey) < 1) { C.x += ex; C.y += ey; C.z += ez; } else { C.x = C.y = C.z = 0; }
+    } else applyBody(me.body, s.me.b);
+  }
+
+  predictStep(c) {
+    const m = this.match, p = this.me, b = p.body;
+    p.yaw = wrapAngle(c.yaw || 0);
+    p.pitch = clamp(c.pitch || 0, -1.45, 1.45);
+    if (p.reviving) { stepBody(m.world, b, { yaw: p.yaw }, TICK); return; }
+    const B = p.buf;
+    if (c.jump) B.jump = 0.15;
+    p.ads = !!c.ads && !b.sprinting && p.switchT <= 0;
+    const ev = stepBody(m.world, b, moveInput(p, c, m.weaponOf(p)), TICK);
+    if (ev.jumpUsed) B.jump = 0;
+    if (B.jump > 0) B.jump -= TICK;
+  }
+
+  interpolate() {
+    const S = this.snaps, m = this.match;
+    if (!S.length || this.clockOff === null) return;
+    const rt = performance.now() / 1000 + this.clockOff - INTERP_DELAY;
+    let a = S[0], b = S[0];
+    for (let i = S.length - 1; i >= 0; i--) if (S[i].t <= rt) { a = S[i]; b = S[i + 1] || S[i]; break; }
+    const k = b.t > a.t ? clamp((rt - a.t) / (b.t - a.t), 0, 1) : 0;
+    const pred = this.predictable();
+    for (const [id, A] of a.p) {
+      const p = m.byId.get(id);
+      if (!p || (p === this.me && pred)) continue;
+      const B = b.p.get(id) || A;
+      p.body.pos.x = lerp(A[1], B[1], k); p.body.pos.y = lerp(A[2], B[2], k); p.body.pos.z = lerp(A[3], B[3], k);
+      if (p !== this.me) { p.yaw = A[4] + wrapAngle(B[4] - A[4]) * k; p.pitch = lerp(A[5], B[5], k); }
+    }
+    for (const [id, A] of a.v) {
+      const v = m.vehById.get(id);
+      if (!v) continue;
+      const B = b.v.get(id) || A;
+      v.x = lerp(A[1], B[1], k); v.y = lerp(A[2], B[2], k); v.z = lerp(A[3], B[3], k); v.yaw = A[4] + wrapAngle(B[4] - A[4]) * k;
+    }
+    const pl = m.plane;
+    if (pl && a.pd !== null) {
+      pl.d = lerp(a.pd, b.pd ?? a.pd, k);
+      pl.x = pl.ax + pl.dx * pl.d; pl.z = pl.az + pl.dz * pl.d;
+    }
+  }
+
+  onDisconnect() {
+    if (this.state !== 'playing') return;
+    this.state = 'ended';
+    this.hud.banner('서버와 연결이 끊어졌습니다', '', 4);
+    setTimeout(() => { if (this.app.session === this) this.showResult(false); }, 1500);
+  }
+
+  buildCommand() {
+    const input = this.app.input, S = this.app.settings, me = this.me;
+    const mv = input.move;
+    const uiBlock = this.uiOpen;
+    const aim = this.computeAim();
+    const c = emptyCommand();
+    c.fwd = uiBlock ? 0 : mv.y; c.right = uiBlock ? 0 : mv.x;
+    c.yaw = this.rig.yaw; c.pitch = this.rig.pitch;
+    c.aimYaw = aim.yaw; c.aimPitch = aim.pitch;
+    c.fire = !uiBlock && (input.held('fire') || (S.autoFire && this.app.touch && this.crossOnEnemy));
+    c.ads = !uiBlock && input.ads;
+    c.sprint = input.held('sprint');
+    c.walk = input.held('walk');
+    c.jump = input.consume('jump');
+    if (me.veh) {
+      // driving: W/S throttle, A/D steer, Space handbrake, Shift boost, F get out, 1-4 change seat
+      c.brake = input.held('jump');
+      c.interact = input.consume('interact');
+      for (let i = 0; i < 4; i++) if (input.consume('slot' + (i + 1))) c.slot = i;
+      c.fire = false; c.ads = false;
+      return c;
+    }
+    if (me.air) { c.interact = input.consume('interact'); c.fire = false; c.ads = false; return c; }
+    c.crouch = input.consume('crouch');
+    if (S.crouchHold && input.consume('crouchRelease') && me.body.stance === 'crouch') c.crouch = true;
+    c.prone = input.consume('prone');
+    c.reload = input.consume('reload');
+    c.interact = input.consume('interact');
+    for (let i = 0; i < 5; i++) if (input.consume('slot' + (i + 1))) c.slot = i;
+    if (input.consume('nextWeapon')) c.cycle = 1;
+    if (input.consume('prevWeapon')) c.cycle = -1;
+    if (input.consume('heal')) {
+      const key = me.hp < 75 && invCount(me.inv, 'bandage') > 0 && (me.hp >= 40 || invCount(me.inv, 'medkit') === 0) ? 'bandage' : invCount(me.inv, 'medkit') > 0 ? 'medkit' : invCount(me.inv, 'bandage') > 0 ? 'bandage' : null;
+      if (key) c.use = key; else { this.hud.banner('회복 아이템이 없습니다', '', 1.4); this.app.audio.ui('deny'); }
+    }
+    return c;
+  }
+
+  /** where the crosshair points in the world -> angles from the eye */
+  computeAim() {
+    const me = this.me, m = this.match;
+    const e = m.eye(me);
+    if (this.view === 'fps' || this.rig.freeLook || this.scoped) {
+      if (this.rig.freeLook && this.lastAim) return this.lastAim;
+      this.crossOnEnemy = false;
+      const d = this.rig.fwd;
+      this.lastAimPoint = this.aimHitPoint(e, { x: -Math.sin(this.rig.yaw) * Math.cos(this.rig.pitch), y: Math.sin(this.rig.pitch), z: -Math.cos(this.rig.yaw) * Math.cos(this.rig.pitch) }, 0);
+      this.lastAim = { yaw: this.rig.yaw, pitch: this.rig.pitch };
+      return this.lastAim;
+    }
+    const cp = this.camera.position;
+    const d = { x: -Math.sin(this.rig.yaw) * Math.cos(this.rig.pitch), y: Math.sin(this.rig.pitch), z: -Math.cos(this.rig.yaw) * Math.cos(this.rig.pitch) };
+    // start the ray at the player's depth so walls between camera and player are ignored
+    const skip = Math.max(0, (e.x - cp.x) * d.x + (e.y - cp.y) * d.y + (e.z - cp.z) * d.z) + 0.3;
+    const hitPt = this.aimHitPoint(cp, d, skip);
+    this.lastAimPoint = hitPt;
+    let dx = hitPt.x - e.x, dy = hitPt.y - e.y, dz = hitPt.z - e.z;
+    // point blank / behind the eye: fall back to the camera direction
+    if (dx * d.x + dy * d.y + dz * d.z < 1.2) { dx = d.x; dy = d.y; dz = d.z; }
+    this.lastAim = anglesFromDir(dx, dy, dz);
+    return this.lastAim;
+  }
+
+  aimHitPoint(o, d, skip) {
+    const m = this.match, maxT = 900;
+    const sx = o.x + d.x * skip, sy = o.y + d.y * skip, sz = o.z + d.z * skip;
+    const wh = this.world.raycast(sx, sy, sz, d.x, d.y, d.z, maxT, { bullets: true });
+    let t = wh ? wh.t : maxT;
+    this.crossOnEnemy = false; this.nearTarget = null;
+    let bestAng = 0.09;
+    for (const p of m.players) {
+      if (p === this.me || !p.alive) continue;
+      const h = rayHitPlayer(p, sx, sy, sz, d.x, d.y, d.z, t);
+      if (h) { t = h.t; this.crossOnEnemy = true; }
+      // aim assist candidate: nearest angular distance to the enemy's chest
+      if (this.app.settings.aimAssist && this.app.touch) {
+        const cx = p.body.pos.x - sx, cy = p.body.pos.y + 1.1 - sy, cz = p.body.pos.z - sz;
+        const L = Math.hypot(cx, cy, cz);
+        if (L < 120 && L > 1) {
+          const ang = Math.acos(Math.min(1, (cx * d.x + cy * d.y + cz * d.z) / L));
+          if (ang < bestAng && this.world.lineClear(sx, sy, sz, p.body.pos.x, p.body.pos.y + 1.1, p.body.pos.z)) { bestAng = ang; this.nearTarget = { x: p.body.pos.x, y: p.body.pos.y + (p.body.stance === 'prone' ? 0.25 : 1.1), z: p.body.pos.z }; }
+        }
+      }
+    }
+    return { x: sx + d.x * t, y: sy + d.y * t, z: sz + d.z * t };
+  }
+
+  /* ---------------- events -> fx / audio / hud ---------------- */
+  onEvent(e) {
+    const m = this.match, me = this.me, A = this.app.audio, hud = this.hud;
+    const isMe = e.id === me.id;
+    switch (e.t) {
+      case 'shot': {
+        const p = m.byId.get(e.id); if (!p) break;
+        const w = WEAPONS[e.w];
+        if (isMe) {
+          this.rig.kick(w, p.body.stance, p.adsT);
+          this.vm.shot(w);
+          if (this.app.settings.vibrate && this.app.touch && navigator.vibrate) try { navigator.vibrate(w.cat === 'shotgun' ? 25 : 8); } catch { /* ignore */ }
+        } else {
+          this.recentShots.push({ x: e.x, z: e.z, t: this.time });
+          if (this.recentShots.length > 20) this.recentShots.shift();
+          this.whizCheck(e);
+        }
+        A.gunshot(w.sound, { x: e.x, y: e.y, z: e.z }, isMe);
+        if (w.cat !== 'melee') {
+          const mz = this.muzzleOf(p);
+          this.fx.muzzle(mz.x, mz.y, mz.z, w.cat === 'shotgun', isMe);
+          // tag the bullets just spawned so tracers leave from the muzzle
+          const n = e.dirs.length;
+          for (let i = m.bullets.length - 1, k = 0; i >= 0 && k < n; i--) if (m.bullets[i].owner === p.id) { this.fx.tagBullet(m.bullets[i], mz.x, mz.y, mz.z); k++; }
+          if (w.cat !== 'shotgun') A.shell({ x: e.x, y: e.y - 1, z: e.z }, isMe);
+        }
+        const s = this.soldiers.get(e.id); if (s) s.kickT = 1;
+        break;
+      }
+      case 'hit': {
+        this.fx.blood(e.x, e.y, e.z, e.dx, e.dz, e.part === 'head');
+        if (e.by === me.id) { hud.hit(e.part === 'head', e.kill); A.hitmark(e.part === 'head', e.kill); }
+        if (isMe) {
+          const att = e.by !== null ? m.byId.get(e.by) : null;
+          hud.hurt(e.dmg, att ? att.body.pos : null);
+          A.hurt();
+          this.rig.addShake(Math.min(0.6, e.dmg / 50));
+          if (this.app.settings.vibrate && this.app.touch && navigator.vibrate) try { navigator.vibrate(40); } catch { /* ignore */ }
+        }
+        break;
+      }
+      case 'impact': this.fx.impact(e.x, e.y, e.z, e.nx, e.ny, e.nz, e.mat); A.impact(e, e.mat); break;
+      case 'kill': {
+        const v = m.byId.get(e.id), k = e.by !== null ? m.byId.get(e.by) : null;
+        const nm = (p) => `<b class="${p === me ? 'me' : ''}">${escapeHtml(p.name)}</b>`;
+        const how = e.cause === 'zone' ? '자기장' : e.cause === 'fall' ? '낙하' : e.cause === 'vehicle' ? '차량' : THROWABLES[e.cause] ? THROWABLES[e.cause].name : (WEAPONS[e.cause] ? WEAPONS[e.cause].name : e.cause);
+        hud.feed(k && k !== v ? `${nm(k)}<span class="w">${how}${e.head ? ' ✦' : ''}</span>${nm(v)}` : `${nm(v)}<span class="w">${how}</span>`);
+        if (k === me && v !== me) hud.banner(`${v.name} 처치${e.head ? ' · 헤드샷' : ''}`, '', 1.8);
+        if (isMe) this.onDeath(k);
+        else if (!me.alive && this.teamSize > 1 && v.team === me.team && !this.teamAlive()) {
+          setTimeout(() => { if (this.app.session === this && this.state === 'playing') this.showResult(false); }, 1500);
+        }
+        break;
+      }
+      case 'reload': if (isMe || this.near(e.id, 25)) A.reload(this.posOf(e.id), isMe, 0); break;
+      case 'reloadDone': if (isMe || this.near(e.id, 25)) A.reload(this.posOf(e.id), isMe, 1); break;
+      case 'shellIn': if (isMe || this.near(e.id, 25)) A.reload(this.posOf(e.id), isMe, 2); break;
+      case 'dry': if (isMe) A.dry(); break;
+      case 'noAmmo': if (isMe) { hud.banner('탄약이 없습니다', '', 1.4); A.ui('deny'); } break;
+      case 'pickup': if (isMe) { A.pickup(); const it = ITEMS[e.key]; hud.prompt(null); if (it) this.toast(`${it.name}${e.n > 1 ? ' ×' + e.n : ''} 획득`); } this.itemsDirty = true; break;
+      case 'deny': if (isMe) { A.ui('deny'); hud.banner(e.why === 'full' ? '가방이 가득 찼습니다' : e.why === 'hpfull' ? '더 회복할 수 없습니다' : e.why === 'nothrow' ? '투척물이 없습니다' : e.why === 'novehicle' ? '차량 가까이에서 사용하세요' : e.why === 'fuelfull' ? '연료가 가득 찼습니다' : '사용할 수 없습니다', '', 1.4); } break;
+      case 'healed': if (isMe) A.heal(); break;
+      case 'land': {
+        const p = m.byId.get(e.id);
+        if (p && (isMe || this.near(e.id, 30))) { A.land(p.body.pos, isMe, e.v); if (e.v > 7) this.fx.dust(p.body.pos.x, p.body.pos.y, p.body.pos.z, Math.min(2, e.v / 8)); }
+        if (isMe) this.rig.land(e.v);
+        break;
+      }
+      case 'zone':
+        if (e.ev === 'shrink') { hud.banner('자기장이 줄어들기 시작합니다!', 'zone', 3); A.ui('zone'); }
+        else if (e.ev === 'wait') hud.banner('새 안전구역이 표시되었습니다', 'zone', 3);
+        else if (e.ev === 'final') hud.banner('최종 구역', 'zone', 3);
+        break;
+      case 'itemAdd': case 'itemRemove': case 'itemUpdate': this.itemsDirty = true; break;
+      case 'end': this.onEnd(e); break;
+      case 'takeover': hud.feed(`<b>${escapeHtml(e.name)}</b><span class="w">연결 끊김 · 봇이 대신합니다</span>`); break;
+      case 'down': {
+        const v = m.byId.get(e.id), k = e.by !== null ? m.byId.get(e.by) : null;
+        const nm = (p) => `<b class="${p === me ? 'me' : ''}">${escapeHtml(p.name)}</b>`;
+        hud.feed(k && k !== v ? `${nm(k)}<span class="w">기절시킴</span>${nm(v)}` : `${nm(v)}<span class="w">기절</span>`);
+        if (isMe) { hud.banner('기절했습니다!', '', 2.2); A.hurt(); }
+        else if (k === me) hud.banner(`${v.name} 기절`, '', 1.6);
+        else if (v.team === me.team) hud.banner(`팀원 ${v.name} 기절! 소생해 주세요`, 'zone', 2.5);
+        break;
+      }
+      case 'revived': {
+        const v = m.byId.get(e.id);
+        if (isMe) hud.banner('소생했습니다', '', 2);
+        else if (v && v.team === me.team) this.toast(`${v.name} 소생 완료`);
+        break;
+      }
+      case 'plane':
+        if (e.ev === 'enter' && me.air === 'plane') hud.banner('섬 상공입니다 · 원하는 곳에서 뛰어내리세요', 'zone', 3);
+        if (e.ev === 'leave') hud.banner('수송기가 섬을 벗어났습니다 · 자기장 시간이 흐르기 시작합니다', 'zone', 3);
+        break;
+      case 'throw': { const p = m.byId.get(e.id); if (p && (isMe || this.near(e.id, 25))) A.throwWhoosh(p.body.pos, isMe); if (isMe) this.vm.shot(WEAPONS.throw); break; }
+      case 'bounce': A.clink(e); break;
+      case 'detonate': {
+        const d = Math.hypot(e.x - me.body.pos.x, e.y - me.body.pos.y, e.z - me.body.pos.z);
+        if (e.type === 'frag') { this.fx.explosion(e.x, e.y, e.z); A.explosion(e); if (d < 40) this.rig.addShake(Math.min(1.1, 9 / Math.max(3, d))); }
+        else if (e.type === 'flash') { this.fx.emit(e.x, e.y, e.z, 12, 1, 1, 0.95, 6, 0.25, 0.25, 0, 1, 0.5); A.flashBang(e); }
+        else if (e.type === 'smoke') A.smokePop(e);
+        else if (e.type === 'molotov') { this.fx.emit(e.x, e.y + 0.2, e.z, 20, 1, 0.55, 0.15, 5, 0.6, 0.3, 1, 1, 0.8, 1); A.fireBurst(e); }
+        break;
+      }
+      case 'jumpOut': if (isMe) A.jumpOut(); break;
+      case 'supplyPlane': hud.banner('보급품이 투하됩니다! 지도와 나침반의 ■ 표시를 확인하세요', 'zone', 4); A.ui('zone'); break;
+      case 'supplyLanded': A.crateLand(e); break;
+      case 'enterVeh': case 'exitVeh': { const p = m.byId.get(e.id); if (p && (isMe || this.near(e.id, 30))) A.door(p.body.pos, isMe); if (isMe && e.t === 'enterVeh') hud.banner(VEHICLES[m.vehById.get(e.veh).type].name, '', 1.4); break; }
+      case 'crash': A.crash(e, e.v); if (me.veh && me.veh.id === e.veh) this.rig.addShake(Math.min(1, e.v / 20)); break;
+      case 'vehBoom': { this.fx.explosion(e.x, e.y, e.z); A.explosion(e); const d = Math.hypot(e.x - me.body.pos.x, e.z - me.body.pos.z); if (d < 40) this.rig.addShake(Math.min(1.1, 9 / Math.max(3, d))); break; }
+      case 'refuel': if (isMe) this.toast('연료 +50%'); break;
+      case 'blind': if (isMe) { A.ringing(Math.min(4, e.amount)); this.blindMax = Math.max(e.amount, 0.5); } break;
+      case 'chute': if (isMe || this.near(e.id, 60)) A.chuteOpen(); break;
+      case 'landed': {
+        const p = m.byId.get(e.id);
+        if (p && (isMe || this.near(e.id, 30))) A.land(p.body.pos, isMe, Math.max(4, e.v));
+        if (isMe) { this.rig.land(e.v); hud.banner('착지 · 무기를 찾으세요', '', 2); this.rig.pitch = 0; }
+        break;
+      }
+    }
+  }
+
+  toast(txt) { this.hud.prompt(`<span>${escapeHtml(txt)}</span>`); this.toastT = 1.2; }
+
+  near(id, d) { const p = this.match.byId.get(id); return p && Math.hypot(p.body.pos.x - this.me.body.pos.x, p.body.pos.z - this.me.body.pos.z) < d; }
+  posOf(id) { const p = this.match.byId.get(id); return p ? { x: p.body.pos.x, y: p.body.pos.y + 1, z: p.body.pos.z } : null; }
+
+  whizCheck(e) {
+    const me = this.me;
+    if (!me.alive) return;
+    const h = this.match.eye(me);
+    for (const d of e.dirs) {
+      const vx = h.x - e.x, vy = h.y - e.y, vz = h.z - e.z;
+      const along = vx * d[0] + vy * d[1] + vz * d[2];
+      if (along < 4) continue;
+      const px = vx - d[0] * along, py = vy - d[1] * along, pz = vz - d[2] * along;
+      const miss = Math.hypot(px, py, pz);
+      if (miss < 2.5) { this.app.audio.whiz({ x: h.x - px, y: h.y - py, z: h.z - pz }); this.rig.addShake(0.08); return; }
+    }
+  }
+
+  muzzleOf(p) {
+    if (p === this.me && this.view === 'fps' && !this.spectating) return this.vm.muzzleWorld(this.camera, this.muzzleV);
+    const s = this.soldiers.get(p.id);
+    if (s && s.gun) {
+      s.root.updateMatrixWorld(true);
+      const mz = MUZZLE[s.gunModel] || MUZZLE.none;
+      return this.muzzleV.set(mz[0], mz[1], mz[2]).applyMatrix4(s.gun.matrixWorld);
+    }
+    const e = this.match.eye(p);
+    return this.muzzleV.set(e.x, e.y, e.z);
+  }
+
+  onDeath(killer) {
+    this.app.audio.lose();
+    this.deathT = this.time;
+    this.specId = killer && killer.alive ? killer.id : null;
+    this.hud.banner(killer ? `${killer.name}에게 처치당했습니다` : '사망했습니다', '', 3);
+    if (this.teamSize > 1 && this.teamAlive()) {
+      // the squad fights on: watch a teammate instead of ending
+      this.specId = null;
+      setTimeout(() => { if (this.app.session === this && this.state === 'playing' && !this.spectating) { this.startSpectate(); this.hud.banner('팀원 관전 중 · 클릭(터치)으로 다음 팀원', '', 3); } }, 2200);
+      return;
+    }
+    setTimeout(() => { if (this.app.session === this && this.state === 'playing') this.showResult(false); }, 2200);
+  }
+
+  /* ---------------- squad ---------------- */
+  initSquad() {
+    const m = this.match, me = this.me;
+    this.teamSize = m.teamSize;
+    // me first, then teammates in join order; each gets a fixed colour and number
+    this.squad = [me, ...m.players.filter((o) => o !== me && o.team === me.team)];
+    this.squadColor = new Map(this.squad.map((o, i) => [o.id, SQUAD_COLORS[i % SQUAD_COLORS.length]]));
+    this.squadNum = new Map(this.squad.map((o, i) => [o.id, i + 1]));
+    this.tagEls = new Map();
+    const tags = $('tags'); tags.innerHTML = '';
+    if (this.teamSize > 1) for (const o of this.squad) if (o !== me) {
+      const d = document.createElement('div');
+      d.style.color = this.squadColor.get(o.id);
+      tags.appendChild(d);
+      this.tagEls.set(o.id, d);
+    }
+  }
+  teamAlive() { return this.squad.some((o) => o.alive); }
+  /** teammate name tags above heads */
+  updateTags() {
+    if (!this.tagEls.size) return;
+    const v = this.tagV || (this.tagV = new THREE.Vector3());
+    const W = innerWidth, H = innerHeight, cp = this.camera.position;
+    for (const [id, el] of this.tagEls) {
+      const o = this.match.byId.get(id);
+      let show = o && o.alive && !(o.air === 'plane');
+      if (show) {
+        v.set(o.body.pos.x, o.body.pos.y + (o.downed ? 0.9 : 2.15), o.body.pos.z).project(this.camera);
+        show = v.z < 1 && Math.abs(v.x) < 1.05 && Math.abs(v.y) < 1.05;
+      }
+      if (!show) { if (el.style.display !== 'none') el.style.display = 'none'; continue; }
+      el.style.display = '';
+      el.style.left = ((v.x * 0.5 + 0.5) * W).toFixed(0) + 'px';
+      el.style.top = ((-v.y * 0.5 + 0.5) * H).toFixed(0) + 'px';
+      const d = Math.round(Math.hypot(o.body.pos.x - cp.x, o.body.pos.z - cp.z));
+      const txt = `${this.squadNum.get(id)} ${o.name}${o.downed ? ' ✚ 기절' : ''}${d > 15 ? ' · ' + d + 'm' : ''}`;
+      if (el.textContent !== txt) el.textContent = txt;
+      el.classList.toggle('down', !!o.downed);
+    }
+  }
+
+  onEnd(e) {
+    if (this.state === 'ended') return;
+    this.state = 'ended';
+    const won = this.teamSize > 1 ? e.team === this.me.team : e.winner === this.me.id;
+    if (won) { this.app.audio.win(); this.hud.banner(this.teamSize > 1 ? '우리 팀 우승!' : '최후의 생존자!', '', 5); }
+    setTimeout(() => { if (this.app.session === this) this.showResult(won); }, won ? 2500 : 300);
+  }
+
+  showResult(won) {
+    const me = this.me, m = this.match;
+    const team = this.teamSize > 1;
+    const place = won ? 1 : (me.place || (team ? m.aliveTeams() + 1 : m.aliveCount() + 1));
+    const total = team ? new Set(m.players.map((o) => o.team)).size : m.players.length;
+    $('resTitle').textContent = won ? (team ? '우리 팀 우승!' : '최후의 생존자') : place <= 5 ? '아깝습니다!' : '다음엔 더 잘할 수 있어요';
+    $('resPlace').innerHTML = `#${place} <span>/ ${total}${team ? ' 팀' : ''}</span>`;
+    const alive = me.alive ? m.time : me.deathT;
+    $('resStats').innerHTML = [
+      [me.kills, '처치'], [Math.round(me.dmgDealt), '피해량'], [`${Math.floor(alive / 60)}:${String(Math.floor(alive % 60)).padStart(2, '0')}`, '생존 시간']
+    ].concat(team ? [[this.squad.reduce((a, o) => a + o.kills, 0), '팀 처치']] : []).map(([v, l]) => `<div><b>${v}</b><i>${l}</i></div>`).join('');
+    $('bSpectate').classList.toggle('hide', this.state === 'ended' || m.aliveCount() === 0);
+    $('result').classList.remove('hide');
+    this.app.curScreen = 'result';
+    this.app.input.exitLock();
+    this.app.input.enabled = false;
+    this.app.touchUI.setVisible(false);
+    this.toggleInventory(false); this.toggleMap(false);
+  }
+
+  startSpectate() {
+    this.spectating = true;
+    this.paused = false;
+    this.app.curScreen = null;
+    this.app.input.enabled = true;
+    if (!this.app.touch) this.app.input.requestLock();
+    if (!this.specId || !this.match.byId.get(this.specId).alive) this.nextSpectate();
+    this.hud.banner('관전 중 · 클릭(터치)으로 다음 플레이어', '', 3);
+  }
+  nextSpectate() {
+    // squads watch their own team first
+    const mates = this.teamSize > 1 ? this.squad.filter((p) => p.alive && p !== this.me) : [];
+    const alive = mates.length ? mates : this.match.players.filter((p) => p.alive && p !== this.me);
+    if (!alive.length) return;
+    const i = alive.findIndex((p) => p.id === this.specId);
+    this.specId = alive[(i + 1) % alive.length].id;
+  }
+
+  /* ---------------- UI panels ---------------- */
+  toggleInventory(on) {
+    if (on && (!this.me.alive || this.state !== 'playing')) return;
+    this.invOpen = on;
+    $('inv').classList.toggle('hide', !on);
+    if (on) { this.toggleMap(false); this.hud.renderInventory(this); this.app.input.exitLock(); this.app.input.releaseAll(); }
+    else if (!this.app.touch && this.state === 'playing' && !this.paused) this.app.input.requestLock();
+  }
+  toggleMap(on) {
+    const was = this.mapOpen;
+    this.mapOpen = on;
+    $('bigmap').classList.toggle('hide', !on);
+    // free the mouse so the map can be clicked (destination marker)
+    if (on) { this.invOpen = false; $('inv').classList.add('hide'); this.app.input.exitLock(); this.app.input.releaseAll(); }
+    else if (was && !this.app.touch && this.state === 'playing' && !this.paused) this.app.input.requestLock();
+  }
+  invClick(e, alt) {
+    const el = e.target.closest ? e.target.closest('.it') : null;
+    if (!el) return;
+    const m = this.match, me = this.me;
+    if (el.dataset.g) {
+      const it = m.itemById.get(+el.dataset.g);
+      if (it) this.actPick(it);
+    } else if (el.dataset.b) {
+      const key = el.dataset.b;
+      if (!alt && ITEMS[key].kind === 'throw') { this.actCmd({ slot: 4, throwType: key }); this.toggleInventory(false); }
+      else if (alt || (ITEMS[key].kind !== 'heal' && ITEMS[key].kind !== 'fuel')) this.actDrop(key, alt ? me.inv.items[key] : Math.min(me.inv.items[key], ITEMS[key].stack || 1));
+      else { this.actCmd({ use: key }); this.toggleInventory(false); }
+    } else if (el.dataset.s !== undefined) {
+      if (alt) this.actDrop('slot' + el.dataset.s, 1);
+      else this.actCmd({ slot: +el.dataset.s });
+    }
+    if (!this.online) for (const ev of m.drainEvents()) this.onEvent(ev);
+    this.syncItems();
+    this.hud.renderInventory(this);
+  }
+
+  syncItems() {
+    const seen = new Set();
+    for (const it of this.match.items) {
+      seen.add(it.id);
+      let mesh = this.itemMeshes.get(it.id);
+      if (!mesh) {
+        mesh = new THREE.Mesh(itemGeometry(it.key), this.itemMat);
+        mesh.position.set(it.x, it.y + 0.02, it.z);
+        mesh.rotation.y = (it.id * 2.399) % 6.28;
+        mesh.matrixAutoUpdate = false;
+        mesh.updateMatrix();
+        this.itemGroup.add(mesh);
+        this.itemMeshes.set(it.id, mesh);
+      }
+    }
+    for (const [id, mesh] of this.itemMeshes) if (!seen.has(id)) { this.itemGroup.remove(mesh); this.itemMeshes.delete(id); }
+    this.itemsDirty = false;
+  }
+
+  /* ---------------- rendering ---------------- */
+  render(dt, alpha) {
+    const app = this.app, m = this.match, me = this.me, q = app.q;
+    if (this.itemsDirty) this.syncItems();
+    if (this.invOpen && ((this.invT = (this.invT || 0) + dt) > 0.3)) { this.invT = 0; this.hud.renderInventory(this); }
+    // who is the camera following?
+    let focus = me;
+    if (!me.alive && this.spectating) { const s = m.byId.get(this.specId); if (s && s.alive) focus = s; else this.nextSpectate(); }
+    const w = m.weaponOf(focus);
+    this.adsBlend += ((focus.ads ? 1 : 0) - this.adsBlend) * Math.min(1, dt / Math.max(0.05, w.adsTime * 0.6));
+    const pr = this.prev.get(focus.id);
+    // online: a server correction of our own position is blended out over ~0.15 s instead of snapping
+    const C = this.corr;
+    if (C) { const k = Math.exp(-dt * 14); C.x *= k; C.y *= k; C.z *= k; }
+    const cx = C && focus === me ? C.x : 0, cy = C && focus === me ? C.y : 0, cz = C && focus === me ? C.z : 0;
+    const pos = { x: lerp(pr.x, focus.body.pos.x, alpha) + cx, y: lerp(pr.y, focus.body.pos.y, alpha) + cy, z: lerp(pr.z, focus.body.pos.z, alpha) + cz };
+    if (focus !== me) {
+      this.rig.yaw = focus.yaw; this.rig.pitch = focus.pitch * 0.5;
+      this.rig.mode = 'tps';
+    } else this.rig.mode = this.view;
+    // a scoped weapon always looks through the scope (first person), even in third person
+    this.scoped = focus === me && me.alive && !me.veh && !me.air && w.scope && this.adsBlend > 0.5;
+    if (this.scoped) this.rig.mode = 'fps';
+    if (!me.alive && !this.spectating) {
+      // death cam: slowly orbit the body
+      this.rig.yaw += dt * 0.25;
+      this.rig.pitch = lerp(this.rig.pitch, -0.35, dt * 2);
+      this.rig.mode = 'tps';
+    }
+    // plane / skydive framing: pull the camera far back
+    this.rig.boomOverride = null;
+    if (focus.air) {
+      this.rig.mode = 'tps';
+      this.rig.boomOverride = focus.air === 'plane' ? { side: 0, up: 7, back: 30 } : focus.air === 'fall' ? { side: 0, up: 1.2, back: 5.5 } : { side: 0, up: 0.6, back: 8 };   // under the canopy
+    }
+    let eyeH = me.alive || focus !== me ? eyeHeight(focus.body) : 0.6;
+    if (focus.air === 'plane') eyeH = 1.5;
+    const car = focus.veh ? m.vehById.get(focus.veh.id) : null;
+    if (car) {
+      const moto = car.type === 'moto';
+      this.rig.mode = 'tps';
+      this.rig.boomOverride = moto ? { side: 0, up: 1.4, back: 4.8 } : { side: 0, up: 2.0, back: VEHICLES[car.type].len + 3.2 };
+      eyeH = 0.9;
+      // settle the camera behind the car when the player is not looking around
+      if (focus === me && Math.abs(car.speed) > 4 && this.time - this.lastLookT > 1.2) {
+        const target = car.speed > 0 ? car.yaw : car.yaw + Math.PI;
+        this.rig.yaw += wrapAngle(target - this.rig.yaw) * Math.min(1, dt * 1.6);
+        this.rig.pitch += (-0.12 - this.rig.pitch) * Math.min(1, dt * 1.6);
+      }
+    }
+    this.rig.update(dt, pos, eyeH, focus.air ? 0 : this.adsBlend, w, app.settings.fov);
+    const cp = this.camera.position;
+    app.audio.setListener(cp.x, cp.y, cp.z, this.rig.yaw + this.rig.freeYaw);
+    app.audio.tickAmbience(dt, this.time - (this.lastFightT || 0) > 10);
+    app.worldView.update(dt, cp, m.zone);
+    this.renderPlane(alpha, focus);
+
+    this.renderVehicles(dt, alpha, cp);
+
+    // ---- soldiers ----
+    const vd2 = (q.viewDist * 0.9) ** 2, lod2 = (40 * q.lodScale) ** 2;
+    for (const p of m.players) {
+      const s = this.soldiers.get(p.id);
+      const pp = this.prev.get(p.id);
+      let x = lerp(pp.x, p.body.pos.x, alpha), y = lerp(pp.y, p.body.pos.y, alpha), z = lerp(pp.z, p.body.pos.z, alpha);
+      if (p === me && this.corr) { x += this.corr.x; y += this.corr.y; z += this.corr.z; }
+      const dx = x - cp.x, dz = z - cp.z;
+      const far = dx * dx + dz * dz > vd2;
+      const hideSelf = p === focus && this.rig.mode === 'fps';
+      const hideDead = !p.alive && m.time - p.deathT > 40;
+      s.root.visible = !far && !hideSelf && !hideDead && p.air !== 'plane';
+      s.setChute(p.alive && p.air === 'chute', p.chuteT || 0);
+      if (!s.root.visible) continue;
+      s.setLod(dx * dx + dz * dz > lod2 && p !== focus);
+      s.root.position.set(x, y, z);
+      const pv = p.veh ? this.vehPrev.get(p.veh.id) : null, pvCar = p.veh ? m.vehById.get(p.veh.id) : null;
+      s.root.rotation.y = pvCar ? (pv ? pv.yaw + wrapAngle(pvCar.yaw - pv.yaw) * alpha : pvCar.yaw)
+        : p === me && me.alive ? this.rig.yaw : pp.yaw + wrapAngle(p.yaw - pp.yaw) * alpha;
+      const sl = p.alive ? m.slotOf(p) : null;
+      s.setWeapon(modelFor(sl));
+      const vx = p.body.vel.x, vz = p.body.vel.z;
+      s.kickT = Math.max(0, (s.kickT || 0) - dt * 12);
+      s.animate({
+        dt, speed: Math.hypot(vx, vz), stance: p.body.stance, pitch: p === me ? this.rig.pitch : p.pitch, onGround: p.body.onGround,
+        alive: p.alive, sprint: p.body.sprinting, reloading: p.reloading, kick: s.kickT, air: p.air,
+        seated: pvCar ? (pvCar.type === 'moto' ? 'moto' : 'car') : null, driver: p.veh && p.veh.seat === 0
+      });
+      // footsteps
+      if (p.alive && p.body.onGround && !p.veh) this.footstep(p, dt);
+    }
+    // ---- ground items: only near ones are drawn; highlight pickup target ----
+    const target = me.alive && this.state === 'playing' ? m.findPickup(me) : null;
+    for (const it of m.items) {
+      const mesh = this.itemMeshes.get(it.id);
+      if (!mesh) continue;
+      const d2 = (it.x - cp.x) ** 2 + (it.z - cp.z) ** 2;
+      mesh.visible = d2 < 3600;
+      const sc = it === target ? 1.25 + Math.sin(this.time * 8) * 0.08 : 1;
+      if (mesh.scale.x !== sc) { mesh.scale.setScalar(sc); mesh.updateMatrix(); }
+    }
+    const vp = me.alive && !me.air && this.state === 'playing' ? this.vehiclePrompt(me) : null;
+    const mate = this.teamSize > 1 && me.alive && !me.downed && !me.air && !me.veh && !me.reviving ? m.findDowned(me) : null;
+    if (me.alive && me.air) this.hud.prompt(this.airPrompt());
+    else if (me.downed || me.reviving) this.hud.prompt(null);
+    else if (mate && !this.uiOpen) this.hud.prompt(`<kbd>${app.touch ? '소생' : keyLabel(app.settings.keys.interact[0])}</kbd>${escapeHtml(mate.name)} 소생 (6초 동안 가만히)`);
+    else if (vp && !this.uiOpen) this.hud.prompt(vp);
+    else if (me.alive && me.cur === 4 && !target && !(this.toastT > 0)) this.hud.prompt(me.throwHold ? '놓으면 던지기 · 조준 버튼을 누르면 짧게 던지기' : `<kbd>${app.touch ? '발사' : keyLabel(app.settings.keys.fire[0])}</kbd>누르고 조준 → 놓으면 던지기 · 5번: 종류 바꾸기`);
+    else if (this.toastT > 0) this.toastT -= dt;
+    else if (target && !this.uiOpen) {
+      const def = ITEMS[target.key];
+      const key = app.touch ? '줍기' : keyLabel(app.settings.keys.interact[0]);
+      const extra = def.kind === 'weapon' ? ` <span style="color:#9fb0c2">${WEAPONS[target.key].catName}</span>` : target.count > 1 ? ` ×${target.count}` : '';
+      this.hud.prompt(`<kbd>${key}</kbd>${escapeHtml(def.name)}${extra}`);
+    } else this.hud.prompt(null);
+    if (app.touch) {
+      const canCar = me.veh || m.findVehicle(me);
+      app.touchUI.setEnabled('interact', !!target || !!canCar || !!mate);
+      app.touchUI.setLabel('interact', mate ? '소생' : me.veh ? '하차' : canCar ? '탑승' : '줍기');
+      app.touchUI.setMode(me.veh ? 'veh' : 'foot');
+      app.touchUI.setLabel('jump', me.veh ? '브레이크' : '점프');
+      app.touchUI.setState('ads', app.input.adsToggled);
+    }
+
+    this.renderThrowables(dt, me);
+    this.renderSupply(dt);
+
+    // ---- effects ----
+    this.fx.renderBullets(m.bullets, alpha, TICK, cp);
+    this.fx.update(dt);
+    if (m.time - me.lastHitT < 1 || m.time - me.lastShotT < 1) this.lastFightT = this.time;
+
+    // ---- draw ----
+    // in the air you look down from ~190 m: see further than on foot
+    const vd = focus.air ? Math.max(q.viewDist, 480) : q.viewDist;
+    this.camera.far = vd + 60;
+    this.camera.updateProjectionMatrix();
+    app.scene.fog.near = vd * 0.35; app.scene.fog.far = vd;
+    app.worldView.sky.scale.setScalar((this.camera.far * 0.92) / 900);
+    app.renderer.render(app.scene, this.camera);
+    if (this.rig.mode === 'fps' && focus === me && me.alive && !(this.scoped && this.adsBlend > 0.85)) {
+      const sl = m.slotOf(me);
+      this.vm.setWeapon(modelFor(sl));
+      this.vm.update(dt, { windUp: me.cur === 4 && me.throwHold, ads: this.adsBlend, speed: me.body.moveSpeed, onGround: me.body.onGround, reloading: me.reloading, sprint: me.body.sprinting, aspect: this.camera.aspect });
+      this.vm.cam.fov = 62 / (1 + (w.zoom - 1) * this.adsBlend * 0.5);
+      app.renderer.clearDepth();
+      app.renderer.render(this.vm.scene, this.vm.cam);
+    }
+    // ---- HUD ----
+    this.hud.update(dt, this);
+    this.updateTags();
+    if (this.mapOpen) { this.showAllOnMap = app.dev && app.dev.flags.map; this.hud.drawBigMap(this); }
+  }
+
+  renderSupply(dt) {
+    const S = this.match.supply, sc = this.app.scene, seen = new Set();
+    let planeD = Infinity;
+    const cp = this.camera.position;
+    for (const pl of S.planes) {
+      seen.add(pl.id);
+      let v = this.supplyViews.get(pl.id);
+      if (!v) { v = new THREE.Mesh(planeGeometry(), SOLDIER_MAT); v.scale.setScalar(1.4); sc.add(v); this.supplyViews.set(pl.id, v); }
+      v.position.set(pl.x, pl.alt, pl.z); v.rotation.set(0, pl.yaw, 0);
+      planeD = Math.min(planeD, Math.hypot(pl.x - cp.x, pl.alt - cp.y, pl.z - cp.z));
+    }
+    for (const cr of S.crates) {
+      seen.add(cr.id);
+      let v = this.supplyViews.get(cr.id);
+      if (!v) {
+        v = new THREE.Group();
+        const box = new THREE.Mesh(crateGeometry(CRATE_H), SOLDIER_MAT); box.castShadow = true; v.add(box);
+        const chute = makeChute(); chute.scale.set(1.5, 1.4, 1.5); chute.position.y = 0.6; v.add(chute); v.userData.chute = chute;
+        sc.add(v); this.supplyViews.set(cr.id, v);
+      }
+      v.position.set(cr.x, cr.y, cr.z);
+      v.userData.chute.visible = !cr.landed;
+      if (!cr.landed) v.rotation.y += dt * 0.4;
+      // red signal smoke while the crate is fresh
+      if (cr.landed && cr.flareT > 0 && Math.random() < dt * 25) this.fx.emit(cr.x, cr.y + CRATE_H + 0.2, cr.z, 1, 0.85, 0.12, 0.08, 0.7, 5, 0.9, -0.9, 0.4, 1.4, 0.9);
+      // emptied crates drop off the map / compass (client-side view state only)
+      if (cr.landed && !this.match.items.some((it) => it.supply && Math.abs(it.x - cr.x) < 1 && Math.abs(it.z - cr.z) < 1)) this.lootedCrates.add(cr.id);
+    }
+    for (const [id, v] of this.supplyViews) if (!seen.has(id)) { sc.remove(v); this.supplyViews.delete(id); }
+    if (planeD < 1e9) this.supplyPlaneD = planeD; else this.supplyPlaneD = Infinity;
+  }
+
+  renderVehicles(dt, alpha, cp) {
+    const m = this.match, sc = this.app.scene;
+    const engines = [];
+    for (const v of m.vehicles) {
+      let view = this.vehViews.get(v.id);
+      if (!view) { view = new VehicleView(sc, v, this.app.q.shadows > 0); this.vehViews.set(v.id, view); }
+      const pv = this.vehPrev.get(v.id) || v;
+      const x = lerp(pv.x, v.x, alpha), y = lerp(pv.y, v.y, alpha), z = lerp(pv.z, v.z, alpha);
+      const d2 = (x - cp.x) ** 2 + (z - cp.z) ** 2;
+      view.root.visible = d2 < (this.app.q.viewDist * 0.95) ** 2;
+      if (!view.root.visible) continue;
+      view.update(v, x, y, z, pv.yaw + wrapAngle(v.yaw - pv.yaw) * alpha, dt);
+      if (v.dead && v.burnT > 0 && Math.random() < dt * 20) this.fx.fireTick(x, y + 0.6, z, 1.2);
+      if (!v.dead && (v.seats[0] !== null || Math.abs(v.speed) > 0.5)) engines.push({ pos: { x, y, z }, speed: v.speed, moto: v.type === 'moto', local: !!(this.me.veh && this.me.veh.id === v.id), d: d2 });
+    }
+    engines.sort((a, b) => (b.local - a.local) || a.d - b.d);
+    this.app.audio.setEngines(engines.slice(0, 4));
+  }
+
+  vehiclePrompt(me) {
+    const m = this.match, app = this.app;
+    const key = app.touch ? '' : `<kbd>${keyLabel(app.settings.keys.interact[0])}</kbd>`;
+    if (me.veh) {
+      const v = m.vehById.get(me.veh.id);
+      if (app.touch) return `${VEHICLES[v.type].name} · ${me.veh.seat === 0 ? '운전석' : me.veh.seat + 1 + '번 좌석'}`;
+      return `${key}하차 · 1~${v.seats.length} 좌석 · ${keyLabel(app.settings.keys.jump[0])} 핸드브레이크 · ${keyLabel(app.settings.keys.sprint[0])} 부스트`;
+    }
+    const v = m.findVehicle(me);
+    if (!v) return null;
+    const D = VEHICLES[v.type];
+    return `${key || '<kbd>탑승</kbd>'}탑승 · ${D.name} <span style="color:#9fb0c2">${D.cat} · 연료 ${Math.round(v.fuel)}%</span>`;
+  }
+
+  renderThrowables(dt, me) {
+    const m = this.match, sc = this.app.scene;
+    // grenades in flight / on the ground
+    const seen = new Set();
+    for (const g of m.projectiles) {
+      seen.add(g.id);
+      let mesh = this.nadeMeshes.get(g.id);
+      if (!mesh) { mesh = new THREE.Mesh(weaponGeometry('g_' + g.type), this.nadeMat); mesh.scale.setScalar(1.5); sc.add(mesh); this.nadeMeshes.set(g.id, mesh); }
+      mesh.position.set(g.x, g.y, g.z);
+      if (!g.rest) { mesh.rotation.x += dt * 9; mesh.rotation.z += dt * 5; }
+    }
+    for (const [id, mesh] of this.nadeMeshes) if (!seen.has(id)) { sc.remove(mesh); this.nadeMeshes.delete(id); }
+    // smoke clouds + burning ground
+    this.fx.syncSmoke(m.smokes);
+    for (const f of m.fires) { this.fx.fireTick(f.x, f.y, f.z, f.r); if (Math.random() < dt * 6) this.app.audio.crackle(f); }
+    // trajectory preview while winding up a throw
+    const show = me.alive && !me.air && me.cur === 4 && me.throwHold && this.state === 'playing';
+    this.arc.visible = this.arcEnd.visible = show;
+    if (show) {
+      const L = throwLaunch(m.eye(me), me.aimYaw, me.aimPitch, this.app.input.ads, me.body.vel);
+      const T = THROWABLES[me.throwType];
+      const pts = predictThrow(this.world, { ...L, stopOnHit: !!(T && T.impact) }, T && !T.impact ? Math.min(3, T.fuse) : 3);
+      const arr = new Float32Array(pts.length * 3);
+      pts.forEach((p, i) => { arr[i * 3] = p.x; arr[i * 3 + 1] = p.y; arr[i * 3 + 2] = p.z; });
+      const g = this.arc.geometry;
+      g.setAttribute('position', new THREE.BufferAttribute(arr, 3));
+      g.setDrawRange(0, pts.length);
+      this.arc.computeLineDistances();
+      const e = pts[pts.length - 1];
+      this.arcEnd.position.set(e.x, e.y + 0.03, e.z);
+    }
+  }
+
+  airPrompt() {
+    const me = this.me, pl = this.match.plane, S = this.app.settings;
+    const key = this.app.touch ? '점프' : keyLabel(S.keys.jump[0]);
+    const h = Math.max(0, me.body.pos.y - this.world.groundAt(me.body.pos.x, me.body.pos.z));
+    const mk = this.marker ? ` · 목적지 ${Math.round(Math.hypot(this.marker.x - me.body.pos.x, this.marker.z - me.body.pos.z))}m` : '';
+    if (me.air === 'plane') return pl.inside ? `<kbd>${key}</kbd>뛰어내리기${mk}` : `섬 상공에 들어가면 뛰어내릴 수 있습니다${mk}`;
+    if (me.air === 'fall') return `<kbd>${key}</kbd>낙하산 펴기 · 고도 ${Math.round(h)}m · 아래를 보면 급강하${mk}`;
+    return `낙하산 · 고도 ${Math.round(h)}m · 앞으로: 빨리 / 뒤로: 천천히${mk}`;
+  }
+
+  renderPlane(alpha, focus) {
+    const pl = this.match.plane, pm = this.planeMesh;
+    if (!pl || !pm) { if (this.supplyPlaneD < Infinity || this.hadSupplyPlane) { this.hadSupplyPlane = this.supplyPlaneD < Infinity; this.app.audio.setFlightSounds(this.supplyPlaneD, false, 0); } return; }
+    const x = lerp(this.planePrev.x, pl.x, alpha), z = lerp(this.planePrev.z, pl.z, alpha);
+    pm.visible = !pl.done;
+    pm.position.set(x, pl.alt + 1.5, z);
+    pm.rotation.set(0, pl.yaw, Math.sin(this.time * 0.6) * 0.02);
+    for (const pr of this.props) pr.rotation.z += 0.9;
+    const cp = this.camera.position;
+    const d = Math.hypot(x - cp.x, pl.alt - cp.y, z - cp.z);
+    const f = this.me.alive && this.me.air === 'fall' ? Math.min(1, this.me.body.vel.y * -1 / 45) : this.me.air === 'chute' ? 0.15 : 0;
+    this.app.audio.setFlightSounds(Math.min(pl.done ? 1e9 : d, this.supplyPlaneD || Infinity), focus.air === 'plane', f);
+  }
+
+  setMarker(x, z) {
+    this.marker = x === null ? null : { x, z };
+    this.app.audio.ui('click');
+  }
+
+  footstep(p, dt) {
+    if (p.body.moveSpeed < 1.2) return;
+    const cp = this.camera.position;
+    const d = Math.hypot(p.body.pos.x - cp.x, p.body.pos.z - cp.z);
+    if (d > 40 && p !== this.me) return;
+    let st = this.steps.get(p.id) || 0;
+    st += p.body.moveSpeed * dt;
+    const stride = p.body.stance === 'prone' ? 1.4 : p.body.sprinting ? 1.9 : 1.55;
+    if (st > stride) {
+      st = 0;
+      const quiet = p.body.stance !== 'stand' || p.cmd.walk;
+      const g = this.world.groundAt(p.body.pos.x, p.body.pos.z);
+      if (!quiet || d < 8) this.app.audio.footstep(p.body.pos, p === this.me, p.body.moveSpeed * (quiet ? 0.4 : 1), p.body.pos.y - g > 0.08 ? 'hard' : 'soft');
+    }
+    this.steps.set(p.id, st);
+  }
+}
+
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+/* ---------------- top-down map picture (minimap + full map) ---------------- */
+function makeMapImage(world) {
+  const S = 800, c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d');
+  const T = world.terrain, half = world.half, k = S / (half * 2);
+  const img = g.createImageData(S, S);
+  for (let j = 0; j < S; j++) {
+    for (let i = 0; i < S; i++) {
+      const x = i / k - half, z = j / k - half;
+      const h = T.heightAt(x, z);
+      const shade = (T.heightAt(x - 1, z - 1) - T.heightAt(x + 1, z + 1)) * 12;
+      const base = h > 18 ? [120, 124, 110] : [86, 112, 62];
+      const o = (j * S + i) * 4;
+      img.data[o] = Math.max(0, Math.min(255, base[0] + shade + h));
+      img.data[o + 1] = Math.max(0, Math.min(255, base[1] + shade + h * 0.8));
+      img.data[o + 2] = Math.max(0, Math.min(255, base[2] + shade));
+      img.data[o + 3] = 255;
+    }
+  }
+  g.putImageData(img, 0, 0);
+  g.lineCap = 'round';
+  for (const r of world.roads) {
+    g.strokeStyle = '#8b8373'; g.lineWidth = r.w * k;
+    g.beginPath(); g.moveTo((r.ax + half) * k, (r.az + half) * k); g.lineTo((r.bx + half) * k, (r.bz + half) * k); g.stroke();
+  }
+  g.fillStyle = 'rgba(40,60,30,.55)';
+  for (const p of world.props) if (p.type === 'tree') { g.beginPath(); g.arc((p.x + half) * k, (p.z + half) * k, 2.2 * k, 0, 6.28); g.fill(); }
+  const sorted = world.boxes.filter((b) => !b.hidden && b.maxY - b.minY > 0.5).sort((a, b) => a.maxY - b.maxY);
+  for (const b of sorted) {
+    const col = new THREE.Color(b.color).multiplyScalar(0.85);
+    g.fillStyle = '#' + col.getHexString();
+    g.fillRect((b.minX + half) * k, (b.minZ + half) * k, Math.max(1, (b.maxX - b.minX) * k), Math.max(1, (b.maxZ - b.minZ) * k));
+  }
+  return c;
+}
+
+/* ---------------- boot ---------------- */
+try {
+  window.__app = new App();
+} catch (err) {
+  showFatal(err);
+  $('loading').textContent = 'ERROR';
+  throw err;
+}

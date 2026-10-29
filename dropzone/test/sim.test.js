@@ -1,0 +1,690 @@
+/* Regression tests for the shared simulation.  Run: npm test */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { Terrain } from '../shared/terrain.js';
+import { World } from '../shared/world.js';
+import { buildMap } from '../shared/mapgen.js';
+import { NavGrid } from '../shared/nav.js';
+import { newBody, stepBody, setStance, MOVE } from '../shared/movement.js';
+import { Match, TICK, emptyCommand, rayHitPlayer } from '../shared/game.js';
+import { WEAPONS } from '../shared/weapons.js';
+import { newInventory, invAdd, invWeight } from '../shared/items.js';
+import { Zone } from '../shared/zone.js';
+import { vehDistance } from '../shared/vehicles.js';
+import { makeRng } from '../shared/util.js';
+
+/* ---------- helpers ---------- */
+function flatWorld() {
+  const t = new Terrain({ size: 200, cell: 2, seed: 1 });
+  t.h.fill(0); t.maxH = 0; t.minH = 0;
+  const w = new World(t);
+  w.playLimit = 95;
+  return w;
+}
+function walk(world, b, input, seconds) {
+  const evs = [];
+  for (let i = 0; i < Math.round(seconds * 60); i++) evs.push(stepBody(world, b, input, TICK));
+  return evs;
+}
+let MAP = null, NAV = null;
+function map() { if (!MAP) { MAP = buildMap(); NAV = new NavGrid(MAP); } return { world: MAP, nav: NAV }; }
+
+/** 1 human + frozen bots on a flat test world */
+function duel(bots = 1) {
+  const world = flatWorld();
+  world.spawnSpots = [{ x: 0, z: 0 }, { x: 0, z: -20 }, { x: 10, z: -20 }, { x: -10, z: -20 }];
+  const nav = new NavGrid(world);
+  const m = new Match({ world, nav, seed: 3, bots, humans: [{ id: 1, name: 'me' }], drop: false });
+  const me = m.byId.get(1);
+  const others = m.players.filter((p) => p.isBot);
+  others.forEach((o, i) => { o.brain = null; o.body.pos.x = i * 10; o.body.pos.z = -20; o.yaw = 0; });
+  me.body.pos.x = 0; me.body.pos.z = 0; me.yaw = 0;
+  return { m, me, others };
+}
+function tick(m, cmd = {}) { m.setCommand(1, Object.assign(emptyCommand(), cmd)); m.step(TICK); }
+function run(m, seconds, cmd = {}) { for (let i = 0; i < Math.round(seconds * 60); i++) tick(m, cmd); }
+
+/* ---------- terrain / world ---------- */
+test('map generation is deterministic', () => {
+  const a = buildMap(), b = buildMap();
+  assert.equal(a.boxes.length, b.boxes.length);
+  assert.equal(a.terrain.heightAt(12.3, -45.6), b.terrain.heightAt(12.3, -45.6));
+  assert.ok(a.lootSpots.length > 60, 'enough loot spots');
+  assert.ok(a.doors.length > 10, 'doors registered for bots');
+});
+
+test('terrain sampling matches grid vertices', () => {
+  const { world } = map();
+  const T = world.terrain;
+  for (const [i, j] of [[10, 10], [80, 40], [100, 150]]) {
+    const x = -T.half + i * T.cell, z = -T.half + j * T.cell;
+    assert.ok(Math.abs(T.heightAt(x, z) - T.h[j * T.n + i]) < 1e-4);
+  }
+});
+
+test('raycast hits boxes and terrain', () => {
+  const w = flatWorld();
+  w.addBox(4, 0, -1, 5, 3, 1);
+  const h = w.raycast(0, 1, 0, 1, 0, 0, 50);
+  assert.ok(h && Math.abs(h.t - 4) < 1e-6 && h.nx === -1);
+  const g = w.raycast(0, 5, 0, 0, -1, 0, 50);
+  assert.ok(g && Math.abs(g.t - 5) < 0.05 && g.box === null);
+  assert.equal(w.lineClear(0, 1, 0, 3.9, 1, 0), true);
+  assert.equal(w.lineClear(0, 1, 0, 6, 1, 0), false);
+});
+
+/* ---------- movement ---------- */
+test('run / sprint / crouch / prone speeds', () => {
+  const w = flatWorld();
+  const speed = (input, stance = 'stand') => {
+    const b = newBody(0, 0, 0);
+    if (stance !== 'stand') { setStance(w, b, stance); b.stanceLock = 0; }
+    walk(w, b, input, 1.0);
+    const z0 = b.pos.z;
+    walk(w, b, input, 1.0);
+    return z0 - b.pos.z;
+  };
+  assert.ok(Math.abs(speed({ fwd: 1, yaw: 0 }) - MOVE.speed.run) < 0.05);
+  assert.ok(Math.abs(speed({ fwd: 1, yaw: 0, sprint: true }) - MOVE.speed.sprint) < 0.05);
+  assert.ok(Math.abs(speed({ fwd: 1, yaw: 0 }, 'crouch') - MOVE.speed.crouch) < 0.05);
+  assert.ok(Math.abs(speed({ fwd: 1, yaw: 0 }, 'prone') - MOVE.speed.prone) < 0.05);
+  // sprint from crouch stands up
+  const b = newBody(0, 0, 0); setStance(w, b, 'crouch'); b.stanceLock = 0;
+  walk(w, b, { fwd: 1, yaw: 0, sprint: true }, 0.5);
+  assert.equal(b.stance, 'stand');
+});
+
+test('walls block, steps are climbed, jump reaches ~1m', () => {
+  const w = flatWorld();
+  w.addBox(-5, 0, -3.2, 5, 3, -3);            // wall ahead
+  const b = newBody(0, 0, 0);
+  walk(w, b, { fwd: 1, yaw: 0 }, 2);
+  assert.ok(b.pos.z > -3 + 0.3, 'stopped by wall');
+  // stairs of 0.25 m
+  const w2 = flatWorld();
+  for (let i = 0; i < 8; i++) w2.addBox(-1, 0, -2 - (i + 1) * 0.3, 1, (i + 1) * 0.25, -2 - i * 0.3);
+  const s = newBody(0, 0, 0);
+  let top = 0;
+  for (let i = 0; i < 150; i++) { stepBody(w2, s, { fwd: 1, yaw: 0 }, TICK); top = Math.max(top, s.pos.y); }
+  assert.ok(top > 1.9, 'climbed stairs, y=' + top);
+  // jump apex
+  const j = newBody(0, 0, 0);
+  let maxY = 0;
+  stepBody(w, j, { jump: true, yaw: 0 }, TICK);
+  for (let i = 0; i < 60; i++) { stepBody(w, j, { yaw: 0 }, TICK); maxY = Math.max(maxY, j.pos.y); }
+  assert.ok(maxY > 0.9 && maxY < 1.2, 'jump apex ' + maxY);
+  assert.equal(j.onGround, true);
+});
+
+test('cannot stand up under a low ceiling; fall damage', () => {
+  const w = flatWorld();
+  w.addBox(-2, 1.4, -2, 2, 1.6, 2);           // ceiling at 1.4m
+  const b = newBody(0, 0, 0);
+  b.stance = 'crouch';
+  assert.equal(setStance(w, b, 'stand'), false);
+  const f = newBody(20, 12, 20); f.onGround = false;
+  const evs = walk(w, f, { yaw: 0 }, 2);
+  const land = evs.find((e) => e.landed !== undefined);
+  assert.ok(land && land.fallDamage > 10, 'fell 12m -> damage');
+});
+
+/* ---------- weapons & combat ---------- */
+test('fire rate, ammo and reload', () => {
+  const { m, me } = duel();
+  m.cheat(1, 'give', 'kestrel'); m.cheat(1, 'give', 'ammo_light'); m.cheat(1, 'give', 'ammo_light');
+  run(m, 0.7);
+  tick(m, { reload: true });
+  run(m, 3);
+  const slot = m.slotOf(me);
+  assert.equal(slot.mag, 30);
+  const shots0 = me.shots;
+  run(m, 1.0, { fire: true, aimPitch: 0.5, pitch: 0.5 });
+  const fired = me.shots - shots0;
+  const expect = WEAPONS.kestrel.rpm / 60;
+  assert.ok(Math.abs(fired - expect) <= 1.5, `fired ${fired} expected ~${expect}`);
+  assert.equal(slot.mag, 30 - fired);
+});
+
+test('semi-auto needs a new trigger press', () => {
+  const { m, me } = duel();
+  m.cheat(1, 'give', 'hornet'); m.cheat(1, 'give', 'ammo_pistol');
+  run(m, 0.5); tick(m, { reload: true }); run(m, 2.5);
+  const s0 = me.shots;
+  run(m, 1, { fire: true, aimPitch: 0.5 });
+  assert.equal(me.shots - s0, 1);
+  for (let i = 0; i < 5; i++) { run(m, 0.1); run(m, 0.1, { fire: true, aimPitch: 0.5 }); }
+  assert.equal(me.shots - s0, 6);
+});
+
+test('bullets hit players: headshot > body > legs, kill drops loot', () => {
+  const { m, me, others } = duel(1);
+  const bot = others[0];
+  bot.body.pos.x = 0; bot.body.pos.z = -20;
+  const aimAt = (y) => { const e = m.eye(me); const dy = y - e.y, dz = -20 - e.z; return { aimYaw: 0, aimPitch: Math.atan2(dy, -dz) }; };
+  m.cheat(1, 'give', 'kestrel'); m.cheat(1, 'give', 'ammo_light');
+  run(m, 0.7); tick(m, { reload: true }); run(m, 3);
+  const hits = [];
+  run(m, 0.5, { ads: true, ...aimAt(bot.body.pos.y + 1.2) });       // aim down sights first
+  const shoot = (y) => {
+    const hp = bot.hp;
+    run(m, 0.3, { ads: true, ...aimAt(y) });
+    me.bloom = 0;
+    tick(m, { fire: true, ads: true, ...aimAt(y) });
+    run(m, 0.5, { ads: true, ...aimAt(y) });
+    hits.push(hp - bot.hp);
+    bot.hp = 100;
+  };
+  me.bloom = 0;
+  shoot(bot.body.pos.y + 1.62); shoot(bot.body.pos.y + 1.2); shoot(bot.body.pos.y + 0.45);
+  assert.ok(hits[0] > hits[1] && hits[1] > hits[2] && hits[2] > 0, 'damage by part ' + hits.map((h) => h.toFixed(1)));
+  // kill
+  bot.hp = 10;
+  tick(m, { fire: true, ...aimAt(bot.body.pos.y + 1.2) });
+  run(m, 0.5);
+  assert.equal(bot.alive, false);
+  assert.equal(me.kills, 1);
+  assert.equal(m.state, 'ended');
+  assert.equal(m.winner, 1);
+});
+
+test('hitbox follows stance and yaw (prone)', () => {
+  const { m, others } = duel(1);
+  const p = others[0];
+  p.body.pos.x = 0; p.body.pos.z = 0; p.body.pos.y = 0; p.body.stance = 'prone'; p.yaw = Math.PI / 2;   // facing -X
+  // a vertical ray straight down 0.8m in front of the prone body (toward -X) hits the head/torso
+  assert.ok(rayHitPlayer(p, -0.8, 3, 0, 0, -1, 0, 5));
+  // but nothing 0.8m to the side (+Z)
+  assert.equal(rayHitPlayer(p, 0, 3, 0.8, 0, -1, 0, 5), null);
+});
+
+test('inventory capacity and pickup', () => {
+  const inv = newInventory();
+  const n = invAdd(inv, 'ammo_light', 1000);
+  assert.ok(n < 1000 && invWeight(inv) <= inv.capacity + 1e-6);
+  const { m, me } = duel();
+  const it = m.dropItem('bandage', 3, 0.5, 1, 0);
+  assert.equal(m.pickup(me, it), true);
+  assert.equal(me.inv.items.bandage, 3);
+  // weapon swap drops the old one
+  m.cheat(1, 'give', 'kestrel'); m.cheat(1, 'give', 'wasp');
+  const extra = m.dropItem('breaker', 1, 0.5, 1, 0);
+  me.cur = 0;
+  m.pickup(me, extra);
+  assert.equal(me.slots[0].id, 'breaker');
+  assert.ok(m.items.some((i) => i.key === 'kestrel'), 'old weapon dropped');
+});
+
+test('healing takes time and caps', () => {
+  const { m, me } = duel();
+  me.hp = 40;
+  m.cheat(1, 'give', 'bandage');
+  tick(m, { use: 'bandage' });
+  run(m, 1);
+  assert.equal(me.hp, 40, 'not instant');
+  run(m, 3);
+  assert.equal(me.hp, 55);
+  me.hp = 74;
+  tick(m, { use: 'bandage' }); run(m, 4);
+  assert.equal(me.hp, 75, 'bandage caps at 75');
+});
+
+test('input buffering keeps presses made during short locks', () => {
+  const { m, me } = duel();
+  m.cheat(1, 'give', 'kestrel'); m.cheat(1, 'give', 'ammo_light');
+  tick(m, { reload: true });                     // during equip
+  run(m, 0.7);
+  assert.equal(me.reloading, true);
+  tick(m, { crouch: true }); tick(m, { prone: true });
+  run(m, 1);
+  assert.equal(me.body.stance, 'prone');
+});
+
+/* ---------- zone ---------- */
+test('zone shrinks inside the previous circle and hurts outside', () => {
+  const z = new Zone(makeRng(9), 138);
+  for (let i = 0; i < 20000 && z.stage !== 'done'; i++) {
+    const prev = { ...z.cur };
+    z.update(0.1);
+    if (z.stage === 'wait') {
+      const d = Math.hypot(z.next.x - z.cur.x, z.next.z - z.cur.z);
+      assert.ok(d + z.next.r <= z.cur.r + 1e-6, 'next circle inside current');
+    }
+    assert.ok(z.cur.r <= prev.r + 1e-9);
+  }
+  assert.equal(z.stage, 'done');
+  const { m, me } = duel();
+  m.zone.cur = { x: 100, z: 100, r: 5 };
+  const hp = me.hp;
+  run(m, 1);
+  assert.ok(me.hp < hp);
+});
+
+/* ---------- full bot matches ---------- */
+for (const diff of ['easy', 'normal', 'hard']) {
+  test(`bot-only match (${diff}) finishes with exactly one winner`, () => {
+    const { world, nav } = map();
+    const m = new Match({ world, nav, seed: 11, bots: 20, difficulty: diff });
+    let kills = 0;
+    while (m.state === 'playing' && m.time < 900) {
+      m.step(TICK);
+      for (const e of m.drainEvents()) if (e.t === 'kill') kills++;
+    }
+    assert.equal(m.state, 'ended', 'match ended within 15 min');
+    assert.equal(kills, 19);
+    assert.equal(m.players.filter((p) => p.alive).length, 1);
+    const places = m.players.map((p) => p.place).sort((a, b) => a - b);
+    assert.deepEqual(places, Array.from({ length: 20 }, (_, i) => i + 1));
+    // everybody left the plane and landed
+    assert.ok(m.players.every((p) => p.air === null || !p.alive), 'nobody stuck in the air');
+    // nobody fell through the world
+    for (const p of m.players) assert.ok(p.body.pos.y >= world.groundAt(p.body.pos.x, p.body.pos.z) - 0.01);
+  });
+}
+
+/* ---------- regressions found in bug hunt #1 ---------- */
+test('prone body never pokes through a wall (no headshots from behind cover)', () => {
+  const { m, me } = duel(1);
+  m.world.addBox(-5, 0, -3.25, 5, 3, -3.0);
+  tick(m, { prone: true }); run(m, 1);
+  assert.equal(me.body.stance, 'prone');
+  run(m, 4, { fwd: 1 });                      // crawl head-first into the wall
+  run(m, 2, { fwd: 1, yaw: 0.9 });            // and try to swing the body around
+  const behind = rayHitPlayer(me, me.body.pos.x, 0.3, -8, 0, 0, 1, 20);
+  const wall = m.world.raycast(me.body.pos.x, 0.3, -8, 0, 0, 1, 20);
+  assert.ok(!behind || behind.t > wall.t, 'hitbox reachable only through the wall');
+  // going prone facing a wall at arm's length is refused
+  const { m: m2, me: me2 } = duel(1);
+  m2.world.addBox(-5, 0, -1.0, 5, 3, -0.8);
+  tick(m2, { prone: true }); run(m2, 1);
+  assert.notEqual(me2.body.stance, 'prone');
+});
+
+test('ground items are never buried inside walls or crates', () => {
+  const { world, nav } = map();
+  for (let seed = 1; seed <= 10; seed++) {
+    const m = new Match({ world, nav, seed, bots: 1 });
+    for (const it of m.items) assert.ok(!world.overlaps(it.x, it.z, 0.1, it.y + 0.05, it.y + 0.35), `item ${it.key} buried at ${it.x.toFixed(1)},${it.z.toFixed(1)}`);
+  }
+});
+
+test('simultaneous last deaths still give unique placements', () => {
+  const { world, nav } = map();
+  const m = new Match({ world, nav, seed: 5, bots: 2, drop: false });
+  for (const p of m.players) { p.brain = null; p.hp = 5; }
+  m.zone.cur = { x: 999, z: 999, r: 1 }; m.zone.phase = 5;
+  for (let i = 0; i < 120 && m.state === 'playing'; i++) m.step(TICK);
+  assert.deepEqual(m.players.map((p) => p.place).sort(), [1, 2]);
+  assert.equal(m.byId.get(m.winner).place, 1);
+});
+
+test('god mode takes no damage and emits no hit events', () => {
+  const { m, me, others } = duel(1);
+  m.cheat(1, 'god'); m.drainEvents();
+  m.damage(me, 30, others[0], 'kestrel', { x: 1, y: 0, z: 0 });
+  assert.equal(me.hp, 100);
+  assert.equal(m.drainEvents().filter((e) => e.t === 'hit').length, 0);
+});
+
+test('auto reload: empty magazine reloads by itself, never interrupts healing', () => {
+  const { m, me } = duel();
+  m.cheat(1, 'give', 'hornet'); m.cheat(1, 'give', 'ammo_pistol');
+  run(m, 0.5);
+  assert.equal(me.reloading, true, 'picked up an empty gun with ammo in the bag');
+  run(m, 2.5);
+  assert.equal(m.slotOf(me).mag, 15);
+  for (let i = 0; i < 15; i++) { tick(m, { fire: true, aimPitch: 0.5 }); run(m, 0.16); }
+  assert.equal(m.slotOf(me).mag, 0);
+  run(m, 0.2);
+  assert.equal(me.reloading, true);
+  run(m, 2.5);
+  assert.equal(m.slotOf(me).mag, 15);
+  // healing with an empty gun: no auto reload until the heal finishes
+  m.slotOf(me).mag = 0; me.hp = 50; m.cheat(1, 'give', 'bandage');
+  tick(m, { use: 'bandage' }); run(m, 1);
+  assert.ok(me.using && !me.reloading);
+  me.autoReload = false; run(m, 3.5);
+  assert.equal(me.reloading, false, 'setting off -> manual only');
+});
+
+test('loot is dense: most spots have items', () => {
+  const { world, nav } = map();
+  const m = new Match({ world, nav, seed: 21, bots: 1 });
+  assert.ok(m.items.length > world.lootSpots.length * 2, `items ${m.items.length}`);
+});
+
+test('transport plane: everyone boards, jumps, parachutes and lands; human steers to a chosen spot', () => {
+  const { world, nav } = map();
+  const m = new Match({ world, nav, seed: 31, bots: 12, humans: [{ id: 1, name: 'me' }] });
+  const me = m.byId.get(1);
+  assert.ok(m.players.every((p) => p.air === 'plane'));
+  // storm clock is frozen during the flight
+  const zt = m.zone.timer;
+  // pick a destination and steer to it
+  const target = { x: world.locations[0].x + 6, z: world.locations[0].z + 6 };
+  let jumped = false, sawChute = false;
+  for (let i = 0; i < 60 * 90 && (me.air || !jumped); i++) {
+    const c = { yaw: me.yaw, pitch: 0 };
+    if (me.air === 'plane') {
+      const pl = m.plane;
+      if (pl.inside && pl.d >= pl.project(target.x, target.z) - 40) c.jump = true;
+      c.yaw = pl.yaw;
+    } else {
+      jumped = true;
+      const dx = target.x - me.body.pos.x, dz = target.z - me.body.pos.z;
+      c.yaw = Math.atan2(-dx, -dz);
+      c.fwd = Math.hypot(dx, dz) > 3 ? 1 : 0;
+      // far away: open the parachute high up and glide (long-range drop technique)
+      if (me.air === 'fall' && Math.hypot(dx, dz) > 150) c.jump = true;
+      if (me.air === 'chute') sawChute = true;
+    }
+    tick(m, c);
+  }
+  assert.equal(me.air, null, 'landed');
+  assert.ok(sawChute, 'parachute opened');
+  assert.equal(me.hp, 100, 'no fall damage with a parachute');
+  const miss = Math.hypot(me.body.pos.x - target.x, me.body.pos.z - target.z);
+  assert.ok(miss < 25, 'landed near the chosen spot, miss ' + miss.toFixed(1));
+  assert.ok(m.zone.timer <= zt, 'storm clock running after the flight');
+  // bots are all out and on the ground by now
+  run(m, 20);
+  assert.ok(m.players.filter((p) => p.alive).every((p) => p.air === null));
+  assert.equal(m.plane.done || m.plane.left, true);
+});
+
+test('diving bots / players never hit the ground at dive speed (chute brakes in time)', () => {
+  const { world, nav } = map();
+  for (const seed of [8, 9, 10]) {
+    const m = new Match({ world, nav, seed, bots: 24 });
+    let worst = 0;
+    while (m.time < 60) { m.step(TICK); for (const e of m.drainEvents()) if (e.t === 'landed') worst = Math.max(worst, e.v); }
+    assert.ok(worst < 9, 'max landing speed ' + worst.toFixed(1));
+  }
+});
+
+/* ---------- throwables ---------- */
+function holdThrow(m, type, aim, lob = false) {
+  m.cheat(1, 'give', type);
+  tick(m, { slot: 4, throwType: type, ...aim });
+  run(m, 0.5, aim);                              // equip
+  run(m, 0.2, { fire: true, ads: lob, ...aim }); // wind up
+  tick(m, aim);                                  // release = throw
+}
+
+test('frag: damages in the open, walls protect, thrower gets the kill', () => {
+  const { m, me, others } = duel(2);
+  const [a, b] = others;
+  a.body.pos.x = 0; a.body.pos.z = -10;           // in the open
+  b.body.pos.x = 6; b.body.pos.z = -10;           // behind a wall
+  m.world.addBox(4.5, 0, -14, 4.8, 3, -6);
+  a.hp = 40;
+  holdThrow(m, 'frag', { aimYaw: 0, aimPitch: 0.1, yaw: 0, pitch: 0.1 }, true);    // short lob ~10 m
+  assert.equal(m.projectiles.length, 1);
+  run(m, 4);
+  assert.equal(m.projectiles.length, 0, 'exploded');
+  assert.equal(a.alive, false, 'killed by the blast');
+  assert.equal(me.kills, 1);
+  assert.equal(b.hp, 100, 'wall stopped the fragments');
+});
+
+test('grenades bounce off walls instead of passing through', () => {
+  const { m } = duel(1);
+  m.world.addBox(-5, 0, -3.2, 5, 4, -3);
+  holdThrow(m, 'smoke', { aimYaw: 0, aimPitch: 0.1, yaw: 0, pitch: 0.1 });
+  run(m, 1.2);
+  const g = m.projectiles[0];
+  assert.ok(g && g.z > -3, 'stayed on the thrower side, z=' + (g && g.z.toFixed(2)));
+  assert.ok(g.y >= m.world.groundAt(g.x, g.z));
+});
+
+test('smoke blocks bot vision, flash blinds, molotov burns over time', () => {
+  const { m, me, others } = duel(1);
+  const bot = others[0];
+  bot.body.pos.x = 0; bot.body.pos.z = -20;
+  const e = m.eye(me);
+  assert.equal(m.sightClear(e.x, e.y, e.z, 0, 1.5, -20), true);
+  m.smokes.push({ x: 0, y: 1.5, z: -10, r: 6, maxR: 6, t: 20 });
+  assert.equal(m.sightClear(e.x, e.y, e.z, 0, 1.5, -20), false);
+  m.smokes.length = 0;
+  // flash right in front of the bot, bot facing it
+  bot.aimYaw = Math.PI; bot.aimPitch = 0;          // bot looks toward +Z (at me)
+  m.detonate({ type: 'flash', owner: 1, x: 0, y: 0.5, z: -16 });
+  assert.ok(bot.blindT > 2, 'bot blinded ' + bot.blindT.toFixed(2));
+  // molotov under the bot
+  const hp0 = bot.hp;
+  m.detonate({ type: 'molotov', owner: 1, x: 0, y: 0.1, z: -20 });
+  run(m, 1);
+  assert.ok(bot.hp < hp0 - 8 && bot.hp > hp0 - 20, 'burning ~14/s, hp ' + bot.hp.toFixed(1));
+});
+
+test('slot 5 cycles throwable types and returns to a gun when empty', () => {
+  const { m, me } = duel(1);
+  m.cheat(1, 'give', 'kestrel'); m.cheat(1, 'give', 'frag'); m.cheat(1, 'give', 'smoke');
+  run(m, 1);
+  tick(m, { slot: 4 }); run(m, 0.5);
+  assert.equal(me.cur, 4); assert.equal(me.throwType, 'frag');
+  tick(m, { slot: 4 }); run(m, 0.1);
+  assert.equal(me.throwType, 'smoke');
+  // throw everything
+  for (let i = 0; i < 6 && me.cur === 4; i++) { run(m, 1, { aimPitch: 0.5 }); run(m, 0.2, { fire: true, aimPitch: 0.5 }); tick(m, { aimPitch: 0.5 }); }
+  assert.equal(me.cur, 0, 'back to the rifle');
+});
+
+/* ---------- vehicles ---------- */
+test('the map spawns vehicles of every kind over a few matches', () => {
+  const { world, nav } = map();
+  const kinds = new Set();
+  for (const seed of [1, 2, 3]) { const m = new Match({ world, nav, seed, bots: 1 }); for (const v of m.vehicles) kinds.add(v.type); assert.ok(m.vehicles.length > 10); }
+  assert.deepEqual([...kinds].sort(), ['buggy', 'moto', 'sedan', 'suv']);
+});
+
+test('drive: enter, accelerate, steer, burn fuel, exit beside the car', () => {
+  const { m, me } = duel(1);
+  const v = m.addVehicle('sedan', 0, 0, -3.6, 0, 60);
+  run(m, 0.2);
+  tick(m, { interact: true });
+  assert.ok(me.veh && me.veh.seat === 0, 'in the driver seat');
+  const z0 = v.z, fuel0 = v.fuel;
+  run(m, 4, { fwd: 1 });
+  assert.ok(v.speed > 12, 'speed ' + v.speed.toFixed(1));
+  assert.ok(v.z < z0 - 30, 'moved forward');
+  assert.ok(v.fuel < fuel0, 'fuel used');
+  const yaw0 = v.yaw;
+  run(m, 1, { fwd: 1, right: 1 });
+  assert.ok(v.yaw < yaw0 - 0.5, 'turned right');
+  run(m, 1.2, { fwd: -1 });                       // brake (holding longer would start reversing)
+  run(m, 2);                                       // coast to a stop
+  assert.ok(Math.abs(v.speed) < 0.5, 'stopped ' + v.speed.toFixed(2));
+  tick(m, { interact: true });
+  assert.equal(me.veh, null);
+  assert.ok(!m.world.overlapsStatic(me.body.pos.x, me.body.pos.z, 0.3, me.body.pos.y + 0.1, me.body.pos.y + 1.7));
+  assert.ok(vehDistance(v, me.body.pos.x, me.body.pos.z) > 0.2, 'standing next to it, not inside');
+  // walking into the parked car is blocked
+  const back = { x: me.body.pos.x, z: me.body.pos.z };
+  const toCar = Math.atan2(-(v.x - back.x), -(v.z - back.z));
+  run(m, 2, { fwd: 1, yaw: toCar });
+  assert.ok(vehDistance(v, me.body.pos.x, me.body.pos.z) > 0.15, 'body did not pass into the car');
+});
+
+test('crashing into a wall stops and damages the car; running over a bot hurts it', () => {
+  const { m, me, others } = duel(1);
+  const bot = others[0];
+  bot.body.pos.x = 0; bot.body.pos.z = -30;
+  const v = m.addVehicle('suv', 0, 0, -4, 0, 100);
+  run(m, 0.2); tick(m, { interact: true });
+  run(m, 3.5, { fwd: 1 });
+  assert.ok(bot.hp < 100, 'hit the bot, hp ' + bot.hp.toFixed(0));
+  m.world.addBox(-10, 0, -72, 10, 4, -70);
+  const hp0 = v.hp;
+  run(m, 5, { fwd: 1 });
+  assert.ok(v.z > -71, 'stopped at the wall');
+  assert.ok(v.hp < hp0, 'damaged by the crash');
+});
+
+test('shooting / blowing up a vehicle destroys it and kills the occupants', () => {
+  const { m, me, others } = duel(1);
+  const bot = others[0];
+  const v = m.addVehicle('buggy', 0, 0, -12, 0, 100);
+  m.enterVehicle(bot, v);
+  assert.ok(bot.veh);
+  m.damageVehicle(v, v.hp - 5, me);
+  assert.equal(v.dead, false);
+  m.detonate({ type: 'frag', owner: 1, x: 1.5, y: 0.1, z: -12 });
+  assert.equal(v.dead, true);
+  assert.equal(bot.alive, false);
+  assert.equal(me.kills, 1);
+  assert.equal(m.findVehicle(me), null, 'wrecks cannot be entered');
+});
+
+test('fuel can refuels a nearby vehicle', () => {
+  const { m, me } = duel(1);
+  const v = m.addVehicle('sedan', 0, 0, -3, 0, 10);
+  m.cheat(1, 'give', 'fuel');
+  tick(m, { use: 'fuel' }); run(m, 4.5);
+  assert.equal(v.fuel, 60);
+});
+
+/* ---------- supply drops ---------- */
+test('supply drops: plane flies in, crate parachutes into the safe zone, loot on top', () => {
+  const { world, nav } = map();
+  const m = new Match({ world, nav, seed: 41, bots: 6 });
+  const got = [];
+  while (m.time < 400 && m.state === 'playing') {
+    m.step(TICK);
+    for (const e of m.drainEvents()) if (e.t === 'supplyLanded') got.push({ e, t: m.time });
+    if (got.length >= 2) break;
+  }
+  assert.ok(got.length >= 1, 'at least one crate landed');
+  const cr = m.supply.crates[0];
+  assert.ok(cr.landed);
+  assert.ok(Math.abs(cr.y - world.groundAt(cr.x, cr.z)) < 1.5, 'on the ground');
+  assert.ok(Math.hypot(cr.x, cr.z) < world.playLimit, 'inside the island');
+  const loot = m.items.filter((it) => it.supply);
+  assert.ok(loot.length >= 3, 'crate has loot');
+  assert.ok(loot.some((it) => it.key === 'longbow' || it.key === 'kestrel'));
+});
+
+test('crate blocks walking and its loot can be picked up from the side', () => {
+  const { m, me } = duel(1);
+  m.launchSupply(0, -6);
+  run(m, 45);
+  const cr = m.supply.crates[0];
+  assert.ok(cr && cr.landed);
+  me.body.pos.x = 0; me.body.pos.z = -3;
+  run(m, 2, { fwd: 1, yaw: 0 });                 // walk into it
+  assert.ok(me.body.pos.z > -6 + 0.72 + 0.2, 'stopped by the crate');
+  const before = m.items.filter((it) => it.supply).length;
+  for (let i = 0; i < 6; i++) tick(m, { interact: true, aimYaw: 0, aimPitch: -0.3 }), run(m, 0.2, { aimYaw: 0, aimPitch: -0.3 });
+  assert.ok(m.items.filter((it) => it.supply).length < before, 'picked something up');
+});
+
+test('supply sniper: one body shot leaves 8 hp, a headshot kills', () => {
+  const { m, me, others } = duel(1);
+  const bot = others[0];
+  bot.body.pos.x = 0; bot.body.pos.z = -60;
+  m.cheat(1, 'give', 'longbow'); m.cheat(1, 'give', 'ammo_heavy');
+  run(m, 5);                                     // equip + auto reload
+  assert.equal(m.slotOf(me).mag, 5);
+  const aim = (y) => { const e = m.eye(me); return { aimYaw: 0, aimPitch: Math.atan2(y - e.y + 0.0 * 60, 60) + (0.5 * 9.81 * (60 / 930) ** 2) / 60 }; };
+  run(m, 0.5, { ads: true, ...aim(1.2) });
+  tick(m, { fire: true, ads: true, ...aim(1.2) }); run(m, 0.3, { ads: true, ...aim(1.2) });
+  assert.ok(Math.abs(bot.hp - 8) < 1.5, 'body shot hp ' + bot.hp.toFixed(1));
+  run(m, 1.6, { ads: true, ...aim(1.62) });
+  tick(m, { fire: true, ads: true, ...aim(1.62) }); run(m, 0.3, { ads: true, ...aim(1.62) });
+  assert.equal(bot.alive, false);
+});
+
+/* ---------- teams: duo / squad ---------- */
+/** 2 humans (ids 1, 2) on one team vs frozen bots, flat world */
+function squadDuel(teamSize = 2, bots = 2) {
+  const world = flatWorld();
+  world.spawnSpots = [{ x: 0, z: 0 }, { x: 3, z: 0 }, { x: 0, z: -20 }, { x: 10, z: -20 }, { x: 20, z: -20 }, { x: 30, z: -20 }];
+  const nav = new NavGrid(world);
+  const m = new Match({ world, nav, seed: 5, bots, teamSize, humans: [{ id: 1, name: 'me' }, { id: 2, name: 'mate' }], drop: false });
+  for (const o of m.players) if (o.isBot) o.brain = null;
+  const me = m.byId.get(1), mate = m.byId.get(2);
+  me.body.pos.x = 0; me.body.pos.z = 0; mate.body.pos.x = 1.2; mate.body.pos.z = 0;
+  return { m, me, mate, bots: m.players.filter((p) => p.isBot) };
+}
+function tick2(m, c1 = {}, c2 = {}) { m.setCommand(1, Object.assign(emptyCommand(), c1)); m.setCommand(2, Object.assign(emptyCommand(), c2)); m.step(TICK); }
+
+test('teams: humans share a team, bots fill the rest, no friendly fire', () => {
+  const { m, me, mate, bots } = squadDuel(2, 2);
+  assert.equal(me.team, mate.team);
+  assert.notEqual(bots[0].team, me.team);
+  assert.equal(bots[0].team, bots[1].team, 'the two bots form the second duo');
+  m.damage(mate, 50, me, 'gun', null);
+  assert.equal(mate.hp, 100, 'teammate shots do nothing');
+  // squad: 2 humans + 7 bots = 3 teams of up to 4
+  const s = squadDuel(4, 7).m;
+  const sizes = {};
+  for (const p of s.players) sizes[p.team] = (sizes[p.team] || 0) + 1;
+  assert.deepEqual(Object.values(sizes).sort(), [1, 4, 4]);
+});
+
+test('teams: lethal damage knocks down, a teammate revives in 6 s', () => {
+  const { m, me, mate, bots } = squadDuel();
+  m.damage(me, 150, bots[0], 'gun', null);
+  assert.ok(me.alive && me.downed, 'knocked, not dead');
+  assert.equal(me.body.stance, 'prone');
+  const evs = m.drainEvents();
+  assert.ok(evs.some((e) => e.t === 'down' && e.id === 1));
+  // the mate walks up and holds F
+  tick2(m, {}, { interact: true });
+  assert.ok(mate.reviving, 'revive started');
+  for (let i = 0; i < 60 * 5; i++) tick2(m);
+  assert.ok(me.downed, 'not yet');
+  for (let i = 0; i < 60 * 1.2; i++) tick2(m);
+  assert.ok(!me.downed && me.alive && me.hp === 25, 'revived with 25 hp');
+  // moving cancels a revive
+  m.damage(me, 150, bots[0], 'gun', null);
+  tick2(m, {}, { interact: true });
+  for (let i = 0; i < 30; i++) tick2(m, {}, { fwd: 1 });
+  assert.equal(mate.reviving, null);
+  assert.ok(me.downed);
+});
+
+test('teams: downed players bleed out, get finished, and a team wipe kills the downed', () => {
+  const { m, me, mate, bots } = squadDuel();
+  m.damage(me, 150, bots[0], 'gun', null);
+  let t = 0;
+  while (me.alive && t < 60) { tick2(m); t += TICK; }
+  assert.ok(!me.alive, 'bled out');
+  assert.ok(t > 20 && t < 40, `bleed-out takes ~30 s (${t.toFixed(1)})`);
+  assert.equal(bots[0].kills, 1, 'knocker gets the kill');
+  // finishing shots on a downed player
+  const s = squadDuel();
+  s.m.damage(s.me, 150, s.bots[0], 'gun', null);
+  s.m.damage(s.me, 120, s.bots[1], 'gun', null);
+  assert.ok(!s.me.alive);
+  // last standing member goes down -> the whole team is out, second team wins
+  const w = squadDuel();
+  w.m.damage(w.me, 150, w.bots[0], 'gun', null);
+  assert.ok(w.me.downed);
+  w.m.damage(w.mate, 150, w.bots[0], 'gun', null);
+  assert.ok(!w.me.alive && !w.mate.alive, 'no standing teammate: nobody gets knocked, downed die');
+  tick2(w.m);
+  assert.equal(w.m.state, 'ended');
+  assert.equal(w.m.winnerTeam, w.bots[0].team);
+  assert.equal(w.me.place, 2); assert.equal(w.mate.place, 2);
+  assert.equal(w.bots[0].place, 1); assert.equal(w.bots[1].place, 1);
+});
+
+for (const size of [2, 4]) {
+  test(`bot-only ${size === 2 ? 'duo' : 'squad'} match ends with one team standing`, () => {
+    const { world, nav } = map();
+    const m = new Match({ world, nav, seed: 21, bots: 24, difficulty: 'normal', teamSize: size });
+    let downs = 0, revives = 0;
+    while (m.state === 'playing' && m.time < 900) {
+      m.step(TICK);
+      for (const e of m.drainEvents()) { if (e.t === 'down') downs++; if (e.t === 'revived') revives++; }
+    }
+    assert.equal(m.state, 'ended');
+    const alive = m.players.filter((p) => p.alive);
+    assert.ok(alive.length >= 1 && alive.every((p) => p.team === m.winnerTeam));
+    assert.ok(downs > 0, 'somebody got knocked');
+    const teams = new Set(m.players.map((p) => p.team)).size;
+    assert.equal(teams, 24 / size);
+    for (const p of m.players) assert.ok(p.place >= 1 && p.place <= teams, 'team placement');
+    console.log(`  ${size}: ${m.time.toFixed(0)}s downs ${downs} revives ${revives}`);
+  });
+}

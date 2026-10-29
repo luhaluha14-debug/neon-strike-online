@@ -1,11 +1,13 @@
 {
-  "name": "sigilfall-online",
+  "name": "neon-strike-online",
   "private": true,
   "scripts": {
     "start": "node sigilfall/server/server.js",
     "test": "node sigilfall/test/run.js",
     "test:browser": "node sigilfall/test/browser-smoke.cjs && node sigilfall/test/browser-ui.cjs && node sigilfall/test/browser-pc.cjs && node sigilfall/test/browser-touch.cjs && node sigilfall/test/browser-tablet.cjs && node sigilfall/test/browser-abilities.cjs",
-    "start:legacy": "node neon_strike_online/server/server.js"
+    "start:legacy": "node neon_strike_online/server/server.js",
+    "dropzone": "npm --prefix dropzone start",
+    "dropzone:test": "npm --prefix dropzone test"
   },
   "engines": {
     "node": ">=18"

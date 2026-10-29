@@ -1,0 +1,293 @@
+/* Team match buy menu ("작전 준비"). Same tokens as the menus (theme.css):
+   charcoal surfaces, one muted accent, square corners, no glow. */
+.buy-menu {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(10, 11, 12, 0.55);
+  /* The HUD layer ignores the mouse; the menu (and its backdrop) must take every click. */
+  pointer-events: auto;
+  font-family: var(--font);
+  color: var(--c-text);
+}
+.buy-menu[hidden] {
+  display: none;
+}
+.buy-panel {
+  width: min(980px, 100%);
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
+  background: var(--c-bg-2);
+  border-top: 2px solid var(--c-accent);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+.buy-head {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s-5);
+  padding: var(--s-4) var(--s-5);
+  border-bottom: 1px solid var(--c-border);
+}
+.buy-heading {
+  flex: 1;
+  min-width: 0;
+}
+.buy-title {
+  margin: 2px 0 0;
+  font-size: var(--fs-xl);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.buy-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-variant-numeric: tabular-nums;
+}
+.buy-stat-label {
+  font-size: var(--fs-xs);
+  letter-spacing: var(--tracking-caps);
+  color: var(--c-text-3);
+}
+.buy-stat-value {
+  font-size: 24px;
+  font-weight: 600;
+}
+.buy-time.low {
+  color: var(--c-danger);
+}
+.buy-after {
+  min-height: 16px;
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
+}
+.buy-body {
+  display: grid;
+  /* Primary weapons on the left; secondary, melee and equipment stacked on the right. */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-areas:
+    'primary secondary'
+    'primary melee'
+    'primary equipment';
+  align-content: start;
+  gap: var(--s-4) var(--s-5);
+  padding: var(--s-4) var(--s-5);
+  overflow-y: auto;
+}
+.buy-section[data-section='primary'] {
+  grid-area: primary;
+}
+.buy-section[data-section='secondary'] {
+  grid-area: secondary;
+}
+.buy-section[data-section='melee'] {
+  grid-area: melee;
+}
+.buy-section[data-section='equipment'] {
+  grid-area: equipment;
+}
+.buy-section-title {
+  margin: 0 0 var(--s-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-caps);
+  color: var(--c-text-3);
+}
+.buy-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.buy-card {
+  display: grid;
+  grid-template-columns: 64px 1fr auto;
+  grid-template-areas:
+    'art code price'
+    'art name tag'
+    'art spec spec';
+  column-gap: var(--s-3);
+  row-gap: 2px;
+  align-items: center;
+  width: 100%;
+  padding: var(--s-2) var(--s-3);
+  background: var(--c-panel);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  color: var(--c-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--t-fast), border-color var(--t-fast);
+}
+.buy-card:hover,
+.buy-card:focus-visible {
+  background: var(--c-panel-hover);
+  border-color: var(--c-border-strong);
+}
+.buy-card:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.buy-card[data-state='owned'],
+.buy-card[data-state='issued'] {
+  border-color: var(--c-accent);
+  background: var(--c-accent-soft);
+}
+.buy-card[data-state='locked'] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.buy-card[data-state='short'] .buy-price {
+  color: var(--c-danger);
+}
+.buy-art {
+  grid-area: art;
+  width: 64px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  background: var(--c-bg) center / contain no-repeat;
+}
+.buy-art svg {
+  width: 30px;
+  height: 30px;
+  fill: var(--c-text-3);
+}
+.buy-art.has-image svg {
+  display: none;
+}
+.buy-code {
+  grid-area: code;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--fs-md);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.buy-name {
+  grid-area: name;
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
+}
+.buy-spec {
+  grid-area: spec;
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+}
+.buy-price {
+  grid-area: price;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.buy-tag {
+  grid-area: tag;
+  justify-self: end;
+  font-size: var(--fs-xs);
+  letter-spacing: 0.06em;
+  color: var(--c-text-2);
+}
+.buy-card[data-state='owned'] .buy-tag,
+.buy-card[data-state='issued'] .buy-tag {
+  color: var(--c-accent);
+}
+.buy-card[data-state='short'] .buy-tag {
+  color: var(--c-danger);
+}
+.buy-foot {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    'loadout actions'
+    'feedback actions';
+  gap: var(--s-2) var(--s-5);
+  align-items: center;
+  padding: var(--s-3) var(--s-5) var(--s-4);
+  border-top: 1px solid var(--c-border);
+}
+.buy-loadout {
+  grid-area: loadout;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-5);
+}
+.bl-item {
+  display: flex;
+  gap: var(--s-2);
+  align-items: baseline;
+}
+.bl-k {
+  font-size: var(--fs-xs);
+  letter-spacing: var(--tracking-caps);
+  color: var(--c-text-3);
+}
+.bl-v {
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+.bl-v.none {
+  font-family: var(--font);
+  font-weight: 400;
+  color: var(--c-text-3);
+}
+.buy-feedback {
+  grid-area: feedback;
+  min-height: 18px;
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
+}
+.buy-feedback.ok {
+  color: var(--c-text);
+}
+.buy-feedback.error {
+  color: var(--c-danger);
+}
+.buy-actions {
+  grid-area: actions;
+  display: flex;
+  gap: var(--s-2);
+}
+@media (max-width: 700px) {
+  .buy-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'primary' 'secondary' 'melee' 'equipment';
+  }
+}
+/* Short screens: tighter header and footer so more cards fit. */
+@media (max-height: 520px) {
+  .buy-head {
+    padding: var(--s-2) var(--s-4);
+  }
+  .buy-heading .eyebrow {
+    display: none;
+  }
+  .buy-title {
+    font-size: var(--fs-lg);
+  }
+  .buy-stat-value {
+    font-size: var(--fs-lg);
+  }
+  .buy-body {
+    padding: var(--s-3) var(--s-4);
+  }
+  .buy-foot {
+    padding: var(--s-2) var(--s-4) var(--s-3);
+  }
+}
+@media (max-width: 640px) {
+  .buy-head {
+    flex-wrap: wrap;
+    gap: var(--s-3);
+  }
+  .buy-foot {
+    grid-template-columns: 1fr;
+    grid-template-areas: 'loadout' 'feedback' 'actions';
+  }
+  .buy-actions .btn {
+    flex: 1;
+  }
+}

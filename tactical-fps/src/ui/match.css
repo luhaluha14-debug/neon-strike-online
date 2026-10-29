@@ -1,0 +1,422 @@
+/* Deathmatch overlay: timer bar, kill feed, scoreboard, results. Tokens in theme.css. */
+.match-hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+.hud:not(.playing) .match-hud .match-bar,
+.hud:not(.playing) .match-hud .killfeed {
+  visibility: hidden;
+}
+.match-bar {
+  position: absolute;
+  top: max(14px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 16px;
+  background: var(--hud-bg);
+  border-bottom: 2px solid var(--c-border-strong);
+  color: var(--hud-fg);
+  font-size: var(--fs-md);
+  white-space: nowrap;
+}
+.mb-time {
+  font-size: 20px;
+  font-weight: 600;
+  min-width: 3.2em;
+  text-align: center;
+}
+.mb-time.low {
+  color: var(--hud-danger);
+}
+.mb-kills b {
+  color: var(--hud-accent);
+  font-size: 18px;
+}
+.mb-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--c-border-strong);
+}
+.mb-rank {
+  color: var(--hud-dim);
+}
+.killfeed {
+  position: absolute;
+  top: max(14px, env(safe-area-inset-top));
+  right: max(16px, env(safe-area-inset-right));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  max-width: min(46vw, 360px);
+}
+.killfeed li {
+  padding: 4px 10px;
+  background: var(--hud-bg);
+  color: var(--hud-fg);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.killfeed li.mine {
+  border-left: 2px solid var(--hud-accent);
+}
+.killfeed li.me-died {
+  border-left: 2px solid var(--hud-danger);
+}
+.killfeed .me {
+  color: var(--hud-accent);
+  font-weight: 600;
+}
+.kf-w {
+  color: var(--hud-dim);
+  margin: 0 4px;
+}
+.scoreboard {
+  position: absolute;
+  left: 50%;
+  top: 18%;
+  transform: translateX(-50%);
+  width: min(460px, calc(100vw - 32px));
+  padding: 14px 16px;
+  background: rgba(17, 19, 21, 0.86);
+  border-top: 2px solid var(--c-accent);
+}
+/* The team board sets display: grid, which would otherwise override [hidden]. */
+.scoreboard[hidden] {
+  display: none;
+}
+.score-table {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--c-text);
+  font-size: var(--fs-md);
+}
+.score-table th {
+  text-align: left;
+  color: var(--c-text-3);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-caps);
+  padding: 4px 6px 8px;
+  border-bottom: 1px solid var(--c-border);
+}
+.score-table td {
+  padding: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.score-table th:nth-child(n + 3),
+.score-table td:nth-child(n + 3) {
+  text-align: right;
+  width: 3.5em;
+}
+.score-table th:first-child,
+.score-table td:first-child {
+  width: 2em;
+  color: var(--c-text-3);
+}
+.score-table tr.me td {
+  color: var(--c-accent);
+  font-weight: 600;
+}
+.results {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(10, 11, 12, 0.72);
+  pointer-events: auto;
+}
+.results[hidden] {
+  display: none;
+}
+.results-panel {
+  width: min(480px, 100%);
+  padding: 24px 22px 20px;
+  background: var(--c-bg-2);
+  border-top: 3px solid var(--c-danger);
+}
+.results.won .results-panel {
+  border-top-color: var(--c-accent);
+}
+.results-title {
+  font-size: var(--fs-display);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--c-danger);
+}
+.results.won .results-title {
+  color: var(--c-accent);
+}
+.results-sub {
+  margin: 4px 0 16px;
+  color: var(--c-text-2);
+}
+.results-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}
+.results-actions .btn-primary {
+  flex: 1;
+}
+
+/* Team match (TeamHud): same panels, team colours. */
+.team-hud {
+  --team-blue: #5b93ff;
+  --team-red: #e0614d;
+}
+.hud:not(.playing) .team-hud .team-alive,
+.hud:not(.playing) .team-hud .round-banner {
+  visibility: hidden;
+}
+.team-bar {
+  gap: 16px;
+}
+.tb-side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  letter-spacing: var(--tracking-caps);
+}
+.tb-side.blue {
+  color: var(--team-blue);
+}
+.tb-side.red {
+  color: var(--team-red);
+}
+.tb-wins {
+  font-size: 22px;
+  min-width: 1.2em;
+  text-align: center;
+  color: var(--hud-fg);
+}
+.tb-mid {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.15;
+}
+.tb-round {
+  font-size: var(--fs-xs);
+  color: var(--hud-dim);
+}
+.team-alive {
+  position: absolute;
+  top: calc(max(14px, env(safe-area-inset-top)) + 52px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 18px;
+  font-size: var(--fs-sm);
+  color: var(--hud-dim);
+  font-variant-numeric: tabular-nums;
+}
+.ta b {
+  font-size: 16px;
+  color: var(--hud-fg);
+}
+.ta.blue b {
+  color: var(--team-blue);
+}
+.ta.red b {
+  color: var(--team-red);
+}
+.round-banner {
+  position: absolute;
+  top: 26%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 22px;
+  background: var(--hud-bg);
+  color: var(--hud-fg);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  border-bottom: 2px solid var(--c-border-strong);
+}
+.round-banner[hidden] {
+  display: none;
+}
+.rb-sub {
+  display: block;
+  margin-top: 4px;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--hud-fg);
+  text-align: center;
+}
+.ta.money b {
+  color: var(--hud-fg);
+}
+.round-banner.blue {
+  border-bottom-color: var(--team-blue);
+  color: var(--team-blue);
+}
+.round-banner.red {
+  border-bottom-color: var(--team-red);
+  color: var(--team-red);
+}
+.killfeed .t-blue {
+  color: var(--team-blue);
+}
+.killfeed .t-red {
+  color: var(--team-red);
+}
+.killfeed .me {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.team-board {
+  width: min(720px, calc(100vw - 32px));
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+.team-table thead th:first-child {
+  font-size: var(--fs-sm);
+}
+.team-table.blue thead th:first-child {
+  color: var(--team-blue);
+}
+.team-table.red thead th:first-child {
+  color: var(--team-red);
+}
+.team-hud .results-panel {
+  width: min(720px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+}
+.results-teams {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+}
+.round-history {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+.rh {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 52px;
+  padding: 5px 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border-top: 2px solid var(--c-border-strong);
+  font-size: var(--fs-xs);
+  color: var(--c-text-2);
+}
+.rh.blue {
+  border-top-color: var(--team-blue);
+}
+.rh.red {
+  border-top-color: var(--team-red);
+}
+.rh-n {
+  color: var(--c-text-3);
+}
+.rh-w {
+  font-weight: 600;
+  color: var(--c-text);
+}
+.rh.blue .rh-w {
+  color: var(--team-blue);
+}
+.rh.red .rh-w {
+  color: var(--team-red);
+}
+
+/* C4 objective: the player's side, bomb status / timer, key hint and the player's plant / defuse bar. */
+.team-hud .ta.side {
+  color: var(--hud-fg, #fff);
+  font-weight: 700;
+}
+.team-hud .bomb-box {
+  position: absolute;
+  top: 92px;
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 220px;
+  padding: 6px 12px;
+  background: var(--hud-bg, rgba(17, 19, 21, 0.62));
+  color: var(--hud-fg, #fff);
+  font-size: 13px;
+  text-align: center;
+  pointer-events: none;
+}
+.team-hud .bomb-box[hidden],
+.team-hud .bomb-hint[hidden],
+.team-hud .bomb-progress[hidden] {
+  display: none;
+}
+.team-hud .bomb-status {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+.team-hud .bomb-box.planted .bomb-timer {
+  color: #ff5a46;
+}
+.team-hud .bomb-box.defused .bomb-text {
+  color: #63e08a;
+}
+.team-hud .bomb-hint {
+  margin-top: 3px;
+  color: var(--hud-dim, rgba(255, 255, 255, 0.6));
+  font-size: 12px;
+}
+.team-hud .bomb-progress {
+  margin-top: 5px;
+}
+.team-hud .bomb-track {
+  height: 5px;
+  margin-top: 3px;
+  background: rgba(255, 255, 255, 0.15);
+}
+.team-hud .bomb-bar {
+  height: 100%;
+  background: #ffb347;
+  transform-origin: left center;
+  transform: scaleX(0);
+}
+.hud:not(.playing) .team-hud .bomb-box {
+  display: none;
+}
+
+/* GRID credits earned (or why not): in the panel's top padding, so the result layout keeps its size. */
+.results-panel {
+  position: relative;
+}
+.results-reward {
+  position: absolute;
+  top: 5px;
+  right: 12px;
+  max-width: calc(100% - 24px);
+  overflow: hidden;
+  color: var(--c-accent);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

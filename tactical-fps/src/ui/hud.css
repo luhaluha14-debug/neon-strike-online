@@ -1,0 +1,445 @@
+/* In-game HUD (crosshair, health, ammo, loadout strip, perf stats). Tokens live in theme.css. */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--c-bg);
+  color: var(--c-text);
+  font-family: var(--font);
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: none;
+}
+
+#app,
+#app canvas {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* Crosshair: four thin lines with a dark outline so it reads on any surface. */
+.crosshair {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.hud.playing .crosshair {
+  opacity: 1;
+}
+/* Gameplay readouts stay out of the way while the menu is open. */
+.hud:not(.playing) .vitals,
+.hud:not(.playing) .weapon {
+  visibility: hidden;
+}
+.ch-line {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55);
+}
+.ch-top,
+.ch-bottom {
+  width: 2px;
+  height: 6px;
+  left: -1px;
+}
+.ch-top {
+  top: -10px;
+}
+.ch-bottom {
+  top: 4px;
+}
+.ch-left,
+.ch-right {
+  width: 6px;
+  height: 2px;
+  top: -1px;
+}
+.ch-left {
+  left: -10px;
+}
+.ch-right {
+  left: 4px;
+}
+
+/* Hit marker: an X around the crosshair, shown briefly by Hud.showHitMarker(). */
+.hitmarker {
+  position: absolute;
+  left: 0;
+  top: 0;
+  opacity: 0;
+  --hm-color: rgba(255, 255, 255, 0.95);
+}
+.hitmarker.head {
+  --hm-color: #ff5446;
+}
+.hitmarker.kill {
+  transform: scale(1.45);
+}
+.hm {
+  position: absolute;
+  width: 2px;
+  height: 7px;
+  left: -1px;
+  top: -3.5px;
+  background: var(--hm-color);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55);
+}
+.hm-tl {
+  transform: rotate(-45deg) translateY(-11px);
+}
+.hm-tr {
+  transform: rotate(45deg) translateY(-11px);
+}
+.hm-bl {
+  transform: rotate(45deg) translateY(11px);
+}
+.hm-br {
+  transform: rotate(-45deg) translateY(11px);
+}
+
+/* Taking damage: red screen edges + a marker on a ring pointing at the shooter. */
+.damage-vignette {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(170, 28, 18, 0.55) 100%);
+}
+.damage-dir {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  opacity: 0;
+}
+.damage-arc {
+  position: absolute;
+  left: -26px;
+  top: -122px;
+  width: 52px;
+  height: 14px;
+  border-top: 4px solid var(--hud-danger);
+  border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.6));
+}
+
+/* Dead: no crosshair or weapon readout, a small panel with the respawn countdown. */
+.hud.dead .crosshair,
+.hud.dead .weapon,
+.hud.dead .damage-dir {
+  visibility: hidden;
+}
+.death {
+  position: absolute;
+  left: 50%;
+  top: 36%;
+  transform: translate(-50%, -50%);
+  width: min(260px, calc(100vw - 32px));
+  padding: 14px 18px 16px;
+  background: var(--hud-bg);
+  border-left: 2px solid var(--hud-danger);
+  font-variant-numeric: tabular-nums;
+}
+.death[hidden],
+.hud:not(.playing) .death {
+  display: none;
+}
+.death-title {
+  font-size: var(--fs-xs);
+  letter-spacing: var(--tracking-caps);
+  color: var(--hud-danger);
+  font-weight: 600;
+}
+.death-timer {
+  margin-top: 6px;
+  font-size: var(--fs-md);
+  color: var(--hud-fg);
+}
+.death-seconds {
+  font-size: 22px;
+  font-weight: 600;
+}
+.death-track {
+  margin-top: 10px;
+  height: 2px;
+  background: rgba(242, 242, 240, 0.16);
+}
+.death-bar {
+  height: 100%;
+  background: var(--hud-fg);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+.death-note {
+  display: none;
+  margin-top: 6px;
+  font-size: var(--fs-md);
+  color: var(--hud-fg);
+}
+/* Team match: no respawn, a small spectator note low on the screen instead. */
+.death.spectate {
+  top: auto;
+  bottom: 20%;
+  transform: translateX(-50%);
+}
+.death.spectate .death-timer,
+.death.spectate .death-track {
+  display: none;
+}
+.death.spectate .death-note {
+  display: block;
+}
+
+/* Health */
+.vitals {
+  position: absolute;
+  left: max(24px, env(safe-area-inset-left));
+  bottom: max(24px, env(safe-area-inset-bottom));
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 10px 14px 12px;
+  background: var(--hud-bg);
+  border-left: 2px solid var(--c-border-strong);
+  font-variant-numeric: tabular-nums;
+}
+.vitals-label {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--hud-dim);
+  padding-bottom: 4px;
+}
+.vitals-main {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.health-value {
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1;
+}
+.health-track {
+  width: 140px;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.15);
+}
+.health-bar {
+  height: 100%;
+  background: var(--hud-fg);
+  transform-origin: left center;
+  transition: transform 0.2s ease-out;
+}
+.hud.low-health .health-value {
+  color: var(--hud-danger);
+}
+.hud.low-health .health-bar {
+  background: var(--hud-danger);
+}
+
+/* Perf / debug */
+.stats {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  display: none;
+  padding: 6px 8px;
+  background: var(--hud-bg);
+  font: 11px/1.45 ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  white-space: pre;
+  color: var(--hud-dim);
+}
+.stats.visible {
+  display: block;
+}
+
+/* Weapon / ammo (bottom right, mirrors the health block) */
+.weapon {
+  position: absolute;
+  right: max(24px, env(safe-area-inset-right));
+  bottom: max(24px, env(safe-area-inset-bottom));
+  min-width: 150px;
+  padding: 10px 14px 12px;
+  background: var(--hud-bg);
+  border-right: 2px solid var(--c-border-strong);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.weapon-name {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--hud-dim);
+  margin-bottom: 4px;
+}
+.ammo {
+  line-height: 1;
+}
+.ammo-mag {
+  font-size: 30px;
+  font-weight: 600;
+}
+.ammo-sep {
+  margin: 0 6px;
+  font-size: 18px;
+  color: var(--hud-dim);
+}
+.ammo-reserve {
+  font-size: 18px;
+  color: var(--hud-dim);
+}
+.weapon-status {
+  min-height: 14px;
+  margin-top: 6px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--hud-dim);
+}
+.reload-track {
+  height: 3px;
+  margin-top: 4px;
+  background: rgba(255, 255, 255, 0.12);
+  visibility: hidden;
+}
+.reload-bar {
+  height: 100%;
+  background: var(--hud-fg);
+  transform: scaleX(0);
+  transform-origin: left center;
+}
+.hud.reloading .reload-track {
+  visibility: visible;
+}
+.hud.ammo-low .ammo-mag {
+  color: var(--c-warn);
+}
+.hud.ammo-empty .ammo-mag,
+.hud.ammo-empty .weapon-status {
+  color: var(--hud-danger);
+}
+.hud.reloading .ammo-mag {
+  color: var(--hud-dim);
+}
+
+/* Loadout strip above the ammo counter */
+.loadout {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-bottom: 6px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--hud-dim);
+}
+.loadout .slot.active {
+  color: var(--c-accent);
+  font-weight: 600;
+}
+.hud.no-ammo .ammo-sep {
+  display: none;
+}
+
+/* SR-01 scope: dark mask around a round field, fine cross-hairs; the gun crosshair hides. */
+.scope {
+  position: absolute;
+  inset: 0;
+  display: none;
+  pointer-events: none;
+  background: radial-gradient(circle at center, transparent 0, transparent 41vmin, rgba(0, 0, 0, 0.92) 41.6vmin, #000 46vmin);
+}
+.hud.playing.scoped .scope {
+  display: block;
+}
+.hud.scoped .crosshair {
+  visibility: hidden;
+}
+.scope-h,
+.scope-v {
+  position: absolute;
+  background: rgba(0, 0, 0, 0.85);
+}
+.scope-h {
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+}
+.scope-v {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+}
+
+/* Armour (ARMOR-01): a smaller readout beside the health one. */
+.armor {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  margin-left: 4px;
+  padding-left: 12px;
+  border-left: 1px solid var(--c-border-strong);
+}
+.armor[hidden] {
+  display: none;
+}
+.armor-value {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1;
+}
+.armor .health-track {
+  width: 80px;
+}
+.armor-bar {
+  height: 100%;
+  background: #8fa3b8;
+  transform-origin: left center;
+  transition: transform 0.2s ease-out;
+}
+
+/* FLASH-01: white screen while blinded (opacity set per frame); SMOKE-01: grey veil inside a cloud. */
+.flash-white,
+.smoke-veil {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+}
+.flash-white {
+  background: #fff;
+}
+.smoke-veil {
+  background: rgb(160, 164, 168);
+}
+/* Grenades carried, above the weapon name; the one in hand is lit. */
+.utility {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--hud-dim);
+}
+.utility .ut.held {
+  color: var(--hud-fg);
+  font-weight: 700;
+}
