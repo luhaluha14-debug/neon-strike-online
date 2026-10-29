@@ -49,7 +49,7 @@ export type ToClient =
   /** Combatants, ~20 per second. */
   | { k: 'snap'; t: number; e: EntityState[] }
   /** Match / round / bomb state, a few times a second and on changes. */
-  | { k: 'match'; t: number; m: MatchState | TeamMatchState; bomb: BombStateMsg | null }
+  | { k: 'match'; t: number; m: MatchState | TeamMatchState; bomb: BombStateMsg | null; who?: [member: string, team: 'blue' | 'red'][] }
   /** Put your character here (spawn, round start, correction). `loadout`: catalog ids of the gear (team match). */
   | { k: 'spawn'; sp: number; p: V3; yaw: number; alive: boolean; hp: number; armor: number; loadout: string[] | null; grenades: { flash: number; smoke: number } | null; round: boolean }
   /** You were hit (direction for the HUD; hp / death follow in snapshots). */

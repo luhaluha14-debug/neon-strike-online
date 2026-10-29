@@ -45,7 +45,7 @@ before(async () => {
   env = await startEnv();
   page = await openGame(env, { map: 'warehouse' });
   await page.click('.play-button');
-  await page.waitForFunction(() => document.pointerLockElement !== null && window.game.audio.state === 'running', null, { timeout: 30000 });
+  await page.waitForFunction(() => document.pointerLockElement !== null && window.game.input.active && window.game.audio.state === 'running', null, { timeout: 30000 });
   await page.evaluate(() => window.game.audio.ready);
   await installFrameDriver(page);
   await page.evaluate(async () => {

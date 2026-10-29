@@ -41,6 +41,12 @@ export function createMpServer(opts: MpServerOptions): MpServer {
       res.end(body);
       return;
     }
+    if (path === `${MP_PATH}/rooms`) {
+      const body = JSON.stringify({ service: MP_SERVICE, rooms: rooms.list() });
+      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store', 'access-control-allow-origin': '*' });
+      res.end(body);
+      return;
+    }
     serveStatic(req, res, path)
       .then((done) => {
         if (!done) {

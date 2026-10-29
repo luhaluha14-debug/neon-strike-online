@@ -26,7 +26,7 @@ export interface ClientGame {
   /** The host's mode / map: switch to it (loads the map if needed); resolves when ready to play. */
   netMode(mode: 'deathmatch' | 'team', map: string): Promise<void>;
   netYou(id: string, team: string | null): void;
-  netMatch(m: MatchState | TeamMatchState, bomb: BombStateMsg | null): void;
+  netMatch(m: MatchState | TeamMatchState, bomb: BombStateMsg | null, who?: readonly [string, string][]): void;
   netSpawn(m: Extract<ToClient, { k: 'spawn' }>): void;
   netHurt(m: Extract<ToClient, { k: 'hurt' }>): void;
   netFx(m: Extract<ToClient, { k: 'fx' }>, muzzle: THREE.Vector3 | null, mine: boolean): void;
@@ -102,7 +102,7 @@ export class NetClient {
         break;
       }
       case 'match':
-        this.game.netMatch(d.m, d.bomb);
+        this.game.netMatch(d.m, d.bomb, d.who);
         break;
       case 'spawn':
         this.spawnSeq = d.sp;

@@ -38,6 +38,9 @@ const MAX_ORIGIN_OFFSET = 3;
 /** What NetHost needs from the game (Game implements it). */
 export interface HostGame {
   readonly mode: string;
+  readonly localTeam: 'blue' | 'red';
+  /** Who plays which team changed (the room view shows it). */
+  netTeamsChanged(): void;
   readonly squad: BotSquad | null;
   readonly match: Match | null;
   readonly teamMatch: TeamMatch | null;
@@ -313,6 +316,7 @@ export class NetHost {
     this.send({ k: 'you', id: bot.id, team: bot.team ?? null }, rp.id);
     this.sendSpawn(rp);
     this.sendMatch(rp.id);
+    this.game.netTeamsChanged();
   }
 
   private release(rp: RemotePlayer): void {
@@ -325,6 +329,7 @@ export class NetHost {
     this.rename(bot.id, rp.botName);
     this.lag.forget(bot.id);
     rp.bot = null;
+    this.game.netTeamsChanged();
   }
 
   private rename(id: string, name: string): void {
@@ -372,7 +377,14 @@ export class NetHost {
     const ms = tm ? teamMatchState(tm, (id) => this.wire(id), this.nameOf) : m ? matchState(m, (id) => this.wire(id), this.nameOf) : null;
     if (!ms) return;
     const bomb = this.game.bomb ? bombState(this.game.bomb, (id) => this.wire(id)) : null;
-    this.send({ k: 'match', t: r3(this.now()), m: ms, bomb }, to);
+    this.send({ k: 'match', t: r3(this.now()), m: ms, bomb, who: tm ? this.teams() : undefined }, to);
+  }
+
+  /** Team match: each room member's team (the host plays BLUE as 'local'), for the room view. */
+  teams(): [string, 'blue' | 'red'][] {
+    const out: [string, 'blue' | 'red'][] = [[this.wire('local'), this.game.localTeam]];
+    for (const rp of this.members.values()) if (rp.bot?.team === 'blue' || rp.bot?.team === 'red') out.push([rp.id, rp.bot.team]);
+    return out;
   }
 
   /** Changes worth sending at once (phase, round, scores, bomb). */

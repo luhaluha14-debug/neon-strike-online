@@ -74,3 +74,66 @@
   color: var(--c-danger);
   font-size: var(--fs-sm);
 }
+.mp-team {
+  display: inline-block;
+  min-width: 3.4em;
+  padding: 0 var(--s-1);
+  border-radius: var(--radius);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-align: center;
+  color: #0f1114;
+}
+.mp-team.blue {
+  background: #5b93ff;
+}
+.mp-team.red {
+  background: #e0614d;
+}
+.mp-list {
+  margin-top: var(--s-4);
+}
+.mp-list-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--s-2);
+}
+.mp-rooms {
+  margin: var(--s-2) 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--s-1);
+}
+.mp-room-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-1) var(--s-1) var(--s-1) var(--s-3);
+  background: var(--c-bg-2);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  font-size: var(--fs-sm);
+}
+.mp-room-row-code {
+  color: var(--c-accent);
+  letter-spacing: 0.14em;
+}
+.mp-room-row-info {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mp-room-row-count.full {
+  color: var(--c-text-3);
+}
+.mp-rejoin {
+  margin-top: var(--s-2);
+}
+.mp-rejoin[hidden] {
+  display: none;
+}

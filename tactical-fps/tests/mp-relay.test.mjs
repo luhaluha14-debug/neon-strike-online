@@ -1,6 +1,6 @@
 // Multiplayer relay (server/mp): rooms without sockets (quick join, codes,
-// capacity, host hand-over, routing rules) and the real WebSocket server
-// (health, version / name checks, routing with stamped senders, a host
+// capacity, host hand-over, routing rules, the public room list) and the real WebSocket server
+// (health, room list, version / name checks, routing with stamped senders, a host
 // leaving, origins, message size and rate limits, the game page).
 
 import { test, before, after } from 'node:test';
@@ -60,6 +60,24 @@ test('rooms: quick join fills one room per mode up to its capacity, then opens a
   rooms.handle(c, { t: 'create', mode: 'deathmatch', map: 'warehouse' });
   assert.equal(rooms.roomOf(c).code, 'DDDDD');
   assert.equal(rooms.roomOf(c).hostId, c);
+});
+
+test('rooms: the public list has every room with its player count (no names), open rooms first; an emptied room drops out', () => {
+  const { rooms, hi } = world();
+  const a = hi('Alpha');
+  rooms.handle(a, { t: 'create', mode: 'team', map: 'seoul' });
+  const full = Array.from({ length: 8 }, (_, i) => hi(`d${i}`));
+  for (const id of full) rooms.handle(id, { t: 'quick', mode: 'deathmatch', map: 'warehouse' });
+  const b = hi('Bravo');
+  rooms.handle(b, { t: 'join', code: 'AAAAA' });
+  assert.deepEqual(rooms.list(), [
+    { code: 'AAAAA', mode: 'team', map: 'seoul', players: 2, capacity: 10 },
+    { code: 'BBBBB', mode: 'deathmatch', map: 'warehouse', players: 8, capacity: 8 },
+  ]);
+  assert.ok(!JSON.stringify(rooms.list()).includes('Alpha'), 'no player names in the public list');
+  rooms.handle(a, { t: 'leave' });
+  rooms.disconnect(b);
+  assert.deepEqual(rooms.list().map((r) => r.code), ['BBBBB']);
 });
 
 test('rooms: join by code (any case), full rooms refuse, unknown codes refuse; nothing before hello', () => {
@@ -174,6 +192,9 @@ async function hello(name) {
 test('server: health, game page, hello / quick join / relay over real sockets, host hand-over', async () => {
   const h = await fetch(`http://${url}${M.MP_PATH}/health`).then((r) => r.json());
   assert.equal(h.service, 'grid-mp');
+  const empty = await fetch(`http://${url}${M.MP_PATH}/rooms`);
+  assert.equal(empty.headers.get('cache-control'), 'no-store');
+  assert.deepEqual(await empty.json(), { service: 'grid-mp', rooms: [] });
   assert.match(await fetch(`http://${url}/`).then((r) => r.text()), /GRID/);
   const host = await hello('Host');
   host.send({ t: 'quick', mode: 'team', map: 'seoul' });
@@ -183,6 +204,7 @@ test('server: health, game page, hello / quick join / relay over real sockets, h
   guest.send({ t: 'join', code: room.code.toLowerCase() });
   const groom = (await guest.next((m) => m.t === 'room')).room;
   assert.deepEqual(groom.members.map((m) => m.name), ['Host', 'Guest']);
+  assert.deepEqual((await fetch(`http://${url}${M.MP_PATH}/rooms`).then((r) => r.json())).rooms, [{ code: room.code, mode: 'team', map: 'seoul', players: 2, capacity: 10 }]);
   assert.equal((await host.next((m) => m.t === 'joined')).member.name, 'Guest');
   guest.send({ t: 'relay', d: { k: 'state', x: 1 } });
   assert.deepEqual(await host.next((m) => m.t === 'relay'), { t: 'relay', from: guest.id, d: { k: 'state', x: 1 } });

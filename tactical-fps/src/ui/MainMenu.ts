@@ -5,6 +5,9 @@ import { ACTIONS, bindKey, defaultControls, keyLabel, RESERVED_KEYS, SENSITIVITY
 
 export type MenuPage = 'play' | 'loadout' | 'settings' | 'controls' | 'inventory' | 'shop' | 'missions' | 'multi';
 
+/** What the overlay shows: the GRID lobby (first screen) or the menu pages. */
+export type MenuView = 'lobby' | 'menu';
+
 export interface MenuMap {
   id: string;
   name: string;
@@ -73,6 +76,8 @@ export class MainMenu {
   private pageListeners: ((page: MenuPage) => void)[] = [];
   private ready = false;
   private weaponsEnabled = false;
+  private stateListeners: (() => void)[] = [];
+  private viewListeners: ((view: MenuView) => void)[] = [];
 
   constructor(parent: HTMLElement) {
     this.root = document.createElement('div');
@@ -83,9 +88,10 @@ export class MainMenu {
         <header class="brand">
           <span class="brand-mark" aria-hidden="true"></span>
           <div>
-            <h1 class="brand-title">TACTICAL FPS</h1>
-            <div class="brand-sub eyebrow">Prototype · 솔로 연습</div>
+            <h1 class="brand-title">GRID</h1>
+            <div class="brand-sub eyebrow">전술 작전</div>
           </div>
+          <button type="button" class="btn menu-lobby" aria-label="로비로">◂ 로비</button>
         </header>
         <nav class="tabs" role="tablist" aria-label="메뉴">
           ${PAGES.map(
@@ -196,7 +202,7 @@ export class MainMenu {
         <div class="loading-inner">
           <div class="brand brand-compact">
             <span class="brand-mark" aria-hidden="true"></span>
-            <span class="brand-title">TACTICAL FPS</span>
+            <span class="brand-title">GRID</span>
           </div>
           <div class="loading-info">
             <div class="eyebrow">맵 불러오는 중</div>
@@ -226,6 +232,60 @@ export class MainMenu {
 
     this.bindTabs();
     this.bindForfeit();
+    this.root.querySelector('.menu-lobby')!.addEventListener('click', () => this.showLobby());
+    // First screen: the lobby.
+    this.root.classList.add('view-lobby');
+  }
+
+  // --- Views (lobby / menu) -----------------------------------------------------
+
+  get view(): MenuView {
+    return this.root.classList.contains('view-lobby') ? 'lobby' : 'menu';
+  }
+
+  /** The GRID lobby (ui/Lobby.ts draws it inside this overlay). */
+  showLobby(): void {
+    this.closeConfirm();
+    this.setView('lobby');
+  }
+
+  /** The menu pages, on `page` (default: the page shown last). */
+  showMenu(page?: MenuPage): void {
+    this.setView('menu');
+    if (page) this.showPage(page);
+  }
+
+  onViewChange(listener: (view: MenuView) => void): void {
+    this.viewListeners.push(listener);
+  }
+
+  /** Status line / ready / paused changed (the lobby mirrors them). */
+  onStateChange(listener: () => void): void {
+    this.stateListeners.push(listener);
+  }
+
+  /** The status line's text and whether it is an error. */
+  get statusLine(): { text: string; error: boolean } {
+    return { text: this.status.textContent ?? '', error: this.status.classList.contains('error') };
+  }
+
+  get loadingShown(): boolean {
+    return !this.loading.hidden;
+  }
+
+  /** Same as the 플레이 / 계속하기 button (nothing while it is disabled). */
+  play(): void {
+    if (!this.playButton.disabled) this.playButton.click();
+  }
+
+  private setView(view: MenuView): void {
+    if (view === this.view) return;
+    this.root.classList.toggle('view-lobby', view === 'lobby');
+    for (const l of this.viewListeners) l(view);
+  }
+
+  private changed(): void {
+    for (const l of this.stateListeners) l();
   }
 
   // --- 대결 포기 (team match, pause menu) -----------------------------------------
@@ -540,7 +600,15 @@ export class MainMenu {
     });
   }
 
-  bindToggle(setting: 'stats', initial: boolean, onChange: (on: boolean) => void): void {
+  /** Picks `value` in a select as if the player had (its change handler runs). Nothing when already picked or locked. */
+  selectValue(setting: 'mode', value: string): void {
+    const select = this.root.querySelector<HTMLSelectElement>(`select[data-setting="${setting}"]`)!;
+    if (select.disabled || select.value === value || ![...select.options].some((o) => o.value === value)) return;
+    select.value = value;
+    select.dispatchEvent(new Event('change'));
+  }
+
+    bindToggle(setting: 'stats', initial: boolean, onChange: (on: boolean) => void): void {
     const input = this.root.querySelector<HTMLInputElement>(`input[data-setting="${setting}"]`)!;
     input.checked = initial;
     input.addEventListener('change', () => onChange(input.checked));
@@ -572,6 +640,7 @@ export class MainMenu {
       this.loadingPercent.textContent = `${pct}%`;
       this.loadingProgress.setAttribute('aria-valuenow', String(pct));
     }
+    this.changed();
   }
 
   /** Back to the menu with the Play/Resume button enabled. */
@@ -581,6 +650,7 @@ export class MainMenu {
     this.status.textContent = text;
     this.status.classList.remove('error');
     this.playButton.disabled = false;
+    this.changed();
   }
 
   setError(text: string): void {
@@ -589,11 +659,13 @@ export class MainMenu {
     this.status.textContent = text;
     this.status.classList.add('error');
     this.playButton.disabled = true;
+    this.changed();
   }
 
   /** Simple status line without changing the ready state. */
   setStatus(text: string): void {
     this.status.textContent = text;
+    this.changed();
   }
 
   get isReady(): boolean {
@@ -610,6 +682,7 @@ export class MainMenu {
     this.paused = paused;
     this.playButton.textContent = paused ? '계속하기' : '플레이';
     this.root.classList.toggle('is-paused', paused);
+    this.changed();
   }
 
   get isPaused(): boolean {

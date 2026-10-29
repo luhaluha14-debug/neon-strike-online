@@ -1,5 +1,5 @@
 import { randomInt } from 'node:crypto';
-import { CODE_ALPHABET, CODE_LENGTH, MP_PROTOCOL, ROOM_CAPACITY, cleanName, validCode, type ClientMessage, type MemberInfo, type RoomInfo, type RoomMode, type ServerMessage } from '../../src/net/Protocol';
+import { CODE_ALPHABET, CODE_LENGTH, MP_PROTOCOL, ROOM_CAPACITY, cleanName, validCode, type ClientMessage, type MemberInfo, type RoomInfo, type RoomMode, type RoomSummary, type ServerMessage } from '../../src/net/Protocol';
 
 // Rooms of the multiplayer relay, without sockets (so it can be tested
 // directly): who is connected, who is in which room, who hosts it, and where
@@ -118,6 +118,13 @@ export class Rooms {
       default:
         return err('bad_request');
     }
+  }
+
+  /** Rooms for the public list: open rooms first, then fuller ones (counts only, no names). */
+  list(): RoomSummary[] {
+    return [...this.rooms.values()]
+      .map((r) => ({ code: r.code, mode: r.mode, map: r.map, players: r.members.length, capacity: ROOM_CAPACITY[r.mode] }))
+      .sort((a, b) => Number(a.players >= a.capacity) - Number(b.players >= b.capacity) || b.players - a.players);
   }
 
   /** The room `id` is in (tests / health). */

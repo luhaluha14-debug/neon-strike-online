@@ -249,6 +249,8 @@ export class Hud {
 
   /** `paused` = menu showing (before the first start, or after Esc). */
   setPaused(paused: boolean): void {
+    // Paused mid-game: the menu pages (계속하기 / 대결 포기); the lobby is one click away.
+    if (paused) this.menu.showMenu();
     this.menu.setVisible(paused);
     this.root.classList.toggle('playing', !paused);
   }

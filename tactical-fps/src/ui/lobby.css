@@ -1,0 +1,236 @@
+/* GRID lobby (ui/Lobby.ts): the first screen inside the menu overlay. Tokens in theme.css. */
+
+/* One view at a time: the lobby or the menu column; the loading screen above both. */
+.overlay:not(.view-lobby) .lobby,
+.overlay.is-loading .lobby,
+.overlay.view-lobby .menu,
+.overlay.view-lobby .menu-scrim {
+  display: none;
+}
+
+.lobby {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  color: var(--c-text);
+  overflow-y: auto;
+}
+/* The live map behind, kept dark: charcoal on the left where the menu is. */
+.lobby-scrim {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(17, 19, 21, 0.97) 0%, rgba(17, 19, 21, 0.92) 30%, rgba(17, 19, 21, 0.6) 58%, rgba(17, 19, 21, 0.35) 100%),
+    linear-gradient(0deg, rgba(17, 19, 21, 0.9) 0%, rgba(17, 19, 21, 0) 22%);
+}
+.lobby-main {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 100%);
+  padding: clamp(28px, 8vh, 88px) var(--s-6) var(--s-5) clamp(24px, 6vw, 96px);
+}
+
+.lobby-brand {
+  display: flex;
+  align-items: stretch;
+  gap: var(--s-3);
+  margin-bottom: clamp(24px, 6vh, 56px);
+}
+.lobby-title {
+  margin: 0;
+  font-size: clamp(44px, 6.5vw, 84px);
+  font-weight: 800;
+  line-height: 0.9;
+  letter-spacing: 0.12em;
+}
+.lobby-sub {
+  margin-top: var(--s-2);
+}
+
+/* Menu items: a plain list, label + one line of what it opens. */
+.lobby-nav {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--c-border);
+}
+.lobby-nav[hidden],
+.lobby-play[hidden],
+.lobby-room[hidden],
+.lobby-item[hidden],
+.lobby-notice[hidden] {
+  display: none;
+}
+.lobby-item {
+  position: relative;
+  display: grid;
+  gap: 2px;
+  padding: var(--s-3) var(--s-3) var(--s-3) var(--s-4);
+  border: 0;
+  border-bottom: 1px solid var(--c-border);
+  background: none;
+  color: var(--c-text);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: background var(--t-fast);
+}
+.lobby-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: transparent;
+  transition: background var(--t-fast);
+}
+.lobby-item:hover:not(:disabled),
+.lobby-item:focus-visible {
+  outline: none;
+  background: var(--c-accent-soft);
+}
+.lobby-item:hover:not(:disabled)::before,
+.lobby-item:focus-visible::before {
+  background: var(--c-accent);
+}
+.lobby-item:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.lobby-item-label {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  letter-spacing: var(--tracking-caps);
+}
+.lobby-item-desc {
+  color: var(--c-text-2);
+  font-size: var(--fs-sm);
+}
+.lobby-item[data-lobby='resume'] .lobby-item-label {
+  color: var(--c-accent);
+}
+
+/* PLAY: mode cards. */
+.lobby-play-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  margin-bottom: var(--s-3);
+}
+.lobby-play-head .section-title {
+  margin: 0;
+}
+.lobby-modes {
+  display: grid;
+  gap: var(--s-2);
+  margin-bottom: var(--s-3);
+}
+.lobby-mode {
+  position: relative;
+  display: grid;
+  gap: var(--s-1);
+  padding: var(--s-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-bg-2);
+  color: var(--c-text);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color var(--t-fast), background var(--t-fast);
+}
+.lobby-mode:hover,
+.lobby-mode:focus-visible {
+  outline: none;
+  border-color: var(--c-accent);
+  background: var(--c-panel);
+}
+.lobby-mode-title {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+}
+.lobby-mode-desc {
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+.lobby-mode-current {
+  display: none;
+  position: absolute;
+  top: var(--s-3);
+  right: var(--s-3);
+  color: var(--c-accent);
+  font-size: var(--fs-xs);
+  letter-spacing: var(--tracking-caps);
+}
+.lobby-mode.current .lobby-mode-current {
+  display: block;
+}
+
+/* In a multiplayer room. */
+.lobby-room {
+  display: grid;
+  gap: var(--s-3);
+  margin-bottom: var(--s-4);
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--c-border-strong);
+  border-left: 3px solid var(--c-accent);
+  background: rgba(27, 30, 33, 0.85);
+}
+.lobby-room-info {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s-2) var(--s-3);
+}
+.lobby-room-code {
+  color: var(--c-accent);
+  font-size: var(--fs-xl);
+  letter-spacing: 0.18em;
+}
+.lobby-room-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+
+.lobby-notice {
+  margin: var(--s-3) 0 0;
+  padding: var(--s-2) var(--s-3);
+  border-left: 3px solid var(--c-danger);
+  background: rgba(208, 86, 63, 0.1);
+  font-size: var(--fs-sm);
+}
+
+.lobby-footer {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--s-2) var(--s-4);
+  padding: var(--s-3) var(--s-6) var(--s-4) clamp(24px, 6vw, 96px);
+  border-top: 1px solid var(--c-border);
+  background: rgba(17, 19, 21, 0.85);
+  font-size: var(--fs-sm);
+}
+.lobby-status.error {
+  color: var(--c-danger);
+}
+
+/* Menu header: back to the lobby. */
+.menu-lobby {
+  align-self: center;
+  margin-left: auto;
+}
+
+@media (max-width: 520px) {
+  .lobby-main {
+    padding: var(--s-5) var(--s-4);
+  }
+  .lobby-footer {
+    padding: var(--s-3) var(--s-4);
+  }
+}

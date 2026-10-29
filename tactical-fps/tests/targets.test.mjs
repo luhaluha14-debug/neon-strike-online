@@ -429,7 +429,7 @@ test('respawn (F4) resets every dummy: full health, standing, moving one back at
 
 test('real input: hit markers, body / head confirm sounds, no decals on dummies, F3 last hit', async () => {
   await page.click('.play-button');
-  await page.waitForFunction(() => document.pointerLockElement !== null && window.game.audio.state === 'running', null, { timeout: 30000 });
+  await page.waitForFunction(() => document.pointerLockElement !== null && window.game.input.active && window.game.audio.state === 'running', null, { timeout: 30000 });
   await page.evaluate(() => window.game.audio.ready);
   await installFrameDriver(page);
   await page.evaluate(() => {
