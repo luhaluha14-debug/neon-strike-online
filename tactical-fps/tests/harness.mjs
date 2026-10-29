@@ -48,8 +48,10 @@ export async function startEnv() {
  * until the map is loaded and the Play button is enabled. `page.errors`
  * collects page exceptions and console errors.
  */
-export async function openGame(env, { map = 'warehouse', quality = 'low', width = 640, height = 360, mode = 'training', objective = null, seed = null } = {}) {
+export async function openGame(env, { map = 'warehouse', quality = 'low', width = 640, height = 360, mode = 'training', objective = null, seed = null, lobby = false, init = null } = {}) {
   const context = await env.browser.newContext({ viewport: { width, height } });
+  // init: a script run in the page before the game (counters, stubs).
+  if (init) await context.addInitScript(init);
   const page = await context.newPage();
   page.setDefaultTimeout(LOAD_TIMEOUT);
   page.errors = [];
@@ -63,14 +65,32 @@ export async function openGame(env, { map = 'warehouse', quality = 'low', width 
   // seed: bots' random choices from a fixed seed (reproducible runs).
   // objective: team match 'bomb' (the game's default) or 'elimination' (suites written for the elimination rules).
   await page.goto(`${env.url}/?map=${map}` + (quality ? `&quality=${quality}` : '') + (mode ? `&mode=${mode}` : '') + (objective ? `&objective=${objective}` : '') + (seed !== null ? `&seed=${seed}` : ''));
-  await waitReady(page);
+  await waitReady(page, { lobby });
   return page;
 }
 
-export async function waitReady(page) {
+export async function waitReady(page, { lobby = false } = {}) {
   await page.waitForFunction(() => window.game && window.game.weapons && window.game.player && !document.querySelector('.play-button').disabled, null, {
     timeout: LOAD_TIMEOUT,
   });
+  if (!lobby) await leaveLobby(page);
+}
+
+/**
+ * The game opens on the GRID lobby. Suites written for the menu go through
+ * it as a player would: PLAY → the current mode's card (or TRAINING), which
+ * lands on the menu's Play page with the 플레이 button. `lobby: true` (in
+ * openGame / waitReady) stays on the lobby.
+ */
+export async function leaveLobby(page) {
+  const mode = await page.evaluate(() => (document.querySelector('.overlay.view-lobby:not(.hidden)') ? window.game.mode : null));
+  if (!mode) return;
+  if (mode === 'training') await page.click('.lobby [data-lobby="training"]');
+  else {
+    await page.click('.lobby [data-lobby="play"]');
+    await page.click(`.lobby [data-play-mode="${mode}"]`);
+  }
+  await page.waitForSelector('.overlay:not(.view-lobby) .play-button:not([disabled])');
 }
 
 /**
@@ -115,4 +135,67 @@ export async function golden(name, actual) {
     return actual;
   }
   return JSON.parse(await readFile(file, 'utf8'));
+}
+
+/**
+ * Page init script for leak checks: counts listeners added to window /
+ * document / the canvas, WebSockets and AudioContexts created. Read with
+ * `window.__counts()`;
+ * `window.__framesWaiting()` samples the frame callbacks waiting (one game loop = 1).
+ */
+export function countingInit() {
+  const listeners = {};
+  const add = EventTarget.prototype.addEventListener;
+  EventTarget.prototype.addEventListener = function (type, fn, opt) {
+    const who = this === window ? 'window' : this === document ? 'document' : this instanceof HTMLCanvasElement ? 'canvas' : null;
+    if (who) listeners[`${who}:${type}`] = (listeners[`${who}:${type}`] ?? 0) + 1;
+    return add.call(this, type, fn, opt);
+  };
+  let sockets = 0;
+  const WS = window.WebSocket;
+  window.WebSocket = class extends WS {
+    constructor(...a) {
+      super(...a);
+      sockets++;
+      (window.__sockets ??= []).push(this);
+    }
+  };
+  let audio = 0;
+  const AC = window.AudioContext;
+  if (AC)
+    window.AudioContext = class extends AC {
+      constructor(...a) {
+        super(...a);
+        audio++;
+      }
+    };
+  const pending = new Set();
+  const raf = window.requestAnimationFrame.bind(window);
+  const caf = window.cancelAnimationFrame.bind(window);
+  window.requestAnimationFrame = (cb) => {
+    const h = raf((t) => {
+      pending.delete(h);
+      cb(t);
+    });
+    pending.add(h);
+    return h;
+  };
+  window.cancelAnimationFrame = (h) => {
+    pending.delete(h);
+    caf(h);
+  };
+  // Frame callbacks waiting right now, sampled from timers (Playwright's waitForFunction polls by
+  // animation frame too, so only samples taken outside it count): the most seen in `ms`.
+  window.__framesWaiting = (ms = 500) =>
+    new Promise((resolve) => {
+      let most = 0;
+      const t0 = performance.now();
+      const sample = () => {
+        most = Math.max(most, pending.size);
+        if (performance.now() - t0 < ms) setTimeout(sample, 7);
+        else resolve(most);
+      };
+      sample();
+    });
+  window.__counts = () => ({ listeners: { ...listeners }, sockets, audio });
 }

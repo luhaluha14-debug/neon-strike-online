@@ -53,6 +53,7 @@ import { ACCOUNTS_ENABLED, AccountSession } from '../economy/AccountSession';
 import { LocalEconomyBackend } from '../economy/EconomyBackend';
 import { AccountPanel } from '../ui/AccountPanel';
 import { MultiplayerPanel } from '../ui/MultiplayerPanel';
+import { Lobby } from '../ui/Lobby';
 import { LoadoutService } from '../economy/LoadoutService';
 import { findSkin, PLAYER_TARGET } from '../economy/SkinCatalog';
 import type { AccountState, MatchResult, SkinDef } from '../economy/types';
@@ -367,8 +368,8 @@ export class Game implements HostGame, ClientGame {
       backend: this.economy,
       requestPreviews: (skins, onPreview) => void this.renderSkinPreviews(skins, onPreview),
     });
-    // Multiplayer lobby (멀티플레이 page).
-    new MultiplayerPanel(this.hud.menu, this);
+    // Multiplayer lobby (멀티플레이 page) and the GRID lobby (first screen) over it.
+    new Lobby(this.hud.menu, this, new MultiplayerPanel(this.hud.menu, this));
     // GRID sign-in (off for now: ACCOUNTS_ENABLED).
     if (ACCOUNTS_ENABLED)
       new AccountPanel(this.hud.menu.root, [this.hud.menu.pageElement('shop'), this.hud.menu.pageElement('inventory'), this.hud.menu.pageElement('missions')], this.accountSession);
@@ -388,6 +389,7 @@ export class Game implements HostGame, ClientGame {
         this.input.requestLock();
       },
       () => this.restartMatch(),
+      () => this.resultsToLobby(),
     );
     this.buyMenu = new BuyMenu(this.hud.root, {
       onBuy: (id) => void this.buy(id),
@@ -408,6 +410,7 @@ export class Game implements HostGame, ClientGame {
         this.input.requestLock();
       },
       () => this.restartMatch(),
+      () => this.resultsToLobby(),
     );
     this.bindMatchOptions();
     this.hud.menu.setForfeit(false, () => void this.forfeitMatch());
@@ -1104,6 +1107,20 @@ export class Game implements HostGame, ClientGame {
     return true;
   }
 
+  /**
+   * Results → 로비: a new match is set up behind the lobby (single player,
+   * or the room's host); a room member stays in the room and waits for the
+   * host's next match. Nothing is registered: only views change.
+   */
+  private resultsToLobby(): void {
+    if (this.netClient) {
+      this.matchHud.hideResults();
+      this.teamHud.hideResults();
+    } else this.restartMatch();
+    if (document.pointerLockElement) document.exitPointerLock();
+    this.hud.menu.showLobby();
+  }
+
   /** New match on the same map: fresh scores, everyone respawned. */
   restartMatch(): void {
     if (!this.map) return;
@@ -1373,11 +1390,13 @@ export class Game implements HostGame, ClientGame {
     }
     // Match over: freeze, release the mouse, show the results (a room member's match ends on the host).
     if (this.match?.over && !this.matchHud.resultsShown) {
+      this.matchHud.setRestartEnabled(!this.netClient);
       this.matchHud.showResults(this.match);
       this.settleMatch('completed');
       if (document.pointerLockElement) document.exitPointerLock();
     }
     if (this.teamMatch?.over && !this.teamHud.resultsShown) {
+      this.teamHud.setRestartEnabled(!this.netClient);
       this.teamHud.showResults(this.teamMatch);
       this.settleMatch(this.teamMatch.forfeitedBy ? 'forfeit' : 'completed');
       if (document.pointerLockElement) document.exitPointerLock();
@@ -1989,6 +2008,22 @@ export class Game implements HostGame, ClientGame {
     return this.mapDef.name;
   }
 
+  mapNameOf(id: string): string {
+    return MAPS.find((m) => m.id === id)?.name ?? id;
+  }
+
+  /** Member id → team in a team match room (host: its own roster; member: from the host's match state). */
+  private netTeams = new Map<string, 'blue' | 'red'>();
+
+  teamOf(memberId: string): 'blue' | 'red' | null {
+    if (this.netHost) return this.netHost.teams().find(([id]) => id === memberId)?.[1] ?? null;
+    return this.netTeams.get(memberId) ?? null;
+  }
+
+  netTeamsChanged(): void {
+    if (this.net?.room) this.onNetRoom?.(this.net.room);
+  }
+
   get netAiming(): boolean {
     return this.scoped || (this.inputState.aim && this.input.active);
   }
@@ -2053,6 +2088,7 @@ export class Game implements HostGame, ClientGame {
     this.syncBackgroundTicker();
     this.netClient?.dispose();
     this.netClient = null;
+    this.netTeams.clear();
     this.localTeam = 'blue';
     this.mode = this.matchSettings.mode;
     this.hud.menu.setMatchLocked(false);
@@ -2111,9 +2147,15 @@ export class Game implements HostGame, ClientGame {
     if (this.weapons) this.weapons.team = t;
   }
 
-  netMatch(m: MatchState | TeamMatchState, bomb: BombStateMsg | null): void {
+  netMatch(m: MatchState | TeamMatchState, bomb: BombStateMsg | null, who?: readonly [string, string][]): void {
     const c = this.netClient;
     if (!c) return;
+    const teams = new Map<string, 'blue' | 'red'>();
+    if (Array.isArray(who)) for (const w of who) if (Array.isArray(w) && typeof w[0] === 'string' && (w[1] === 'blue' || w[1] === 'red')) teams.set(w[0], w[1]);
+    if ([...teams].join() !== [...this.netTeams].join()) {
+      this.netTeams = teams;
+      this.netTeamsChanged();
+    }
     const rename = (id: string) => c.id(id);
     if (m.kind === 'dm') {
       this.match = applyMatch(this.match, m, rename);

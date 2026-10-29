@@ -21,7 +21,7 @@ export class MatchHud {
   private feedCount = -1;
   private boardKey = '';
 
-  constructor(parent: HTMLElement, onRestart: () => void, onMenu: () => void) {
+  constructor(parent: HTMLElement, onRestart: () => void, onMenu: () => void, onLobby: () => void = onMenu) {
     this.root = document.createElement('div');
     this.root.className = 'match-hud';
     this.root.hidden = true;
@@ -44,6 +44,7 @@ export class MatchHud {
           <div class="results-actions">
             <button type="button" class="btn btn-primary results-restart">다시 시작</button>
             <button type="button" class="btn results-menu">메뉴</button>
+            <button type="button" class="btn results-lobby">로비</button>
           </div>
         </div>
       </div>`;
@@ -57,6 +58,7 @@ export class MatchHud {
     this.results = q('.results');
     q('.results-restart').addEventListener('click', onRestart);
     q('.results-menu').addEventListener('click', onMenu);
+    q('.results-lobby').addEventListener('click', onLobby);
   }
 
   setVisible(on: boolean): void {
@@ -107,6 +109,13 @@ export class MatchHud {
   /** GRID credit line under the result (set once the economy has answered). */
   showReward(text: string): void {
     this.results.querySelector('.results-reward')!.textContent = text;
+  }
+
+  /** A room member cannot restart the host's match: its 다시 시작 waits for the host. */
+  setRestartEnabled(on: boolean): void {
+    const b = this.results.querySelector<HTMLButtonElement>('.results-restart')!;
+    b.disabled = !on;
+    b.title = on ? '' : '방장이 다음 경기를 시작합니다.';
   }
 
   hideResults(): void {

@@ -34,6 +34,15 @@ export interface RoomInfo {
   capacity: number;
 }
 
+/** A room in the public list (`GET /mp/rooms`): counts only, no player names. */
+export interface RoomSummary {
+  code: string;
+  mode: RoomMode;
+  map: string;
+  players: number;
+  capacity: number;
+}
+
 /** Client → relay. */
 export type ClientMessage =
   | { t: 'hello'; v: number; name: string }
@@ -85,7 +94,7 @@ export function mpErrorMessage(e: MpError | 'network' | 'closed'): string {
     case 'full':
       return '방이 가득 찼습니다.';
     case 'not_found':
-      return '그 코드의 방이 없습니다.';
+      return '그 코드의 방이 없습니다. 모두 나가 방이 사라졌거나(만료) 코드가 틀렸습니다.';
     case 'bad_request':
       return '잘못된 요청입니다.';
     case 'rate':

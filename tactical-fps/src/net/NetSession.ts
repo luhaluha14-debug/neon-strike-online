@@ -1,4 +1,4 @@
-import { MP_PATH, MP_PROTOCOL, MP_SERVICE, type ClientMessage, type MemberInfo, type MpError, type RoomInfo, type RoomMode, type ServerMessage } from './Protocol';
+import { MP_PATH, MP_PROTOCOL, MP_SERVICE, type ClientMessage, type MemberInfo, type MpError, type RoomInfo, type RoomMode, type RoomSummary, type ServerMessage } from './Protocol';
 
 // The browser's connection to the multiplayer relay: sign in with a name,
 // get into a room (quick join, a new room, or a room code), then exchange
@@ -23,6 +23,29 @@ export async function relayAvailable(timeoutMs = 4000): Promise<boolean> {
     return j?.service === MP_SERVICE;
   } catch {
     return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * The relay's open rooms (`GET /mp/rooms`). null: no relay answered, or a
+ * relay without the list (older version); the caller says so.
+ */
+export async function listRooms(timeoutMs = 6000): Promise<RoomSummary[] | null> {
+  const http = relayUrl().replace(/^ws/, 'http');
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), timeoutMs);
+  try {
+    const r = await fetch(`${http}/rooms`, { signal: ctl.signal, cache: 'no-store' });
+    const j = (await r.json().catch(() => null)) as { service?: string; rooms?: unknown } | null;
+    if (j?.service !== MP_SERVICE || !Array.isArray(j.rooms)) return null;
+    return j.rooms.filter(
+      (x): x is RoomSummary =>
+        !!x && typeof x.code === 'string' && (x.mode === 'deathmatch' || x.mode === 'team') && typeof x.map === 'string' && Number.isFinite(x.players) && Number.isFinite(x.capacity),
+    );
+  } catch {
+    return null;
   } finally {
     clearTimeout(timer);
   }
