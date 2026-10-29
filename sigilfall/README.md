@@ -319,7 +319,11 @@ SIGILFALL_URL=http://localhost:8090/ node sigilfall/test/browser-tablet.cjs
 
 ## 12. Render 에 올리기
 
-저장소 루트의 `render.yaml` 이 설정을 전부 들고 있습니다.
+저장소 루트의 `render.yaml` 이 설정을 전부 들고 있습니다. 버튼 하나로 바로 갈 수도 있습니다:
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/luhaluha14-debug/neon-strike-online)
+
+손으로 한다면:
 
 1. [render.com](https://render.com) 로그인 → **New → Blueprint**
 2. 이 저장소(`luhaluha14-debug/neon-strike-online`)를 고릅니다
