@@ -323,7 +323,9 @@ SIGILFALL_URL=http://localhost:8090/ node sigilfall/test/browser-tablet.cjs
 
 1. [render.com](https://render.com) 로그인 → **New → Blueprint**
 2. 이 저장소(`luhaluha14-debug/neon-strike-online`)를 고릅니다
-3. Render 가 `render.yaml` 을 읽어 서비스 하나를 제안합니다 → **Apply**
+3. Render 가 `render.yaml` 을 읽어 서비스 목록을 제안합니다. 이 저장소에는 다른 게임도
+   들어 있어서 서비스가 여러 개 나오는데, 필요한 것만 켜도 됩니다 → **Apply**
+   (이 게임은 `sigilfall`)
 4. 2~3분 뒤 나오는 `https://sigilfall-xxxx.onrender.com` 주소가 게임 주소입니다
 
 설정 파일이 정하는 것:
@@ -332,9 +334,9 @@ SIGILFALL_URL=http://localhost:8090/ node sigilfall/test/browser-tablet.cjs
 |---|---|---|
 | `runtime` | node | |
 | `region` | singapore | 무료 리전 중 한국에서 가장 가까움. FPS는 핑이 체감됩니다 |
-| `branch` | `claude/jujutsu-action-fps-game-8u0ng8` | 아직 작업 브랜치에 있어서. main 으로 합치면 이 줄을 `main` 으로 바꾸세요 |
+| `branch` | (없음) | 저장소 기본 브랜치(main)를 따라갑니다 |
 | `buildCommand` | `npm ci --omit=dev` | 잠금 파일 그대로 설치. 테스트용 의존성은 받지 않음 |
-| `startCommand` | `npm start` | `node sigilfall/server/server.js` |
+| `startCommand` | `node sigilfall/server/server.js` | 다른 서비스의 `npm start` 와 섞이지 않도록 경로를 직접 적음 |
 | `healthCheckPath` | `/health` | Render 가 살아 있는지 확인하는 경로 |
 | `NODE_VERSION` | 22 | |
 
