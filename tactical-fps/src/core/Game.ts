@@ -48,19 +48,22 @@ import { Pigeons, preloadPigeons } from '../world/Pigeons';
 import { createSkyEnvironment, HORIZON_COLOR, SkyDome } from '../world/Sky';
 import { enhanceMapMaterials } from '../world/SurfaceMaterials';
 import { FRAME_LIMIT_OPTIONS, FrameLoop, type FrameLimit } from './FrameLoop';
+import { AutoQualityMonitor, saveAutoState, type AutoState } from './AutoQuality';
 import { SwitchableEconomyBackend } from '../economy/AccountClient';
 import { ACCOUNTS_ENABLED, AccountSession } from '../economy/AccountSession';
 import { LocalEconomyBackend } from '../economy/EconomyBackend';
 import { AccountPanel } from '../ui/AccountPanel';
 import { MultiplayerPanel } from '../ui/MultiplayerPanel';
 import { Lobby } from '../ui/Lobby';
+import { LobbyBackdrop } from './LobbyBackdrop';
+import { KillConfirm } from '../game/KillConfirm';
 import { LoadoutService } from '../economy/LoadoutService';
 import { findSkin, PLAYER_TARGET } from '../economy/SkinCatalog';
 import type { AccountState, MatchResult, SkinDef } from '../economy/types';
 import { armsAppearance, bodyAppearance, SkinRenderer } from '../skins/SkinRenderer';
 import { errorMessage, GridStore } from '../ui/GridStore';
 import { FirstPersonArms } from '../weapons/view/FirstPersonArms';
-import type { KillEvent } from '../game/Match';
+import { killBy, type KillEvent, type ScoreLine } from '../game/Match';
 import { Weapon as WeaponState } from '../weapons/Weapon';
 import { ROOM_CAPACITY, type RoomInfo } from '../net/Protocol';
 import type { NetSession } from '../net/NetSession';
@@ -69,7 +72,8 @@ import { NetClient, type ClientGame } from '../net/NetClient';
 import type { ToClient } from '../net/GameMessages';
 import { applyBomb, applyMatch, applyTeamMatch, type BombStateMsg, type MatchState, type TeamMatchState } from '../net/Mirror';
 
-const QUALITY_OPTIONS: readonly { value: QualityLevel; label: string }[] = [
+const QUALITY_OPTIONS: readonly { value: QualityLevel | 'auto'; label: string }[] = [
+  { value: 'auto', label: '자동 (권장)' },
   { value: 'low', label: '낮음 (성능 우선)' },
   { value: 'medium', label: '중간' },
   { value: 'high', label: '높음' },
@@ -101,9 +105,17 @@ const SPECTATE_AFTER = 1.5;
 export class Game implements HostGame, ClientGame {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
+  /** The lobby's background picture (own camera; see LobbyBackdrop). */
+  readonly lobbyBackdrop = new LobbyBackdrop(this.scene);
   readonly camera: THREE.PerspectiveCamera;
   readonly hud: Hud;
-  readonly quality: QualityLevel;
+  /** Graphics level in use (automatic quality may lower it during play). */
+  get quality(): QualityLevel {
+    return this.qualityLevel;
+  }
+  private qualityLevel: QualityLevel;
+  /** Automatic quality measuring this session (null: the level was chosen by hand or in the link). */
+  readonly autoQuality: AutoQualityMonitor | null;
   mapDef: MapDefinition;
   readonly settings: Settings;
 
@@ -237,8 +249,10 @@ export class Game implements HostGame, ClientGame {
   private fpsTime = 0;
   private fps = 0;
 
-  constructor(container: HTMLElement, quality: QualityLevel, settings: Settings) {
-    this.quality = quality;
+  /** `auto`: what automatic quality remembered (null: a level chosen by hand or in the link, no measuring). */
+  constructor(container: HTMLElement, quality: QualityLevel, settings: Settings, auto: AutoState | null = null) {
+    this.qualityLevel = quality;
+    this.autoQuality = auto ? new AutoQualityMonitor(quality, auto) : null;
     this.settings = settings;
     this.matchSettings = loadMatchSettings();
     this.mode = parseMode(new URLSearchParams(location.search).get('mode')) ?? this.matchSettings.mode;
@@ -288,6 +302,7 @@ export class Game implements HostGame, ClientGame {
       mapDef.environment.viewDistance,
     );
     this.camera.rotation.order = 'YXZ';
+    this.lobbyBackdrop.setAspect(this.camera.aspect);
     this.viewModel = new ViewModelLayer(window.innerWidth / window.innerHeight);
     this.viewModel.initEnvironment(this.renderer);
     this.showWeaponModel(DEFAULT_LOADOUT[0]);
@@ -330,9 +345,11 @@ export class Game implements HostGame, ClientGame {
     // Maps switch in place, so every map shares the same page link.
     this.hud.setMapOptions(MAPS, mapDef.id, (id) => void this.switchMap(id));
     this.hud.setFrameLimitOptions(FRAME_LIMIT_OPTIONS, settings.frameLimit, (limit) => this.setFrameLimit(limit));
-    this.hud.setQualityOptions(QUALITY_OPTIONS, quality, (q) => {
+    this.hud.setQualityOptions(QUALITY_OPTIONS, this.autoQuality ? 'auto' : quality, (q) => {
       // The renderer's antialiasing is fixed at creation, so apply by reloading (same link).
-      this.settings.quality = q;
+      // A level by hand stays as chosen; 자동 starts measuring over (what it learnt before is dropped).
+      this.settings.quality = q === 'auto' ? null : q;
+      if (q === 'auto') saveAutoState(null);
       saveSettings(this.settings);
       location.reload();
     });
@@ -455,6 +472,8 @@ export class Game implements HostGame, ClientGame {
     this.weaponModels = preloadWeaponViews(Object.values(WEAPONS).map((d) => d.view));
     // Bot character models (small): in before the first match is set up.
     this.agentModels = preloadAgentModels();
+    // The lobby's figure is the operator file the bots preload: it appears once that is in.
+    void this.agentModels.then(() => this.lobbyBackdrop.figureReady());
     // Ambient pigeons (scenery only); a failed download just means none.
     void preloadPigeons();
     if (!(await this.loadMapInto(this.mapDef))) return;
@@ -611,6 +630,8 @@ export class Game implements HostGame, ClientGame {
     };
     this.setupMode();
     this.beginMode();
+    this.lobbyBackdrop.camera.far = this.camera.far;
+    this.lobbyBackdrop.setMap(map, def.lobby);
 
     // Compile shaders and bake the static shadow map before the first frame.
     this.renderer.compile(this.scene, this.camera);
@@ -703,8 +724,8 @@ export class Game implements HostGame, ClientGame {
         onDamage: (bot, e) => {
           this.netHost?.onBotDamaged(bot, e);
           if (!e.killed) return;
-          this.match?.recordKill(e.sourceId, bot.id, e.weaponId, e.zone === 'head');
-          this.teamMatch?.recordKill(e.sourceId, bot.id, e.weaponId, e.zone === 'head');
+          const credited = (this.match?.recordKill(e.sourceId, bot.id, e.weaponId, e.zone === 'head') ?? false) || (this.teamMatch?.recordKill(e.sourceId, bot.id, e.weaponId, e.zone === 'head') ?? false);
+          if (credited) this.onCreditedKill(e.sourceId, bot.id);
         },
       };
       for (const b of squad.bots) b.sightBlocked = (a, c) => this.grenades?.sightBlocked(a, c) ?? false;
@@ -1107,6 +1128,38 @@ export class Game implements HostGame, ClientGame {
     return true;
   }
 
+  /** Kill confirm sound: only kills the match credited to this player, each once (KillConfirm). */
+  readonly killConfirm = new KillConfirm(() => this.audio.play('kill.confirm', { group: 'confirm', gain: 0.6, delay: 0.05 }));
+
+  /** The match credited `killer` with killing `victim`: the player's kill confirm, or a room member's (sent by the host). */
+  private onCreditedKill(killer: string, victim: string): void {
+    if (killer === 'local') this.killConfirm.confirm(this.killKey(victim));
+    else this.netHost?.creditKill(killer);
+  }
+
+  /**
+   * The player's kill of `victim` just recorded, as a kill-confirm key: match, seat, its controller
+   * generation (deaths restart when someone else takes the seat over) and its death count.
+   */
+  killKey(victim: string): string {
+    const line = this.match?.scores.get(victim) ?? this.teamMatch?.scores.get(victim);
+    return `${this.matchSerial}:${victim}:${line?.gen ?? 0}:${line?.deaths ?? 0}`;
+  }
+
+  /** A room member: the host credited this player with a kill. */
+  netKill(id: string): void {
+    this.killConfirm.confirm(`net:${id}`);
+  }
+
+  /** Kept out of the lobby picture: the first-person body, and the (frozen) bots, dummies and other players. */
+  private lobbyHidden(): THREE.Object3D[] {
+    const out: THREE.Object3D[] = [this.body.object];
+    if (this.squad) out.push(this.squad.group);
+    if (this.trainingRange) out.push(this.trainingRange.group);
+    if (this.netClient) out.push(this.netClient.puppets.group);
+    return out;
+  }
+
   /**
    * Results → 로비: a new match is set up behind the lobby (single player,
    * or the room's host); a room member stays in the room and waits for the
@@ -1266,15 +1319,18 @@ export class Game implements HostGame, ClientGame {
     this.hud.showDamage(e.amount, angle);
     if (e.killed) {
       this.audio.stopGroup('foley');
-      this.match?.recordKill(e.sourceId, 'local', e.weaponId, e.zone === 'head');
-      this.teamMatch?.recordKill(e.sourceId, 'local', e.weaponId, e.zone === 'head');
+      const credited = (this.match?.recordKill(e.sourceId, 'local', e.weaponId, e.zone === 'head') ?? false) || (this.teamMatch?.recordKill(e.sourceId, 'local', e.weaponId, e.zone === 'head') ?? false);
+      if (credited) this.onCreditedKill(e.sourceId, 'local');
     }
   }
 
   /** `hiddenDelta`: frame time measured by the background ticker (the timer reports 0 while the page is hidden). */
   private frame(timestamp: number, hiddenDelta?: number): void {
     this.timer.update(timestamp);
-    const frameTime = Math.min(hiddenDelta ?? this.timer.getDelta(), SIM_CONFIG.maxFrameTime);
+    const rawFrameTime = hiddenDelta ?? this.timer.getDelta();
+    const frameTime = Math.min(rawFrameTime, SIM_CONFIG.maxFrameTime);
+    // Automatic quality: real frame times of drawn frames in play (not menus, a hidden tab or loading).
+    if (this.autoQuality) this.measureQuality(rawFrameTime, hiddenDelta === undefined && !document.hidden && this.input.active && !!this.player);
     const player = this.player;
     if (!player) {
       // Between maps: keep the screen alive behind the loading panel.
@@ -1450,8 +1506,13 @@ export class Game implements HostGame, ClientGame {
     );
 
     this.sky.follow(this.camera);
+    // The lobby shows its own still picture (own camera, drawn only when it changed); the game camera is untouched.
+    const lobby = this.hud.menu.lobbyShown;
+    this.lobbyBackdrop.setShown(lobby);
     // A hidden tab (multiplayer host ticking in the background) draws nothing.
-    if (!document.hidden) {
+    if (lobby) {
+      if (!document.hidden) this.lobbyBackdrop.render(this.renderer, (c) => this.sky.follow(c), this.lobbyHidden());
+    } else if (!document.hidden) {
       this.renderer.clear();
       this.renderer.render(this.scene, this.camera);
       // No weapon in hand while dead; none while looking through the scope; the grenade instead of the weapon.
@@ -1619,19 +1680,23 @@ export class Game implements HostGame, ClientGame {
   }
 
   private matchResult(rec: { id: string; mode: GameMode }, outcome: 'completed' | 'forfeit'): MatchResult | null {
-    const playerKills = (feed: readonly KillEvent[]) => {
+    // The player's confirmed kills: its line's per-weapon count (kept by the match that credited them;
+    // a room member's comes from the host). Only an older host's copy lacks it: then the feed is counted, as before.
+    const playerKills = (feed: readonly KillEvent[], line: ScoreLine | undefined, legacy: boolean) => {
+      if (!line) return {};
+      if (!legacy) return { ...line.weaponKills };
       const kills: Record<string, number> = {};
-      for (const k of feed) if (k.killer === 'local' && k.victim !== 'local') kills[k.weaponId] = (kills[k.weaponId] ?? 0) + 1;
+      for (const k of feed) if (killBy(line, k)) kills[k.weaponId] = (kills[k.weaponId] ?? 0) + 1;
       return kills;
     };
     if (rec.mode === 'team' && this.teamMatch) {
       const tm = this.teamMatch;
       const team = (this.combat?.team ?? 'blue') as Team;
-      return { matchId: rec.id, mode: 'team', outcome, won: tm.winner === team, kills: playerKills(tm.feed), roundWins: tm.history.filter((h) => h.winner === team).length, durationSeconds: tm.elapsed };
+      return { matchId: rec.id, mode: 'team', outcome, won: tm.winner === team, kills: playerKills(tm.feed, tm.scores.get('local'), tm.legacyStats), roundWins: tm.history.filter((h) => h.winner === team).length, durationSeconds: tm.elapsed };
     }
     if (rec.mode === 'deathmatch' && this.match) {
       const m = this.match;
-      return { matchId: rec.id, mode: 'deathmatch', outcome, won: m.playerWon, kills: playerKills(m.feed), roundWins: 0, durationSeconds: m.elapsed };
+      return { matchId: rec.id, mode: 'deathmatch', outcome, won: m.playerWon, kills: playerKills(m.feed, m.scores.get('local'), m.legacyStats), roundWins: 0, durationSeconds: m.elapsed };
     }
     return null;
   }
@@ -1799,6 +1864,43 @@ export class Game implements HostGame, ClientGame {
     );
   }
 
+  private measureQuality(dt: number, measuring: boolean): void {
+    const d = this.autoQuality!.frame(dt, measuring);
+    if (!d) return;
+    if (d.kind === 'lower') {
+      this.applyQuality(d.level);
+      saveAutoState(this.autoQuality!.state);
+    } else saveAutoState(d.state);
+  }
+
+  /**
+   * A lower level during play, without reloading: pixel ratio, shadows and shadow map size (the
+   * preset's other parts, antialiasing and surface shading, are fixed until the next load).
+   */
+  private applyQuality(level: QualityLevel): void {
+    this.qualityLevel = level;
+    const preset = QUALITY_PRESETS[level];
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, preset.pixelRatioCap));
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    const shadow = this.sun.shadow;
+    if (this.renderer.shadowMap.enabled !== preset.shadows) {
+      this.renderer.shadowMap.enabled = preset.shadows;
+      this.sun.castShadow = preset.shadows;
+      // Shadow lookups are compiled into the shaders: rebuild them.
+      for (const scene of [this.scene, this.viewModel.scene])
+        scene.traverse((o) => {
+          const m = (o as THREE.Mesh).material;
+          if (m) for (const x of Array.isArray(m) ? m : [m]) x.needsUpdate = true;
+        });
+    }
+    if (shadow.mapSize.x !== preset.shadowMapSize) {
+      shadow.mapSize.setScalar(preset.shadowMapSize);
+      shadow.map?.dispose();
+      shadow.map = null;
+    }
+    this.renderer.shadowMap.needsUpdate = true;
+  }
+
   private updateStats(dt: number): void {
     this.fpsFrames++;
     this.fpsTime += dt;
@@ -1810,7 +1912,7 @@ export class Game implements HostGame, ClientGame {
     const p = this.player;
     const info = this.renderer.info.render;
     this.hud.setStats(
-      `${this.fps.toFixed(0)} fps (limit ${this.loop.frameLimit})  ·  ${info.calls} draws  ·  ${(info.triangles / 1000).toFixed(0)}k tris  ·  ${this.quality}  ·  ${this.mapDef.id}\n` +
+      `${this.fps.toFixed(0)} fps (limit ${this.loop.frameLimit})  ·  ${info.calls} draws  ·  ${(info.triangles / 1000).toFixed(0)}k tris  ·  ${this.quality}${this.autoQuality ? ' (auto)' : ''}  ·  ${this.mapDef.id}\n` +
         `pos ${p.position.x.toFixed(2)} ${p.position.y.toFixed(2)} ${p.position.z.toFixed(2)}  ` +
         `spd ${Math.hypot(p.velocity.x, p.velocity.z).toFixed(2)}  ${p.grounded ? 'ground' : 'air'}${p.crouching ? ' crouch' : ''}` +
         (this.lastHit ? `\nlast hit ${this.lastHit}` : ''),
@@ -2232,7 +2334,9 @@ export class Game implements HostGame, ClientGame {
   }
 
   netHit(m: Extract<ToClient, { k: 'hit' }>): void {
+    // The host resolved this player's round as a hit: the same marker and hit sound as a hit in single player.
     this.hud.showHitMarker(m.head, m.kill);
+    this.weaponAudio.hitConfirm(m.head);
   }
 
   netThrow(m: Extract<ToClient, { k: 'throw' }>): void {
@@ -2304,6 +2408,7 @@ export class Game implements HostGame, ClientGame {
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.viewModel.setAspect(this.camera.aspect);
+    this.lobbyBackdrop.setAspect(this.camera.aspect);
   };
 }
 

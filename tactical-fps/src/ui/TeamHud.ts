@@ -1,5 +1,5 @@
 import { formatMoney } from '../game/Economy';
-import type { KillEvent } from '../game/Match';
+import { feedName, type KillEvent } from '../game/Match';
 import { TEAM_NAME, type RoundEnd, type Team, type TeamMatch, type TeamScoreLine } from '../game/TeamMatch';
 import './match.css';
 
@@ -253,14 +253,18 @@ export class TeamHud {
 
   private feedItem(m: TeamMatch, k: KillEvent): HTMLLIElement {
     const li = document.createElement('li');
+    // A seat taken over since (a room member replaced a bot): the entry keeps the name and owner of then.
     const killer = m.scores.get(k.killer);
     const victim = m.scores.get(k.victim);
-    li.className = killer?.isPlayer && k.killer !== k.victim ? 'mine' : victim?.isPlayer ? 'me-died' : '';
-    const name = (s: TeamScoreLine | undefined, id: string) => `<span class="${s?.isPlayer ? 'me ' : ''}t-${s?.team ?? ''}">${m.name(id)}</span>`;
+    const killerMe = !!killer?.isPlayer && (k.kg ?? 0) === killer.gen;
+    const victimMe = !!victim?.isPlayer && (k.vg ?? 0) === victim.gen;
+    li.className = killerMe && k.killer !== k.victim ? 'mine' : victimMe ? 'me-died' : '';
+    const name = (s: TeamScoreLine | undefined, id: string, me: boolean, gen: number | undefined, then: string | undefined) =>
+      `<span class="${me ? 'me ' : ''}t-${s?.team ?? ''}">${feedName(m.scores, id, gen, then)}</span>`;
     li.innerHTML =
       k.killer === k.victim || !killer
-        ? `${name(victim, k.victim)} <span class="kf-w">사망</span>`
-        : `${name(killer, k.killer)} <span class="kf-w">${WEAPON_SHORT[k.weaponId] ?? k.weaponId}${k.head ? ' · HS' : ''}</span> ${name(victim, k.victim)}`;
+        ? `${name(victim, k.victim, victimMe, k.vg, k.vn)} <span class="kf-w">사망</span>`
+        : `${name(killer, k.killer, killerMe, k.kg, k.kn)} <span class="kf-w">${WEAPON_SHORT[k.weaponId] ?? k.weaponId}${k.head ? ' · HS' : ''}</span> ${name(victim, k.victim, victimMe, k.vg, k.vn)}`;
     return li;
   }
 }

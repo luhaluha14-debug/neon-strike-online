@@ -44,7 +44,9 @@ test('team room from the lobby: listed with its head count, joined from the list
   for (const p of [host, guest]) p.setDefaultTimeout(60000);
   try {
     await multi(host, 'Alpha', 'team');
-    await host.waitForFunction(() => document.querySelector('.mp-server').textContent === '멀티플레이 서버 연결 가능');
+    await host.waitForFunction(() => document.querySelector('.mp-server').textContent === '멀티플레이 서버 연결 가능').catch(async (e) => {
+      throw new Error(`server line: "${await host.textContent('.mp-server')}" lobby: "${await host.textContent('.lobby-online')}" (${e.message.split('\n')[0]})`);
+    });
     await host.click('.mp-create');
     await host.waitForFunction(() => window.game.netHost && window.game.teamMatch);
     const code = await host.textContent('.mp-room-code');

@@ -21,7 +21,23 @@ async function waitLocked() {
 
 before(async () => {
   env = await startEnv();
-  page = await openGame(env, { map: 'warehouse', mode: 'team' });
+  // Reproducible play: the bots' choices from a fixed seed (?seed=) and every other random draw
+  // (bullet spread, recoil, effects) from a fixed sequence too, so the 25 s of bot play below is
+  // the same match on every run.
+  page = await openGame(env, {
+    map: 'warehouse',
+    mode: 'team',
+    seed: 7,
+    init: () => {
+      let a = 12345;
+      Math.random = () => {
+        a = (a + 0x6d2b79f5) >>> 0;
+        let t = Math.imul(a ^ (a >>> 15), 1 | a);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    },
+  });
 });
 after(async () => {
   await page?.context().close();

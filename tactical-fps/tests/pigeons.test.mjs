@@ -29,6 +29,15 @@ const inspect = (page) =>
     const start = bird.position.clone();
     const wingStart = bird.getObjectByName('Shoulder_L').quaternion.clone();
     window.T.run(60); // one second
+    const moved = bird.position.distanceTo(start);
+    // The flap clip glides (wings still) for most of its ~6 s and beats near its loop point, so the
+    // wings are watched over one whole clip, not a 1 s window that may fall inside the glide.
+    const shoulder = bird.getObjectByName('Shoulder_L');
+    let wingBeat = shoulder.quaternion.angleTo(wingStart);
+    for (let i = 0; i < 6.2 * 60 && wingBeat <= 0.05; i++) {
+      window.T.run(1);
+      wingBeat = Math.max(wingBeat, shoulder.quaternion.angleTo(wingStart));
+    }
     const flyers = p.flocks.flatMap((f) => f.birds.map((b) => b.object));
     let meshes = 0;
     p.object.traverse((o) => {
@@ -38,8 +47,8 @@ const inspect = (page) =>
       inScene: p.object.parent === g.map.root && g.map.root.parent === g.scene,
       flocks: p.flocks.length,
       flyers: flyers.length,
-      moved: bird.position.distanceTo(start),
-      wingBeat: bird.getObjectByName('Shoulder_L').quaternion.angleTo(wingStart),
+      moved,
+      wingBeat,
       // Nothing solid above a flying bird, and it is well above whatever is below it.
       clear: flyers.every((o) => g.map.collision.raycast(o.position, up, 200) === null && (g.map.collision.raycast(o.position, down, 400) ?? 99) > 3),
       perched: p.perched.length,

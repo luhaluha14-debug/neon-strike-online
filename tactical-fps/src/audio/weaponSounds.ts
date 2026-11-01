@@ -25,6 +25,7 @@ export type SoundId =
   | 'impact'
   | 'hit.body'
   | 'hit.head'
+  | 'kill.confirm'
   | 'impact.flesh'
   | 'grenade.pin'
   | 'grenade.bounce'
@@ -56,6 +57,7 @@ export const VARIANTS: Record<SoundId, number> = {
   impact: 4,
   'hit.body': 2,
   'hit.head': 2,
+  'kill.confirm': 1,
   'impact.flesh': 3,
   'grenade.pin': 1,
   'grenade.bounce': 3,
@@ -391,6 +393,28 @@ function hitHead(seed: number): Float32Array {
   return finish(out, 0.7, 1.2);
 }
 
+/**
+ * Kill confirm (only for a credited kill): a muted low knock, then two short
+ * dry ticks a step apart; clearly not a hit sound, and no musical sting.
+ */
+function killConfirm(seed: number): Float32Array {
+  const rand = rng(seed);
+  const out = buffer(0.32);
+  const knock = glideSine(0.12, 190, 120, 0.015);
+  shape(knock, expEnv(0.0006, 0.03));
+  mix(out, knock, 0.7);
+  for (const [at, f] of [
+    [0.05, 1480],
+    [0.11, 1760],
+  ] as const) {
+    const tick = ring(0.08, [[f, 0.5, 0.025], [f * 2.01, 0.2, 0.015]]);
+    mix(out, tick, 1, at);
+    mix(out, click(rand, 2600, 0.003, 0.2, 0.01), 1, at);
+  }
+  biquad(out, 'highpass', 120);
+  return finish(out, 0.6, 1.1);
+}
+
 /** A round into a body: wet, heavy thud with a short squelch (no debris, unlike `impact`). */
 function impactFlesh(seed: number): Float32Array {
   const rand = rng(seed);
@@ -549,6 +573,8 @@ export function renderSound(id: SoundId, variant: number, opts: { srFireInterval
       return hitBody(seed);
     case 'hit.head':
       return hitHead(seed);
+    case 'kill.confirm':
+      return killConfirm(seed);
     case 'impact.flesh':
       return impactFlesh(seed);
     case 'grenade.pin':

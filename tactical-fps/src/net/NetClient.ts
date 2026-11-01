@@ -31,6 +31,7 @@ export interface ClientGame {
   netHurt(m: Extract<ToClient, { k: 'hurt' }>): void;
   netFx(m: Extract<ToClient, { k: 'fx' }>, muzzle: THREE.Vector3 | null, mine: boolean): void;
   netHit(m: Extract<ToClient, { k: 'hit' }>): void;
+  netKill(id: string): void;
   netThrow(m: Extract<ToClient, { k: 'throw' }>): void;
   netBuy(m: Extract<ToClient, { k: 'buy' }>): void;
   netBoom(m: Extract<ToClient, { k: 'boom' }>): void;
@@ -48,6 +49,8 @@ export class NetClient {
   /** Host clock − local clock, estimated from snapshots (the fastest arrivals). */
   private offset: number | null = null;
   private modeKey = '';
+  /** Host time of the last match state applied: an older one (late, repeated) never overwrites a newer. */
+  private matchTime = -Infinity;
   private buyN = 0;
   readonly puppets: Puppets;
 
@@ -102,6 +105,8 @@ export class NetClient {
         break;
       }
       case 'match':
+        if (!(d.t >= this.matchTime)) break;
+        this.matchTime = d.t;
         this.game.netMatch(d.m, d.bomb, d.who);
         break;
       case 'spawn':
@@ -118,6 +123,9 @@ export class NetClient {
       }
       case 'hit':
         this.game.netHit(d);
+        break;
+      case 'kill':
+        if (typeof d.id === 'string') this.game.netKill(d.id);
         break;
       case 'throw':
         this.game.netThrow(d);
@@ -141,6 +149,8 @@ export class NetClient {
   hostChanged(): void {
     this.myId = null;
     this.modeKey = '';
+    // The new host has its own clock.
+    this.matchTime = -Infinity;
     this.puppets.clear();
   }
 

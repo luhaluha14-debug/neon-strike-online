@@ -1,15 +1,17 @@
 import { Game } from './core/Game';
 import type { QualityLevel } from './config';
+import { initialQuality, loadAutoState, readDevice, type AutoState } from './core/AutoQuality';
 import { loadSettings, parseQuality, saveSettings } from './core/Settings';
 
-// Quality: ?quality=low|medium|high, else the start-screen choice, else a
-// conservative guess so low-end devices start playable.
-function pickQuality(saved: QualityLevel | null): QualityLevel {
+// Quality: ?quality=low|medium|high, else the level chosen in the settings,
+// else automatic: from what the device can do (or what was measured here
+// before), then measured while playing (core/AutoQuality.ts).
+function pickQuality(saved: QualityLevel | null): { quality: QualityLevel; auto: AutoState | null } {
   const q = parseQuality(new URLSearchParams(location.search).get('quality'));
-  if (q) return q;
-  if (saved) return saved;
-  const lowEnd = (navigator.hardwareConcurrency ?? 4) <= 4 || matchMedia('(pointer: coarse)').matches;
-  return lowEnd ? 'low' : 'medium';
+  if (q) return { quality: q, auto: null };
+  if (saved) return { quality: saved, auto: null };
+  const auto = loadAutoState();
+  return { quality: initialQuality(readDevice(), auto), auto };
 }
 
 // One link for every map: the chosen map is remembered locally. An old
@@ -25,7 +27,8 @@ if (mapParam) {
   history.replaceState(null, '', location.pathname + (query ? `?${query}` : '') + location.hash);
 }
 
-const game = new Game(document.getElementById('app')!, pickQuality(settings.quality), settings);
+const picked = pickQuality(settings.quality);
+const game = new Game(document.getElementById('app')!, picked.quality, settings, picked.auto);
 void game.start();
 
 if (import.meta.env.DEV) {

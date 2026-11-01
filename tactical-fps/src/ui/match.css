@@ -133,8 +133,10 @@
   position: fixed;
   inset: 0;
   z-index: 40;
-  display: grid;
-  place-items: center;
+  /* Centred with auto margins: on a short screen the panel scrolls instead of being cut off. */
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
   padding: 16px;
   background: rgba(10, 11, 12, 0.72);
   pointer-events: auto;
@@ -144,6 +146,7 @@
 }
 .results-panel {
   width: min(480px, 100%);
+  margin: auto;
   padding: 24px 22px 20px;
   background: var(--c-bg-2);
   border-top: 3px solid var(--c-danger);
@@ -168,6 +171,11 @@
   display: flex;
   gap: 10px;
   margin-top: 18px;
+  /* A short window scrolls the long tables; the buttons stay at the bottom of the view. */
+  position: sticky;
+  bottom: 0;
+  padding: 10px 0 2px;
+  background: var(--c-bg-2);
 }
 .results-actions .btn-primary {
   flex: 1;

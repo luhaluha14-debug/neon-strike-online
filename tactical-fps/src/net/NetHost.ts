@@ -6,7 +6,7 @@ import type { GrenadeSystem } from '../combat/Grenades';
 import { PLAYER_CONFIG } from '../config';
 import type { BombObjective } from '../game/BombObjective';
 import { BuyLoadout, LOADOUT_RULES } from '../game/Economy';
-import type { Match } from '../game/Match';
+import type { Match, SeatRecord } from '../game/Match';
 import type { TeamMatch } from '../game/TeamMatch';
 import type { PlayerCombat, PlayerDamageEvent } from '../player/PlayerCombat';
 import type { PlayerController } from '../player/PlayerController';
@@ -28,8 +28,18 @@ import type { NetSession } from './NetSession';
 /** Snapshots and match state per second. */
 const SNAP_RATE = 20;
 const MATCH_RATE = 4;
-/** Horizontal speed a member's character may move at (m/s, run speed with slack); faster reports are refused and the member put back. */
-const MAX_SPEED = 9;
+/**
+ * Horizontal speed a member's character may move at (m/s): the fastest
+ * bunny hop / air strafe (PLAYER_CONFIG.maxAirSpeed) with slack for timing;
+ * faster moves or reported velocities are refused and the member put back.
+ */
+export const MAX_SPEED = PLAYER_CONFIG.maxAirSpeed + 1.5;
+/**
+ * Distance (m) a member's character may run ahead of MAX_SPEED for timing (reports bunched by the
+ * network): a budget spent by moves past the limit and earned back by moves under it, so a steady
+ * speed past the limit is caught however often it reports.
+ */
+const MOVE_SLACK = 1;
 /** Rounds a member may fire at once beyond its weapon's rate (bunched network delivery). */
 const SHOT_BURST = 8;
 /** A shot's origin must be this close to the character's eye on the host (m). */
@@ -59,12 +69,15 @@ export interface HostGame {
 class RemotePlayer implements RemoteControl {
   bot: Bot | null = null;
   botName = '';
+  /** The AI's own record on the seat while this member plays it (given back when the member leaves). */
+  botRecord: SeatRecord | null = null;
   aiming = false;
   spawnSeq = 0;
   latest: Extract<ToHost, { k: 'st' }> | null = null;
   /** The host just put the character somewhere (spawn / correction): reports start from there. */
   placed(): void {
     this.acceptedAt = performance.now();
+    this.slack = MOVE_SLACK;
   }
 
   /** The report already on the character (applied once). */
@@ -89,17 +102,22 @@ class RemotePlayer implements RemoteControl {
    * not simulated: a slow or stalled host must not refuse a member's honest movement.
    */
   private acceptedAt = performance.now();
+  /** What is left of MOVE_SLACK. */
+  private slack = MOVE_SLACK;
 
   apply(bot: Bot): void {
     const s = this.latest;
     if (!s) return;
     const c = bot.controller;
-    // No faster than a running player (with slack for timing); any fall is fine, climbing only a jump's worth.
+    // No faster than the fastest hop (with slack for timing); any fall is fine, climbing only a jump's worth.
     const horizontal = Math.hypot(s.p[0] - c.position.x, s.p[2] - c.position.z);
     const up = s.p[1] - c.position.y;
     const now = performance.now();
     const reach = (MAX_SPEED * (now - this.acceptedAt)) / 1000;
-    if (horizontal > 1 + reach || up > 1.5 + reach) {
+    const over = horizontal - reach;
+    // A reported velocity past any reachable speed (a speed hack) is refused like a too-long move.
+    const fast = Math.hypot(s.v[0], s.v[2]) > MAX_SPEED;
+    if (over > this.slack || up > 1.5 + reach || fast) {
       this.correct = true;
       this.latest = null;
       return;
@@ -107,6 +125,7 @@ class RemotePlayer implements RemoteControl {
     if (s === this.applied) return;
     this.applied = s;
     this.acceptedAt = now;
+    this.slack = Math.min(MOVE_SLACK, this.slack - over);
     c.position.set(s.p[0], s.p[1], s.p[2]);
     c.velocity.set(s.v[0], s.v[1], s.v[2]);
     c.yaw = s.yaw;
@@ -266,6 +285,17 @@ export class NetHost {
     );
   }
 
+  private kills = 0;
+
+  /** The match credited the bot a member plays with a kill: tell that member (its kill confirm). */
+  creditKill(killerId: string): void {
+    for (const rp of this.members.values()) {
+      if (rp.bot?.id !== killerId) continue;
+      this.send({ k: 'kill', id: `${this.session.id}.${Math.round(this.epoch)}.${++this.kills}` }, rp.id);
+      return;
+    }
+  }
+
   /** A grenade thrown by the host or a bot. */
   broadcastThrow(byId: string, kind: 'flash' | 'smoke', eye: THREE.Vector3, dir: THREE.Vector3, carry: THREE.Vector3, except?: string): void {
     const msg: ToClient = { k: 'throw', by: this.wire(byId), kind, eye: v3(eye), dir: [r3(dir.x), r3(dir.y), r3(dir.z)], carry: v3(carry) };
@@ -309,7 +339,8 @@ export class NetHost {
       pick.remote = rp;
       pick.order = null;
       pick.name = rp.name;
-      this.rename(pick.id, rp.name);
+      // The member's own record starts here; the AI's kills and deaths before the hand-over are not the member's.
+      rp.botRecord = this.seatChange(pick.id, rp.name);
       pick.onSpawn = () => this.onSpawned(rp);
     }
     const bot = rp.bot;
@@ -326,15 +357,19 @@ export class NetHost {
     bot.onSpawn = null;
     bot.useKey = false;
     bot.name = rp.botName;
-    this.rename(bot.id, rp.botName);
+    // The AI gets its seat back with its own record; the member's leaves with the member.
+    this.seatChange(bot.id, rp.botName, rp.botRecord ?? undefined);
+    rp.botRecord = null;
     this.lag.forget(bot.id);
     rp.bot = null;
     this.game.netTeamsChanged();
   }
 
-  private rename(id: string, name: string): void {
-    const s = this.game.match?.scores.get(id) ?? this.game.teamMatch?.scores.get(id);
-    if (s) s.name = name;
+  /** Seat `id` changes hands (team rounds and money stay with the team and the seat). */
+  private seatChange(id: string, name: string, restore?: SeatRecord): SeatRecord | null {
+    const left = this.game.match?.reassign(id, name, restore) ?? this.game.teamMatch?.reassign(id, name, restore) ?? null;
+    this.sendMatch();
+    return left;
   }
 
   private onSpawned(rp: RemotePlayer): void {

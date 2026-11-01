@@ -198,6 +198,14 @@ test('deathmatch: quick join + code, the member plays a host bot; movement and s
       const show = hud.showHitMarker.bind(hud);
       window.__hits = [];
       hud.showHitMarker = (head, kill) => (window.__hits.push([head, kill]), show(head, kill));
+      // Hit sounds requested on the guest (the host resolves the hit; the guest hears it like a local hit).
+      const audio = window.game.audio;
+      const play = audio.play.bind(audio);
+      window.__hitSounds = [];
+      audio.play = (id, o) => {
+        if (id === 'hit.body' || id === 'hit.head') window.__hitSounds.push(id);
+        return play(id, o);
+      };
     });
     setup.hp = await host.evaluate(() => (window.game.combat.alive ? window.game.combat.health : -1));
     assert.equal(setup.hp, 100, 'the host is alive at full health');
@@ -234,6 +242,9 @@ test('deathmatch: quick join + code, the member plays a host bot; movement and s
     assert.ok(after.hp < setup.hp, `the host took the guest's rounds (${setup.hp} → ${after.hp})`);
     await guest.waitForFunction(() => window.__hits.length > 0, null, { timeout: 5000 });
     assert.ok((await guest.evaluate(() => window.__hits.length)) > 0, 'the guest got the host-confirmed hit marker');
+    // Each host-confirmed hit comes with its hit sound (head or body as the host resolved it).
+    const hs = await guest.evaluate(() => ({ marks: window.__hits.map(([head]) => (head ? 'hit.head' : 'hit.body')), sounds: window.__hitSounds }));
+    assert.deepEqual(hs.sounds, hs.marks);
     // The guest's own health / state is the host's (it was not shot).
     assert.equal(await guest.evaluate(() => window.game.combat.health), 100);
     assert.deepEqual(host.errors, []);
