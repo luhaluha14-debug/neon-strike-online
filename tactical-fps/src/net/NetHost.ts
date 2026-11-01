@@ -35,11 +35,13 @@ const MATCH_RATE = 4;
  */
 export const MAX_SPEED = PLAYER_CONFIG.maxAirSpeed + 1.5;
 /**
- * Distance (m) a member's character may run ahead of MAX_SPEED for timing (reports bunched by the
- * network): a budget spent by moves past the limit and earned back by moves under it, so a steady
- * speed past the limit is caught however often it reports.
+ * Distance (m) a member's character may run ahead of MAX_SPEED for timing: a budget spent by moves
+ * past the limit and earned back by moves under it, so a steady speed past the limit is caught
+ * however often it reports (13 m/s within ~1 s, 11 m/s within ~5 s). When the network delay drops,
+ * reports that waited arrive close together: at the fastest hop (9 m/s) a 200 ms swing in delay
+ * spends up to 1.8 m, plus the host's own frame timing.
  */
-const MOVE_SLACK = 1;
+const MOVE_SLACK = 2.5;
 /** Rounds a member may fire at once beyond its weapon's rate (bunched network delivery). */
 const SHOT_BURST = 8;
 /** A shot's origin must be this close to the character's eye on the host (m). */
