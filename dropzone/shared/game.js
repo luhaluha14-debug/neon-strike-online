@@ -1042,9 +1042,11 @@ export class Match {
     if (attacker && attacker !== v && this.teamSize > 1 && attacker.team === v.team) return;
     if (v.downed) {
       // knocked down: damage eats the bleed-out bar; zero finishes the player off
+      const before = v.dhp;
       v.dhp = Math.max(0, v.dhp - amount);
-      if (attacker && attacker !== v) { v.lastHitBy = attacker.id; v.lastHitT = this.time; }
-      this.emit({ t: 'hit', id: v.id, by: attacker ? attacker.id : null, dmg: amount, part, cause, x: v.body.pos.x, y: v.body.pos.y + 0.3, z: v.body.pos.z, dx: dir ? dir.x : 0, dz: dir ? dir.z : 0, kill: v.dhp <= 0, downed: true });
+      if (attacker && attacker !== v) { attacker.dmgDealt += before - v.dhp; v.lastHitBy = attacker.id; v.lastHitT = this.time; }
+      // storm damage ticks every frame: no hit event (blood / hurt sound) for it, same as standing players
+      if (cause !== 'zone') this.emit({ t: 'hit', id: v.id, by: attacker ? attacker.id : null, dmg: amount, part, cause, x: v.body.pos.x, y: v.body.pos.y + 0.3, z: v.body.pos.z, dx: dir ? dir.x : 0, dz: dir ? dir.z : 0, kill: v.dhp <= 0, downed: true });
       if (v.dhp <= 0) this.kill(v, attacker || (v.downBy ? this.byId.get(v.downBy) : null), cause, part === 'head');
       return;
     }
@@ -1072,7 +1074,8 @@ export class Match {
     if (v.veh) this.exitVehicle(v);
     if (v.reviving) this.cancelRevive(v);      // frees the mate we were reviving
     v.downed = true; v.hp = 0; v.dhp = 100; v.downCount++;
-    v.downBy = attacker && attacker !== v ? attacker.id : (v.lastHitBy ?? null);
+    // storm / fall knocks credit whoever hit last, but only within 10 s (same rule as kills)
+    v.downBy = attacker && attacker !== v ? attacker.id : (v.lastHitBy !== null && this.time - v.lastHitT < 10 ? v.lastHitBy : null);
     v.reloading = false; v.using = null; v.ads = false; v.throwHold = false; v.reviving = null; v.revivedBy = null;
     v.body.stance = 'prone'; v.body.stanceLock = 0;
     this.emit({ t: 'down', id: v.id, by: v.downBy, cause });
