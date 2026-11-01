@@ -346,6 +346,38 @@
     min-height: 44px;
   }
 }
+/* Very short screens (landscape phones, small windows): header and tabs leave no room for a page
+   scrolling on its own, so the whole column scrolls and the Play button stays pinned at the bottom. */
+@media (max-height: 420px) {
+  .menu {
+    overflow-y: auto;
+    padding-top: var(--s-3);
+    padding-bottom: 0;
+    /* Scrolling to a control (keyboard focus, scrollIntoView) stops above the pinned Play button. */
+    scroll-padding-bottom: 76px;
+  }
+  .brand {
+    margin-bottom: var(--s-2);
+  }
+  .tabs {
+    margin-bottom: var(--s-2);
+  }
+  .tab {
+    padding-block: var(--s-1) var(--s-2);
+  }
+  .pages {
+    flex: none;
+    min-height: auto;
+    overflow: visible;
+  }
+  .menu-footer {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    padding: var(--s-2) 0;
+    background: linear-gradient(0deg, var(--c-bg) 80%, rgba(17, 19, 21, 0));
+  }
+}
 
 /* Controls page: sensitivity slider and rebindable keys. */
 .range-row {

@@ -42,7 +42,9 @@ export class KeyboardMouseInput implements InputSource {
     const req = this.element.requestPointerLock({ unadjustedMovement: true } as PointerLockOptions) as
       | Promise<void>
       | undefined;
-    req?.catch(() => this.element.requestPointerLock());
+    // A refusal (newer Chrome also turns away requests made too soon after leaving the lock) is not an
+    // error: the game stays on the pause menu ('pointerlockerror') and the next click asks again.
+    req?.catch(() => (this.element.requestPointerLock() as Promise<void> | undefined)?.catch(() => {}));
   }
 
   poll(out: InputState): void {

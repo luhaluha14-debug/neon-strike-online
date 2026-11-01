@@ -15,19 +15,29 @@ export interface LobbyRoomSource {
   readonly room: RoomInfo | null;
   onRoomChange(listener: (room: RoomInfo | null) => void): void;
   onNotice(listener: (text: string) => void): void;
+  /** Relay reachable (true / false) after each check. */
+  onServerStatus(listener: (ok: boolean) => void): void;
+  checkServer(retry?: boolean): Promise<void>;
   leave(): void;
 }
 
 type LobbyAction = 'resume' | 'play' | 'multi' | 'arsenal' | 'training' | 'settings';
 
-const ITEMS: readonly { id: LobbyAction; label: string; desc: string }[] = [
-  { id: 'resume', label: 'RESUME', desc: '진행 중인 경기로 돌아갑니다' },
-  { id: 'play', label: 'PLAY', desc: '5대5 라운드전 · 봇 데스매치' },
-  { id: 'multi', label: 'MULTIPLAYER', desc: '빠른 참가 · 방 만들기 · 코드 참가 · 방 목록' },
-  { id: 'arsenal', label: 'ARSENAL', desc: '시작 무기 선택 (스킨은 보관함 탭)' },
-  { id: 'training', label: 'TRAINING', desc: '훈련장 — 표적 사격' },
-  { id: 'settings', label: 'SETTINGS', desc: '그래픽 · 사운드 · 인터페이스 · 조작' },
+/** Primary items: big, first; secondary: one compact row (their description is the tooltip). */
+const ITEMS: readonly { id: LobbyAction; label: string; desc: string; primary: boolean }[] = [
+  { id: 'resume', label: 'RESUME', desc: '진행 중인 경기로 돌아갑니다', primary: true },
+  { id: 'play', label: 'PLAY', desc: '5대5 라운드전 · 봇 데스매치', primary: true },
+  { id: 'multi', label: 'MULTIPLAYER', desc: '빠른 참가 · 방 만들기 · 코드 참가 · 방 목록', primary: true },
+  { id: 'arsenal', label: 'ARSENAL', desc: '시작 무기 선택 (스킨은 보관함 탭)', primary: false },
+  { id: 'training', label: 'TRAINING', desc: '훈련장 — 표적 사격', primary: false },
+  { id: 'settings', label: 'SETTINGS', desc: '그래픽 · 사운드 · 인터페이스 · 조작', primary: false },
 ];
+
+const item = (it: (typeof ITEMS)[number]): string => `
+  <button type="button" class="lobby-item ${it.primary ? 'primary' : 'secondary'}" data-lobby="${it.id}"${it.id === 'resume' ? ' hidden' : ''}${it.primary ? '' : ` title="${it.desc}"`}>
+    <span class="lobby-item-label">${it.label}</span>
+    <span class="lobby-item-desc">${it.desc}</span>
+  </button>`;
 
 const MODES: readonly { id: Exclude<LobbyMode, 'training'>; title: string; tag: string; desc: string }[] = [
   { id: 'team', title: '5대5 라운드전', tag: '팀전', desc: 'BLUE(나 + 아군 봇 4) 대 RED(봇 5). C4 폭파 또는 전멸전, 라운드 경제와 구매 메뉴.' },
@@ -78,13 +88,8 @@ export class Lobby {
           </div>
         </div>
         <nav class="lobby-nav" aria-label="로비 메뉴">
-          ${ITEMS.map(
-            (it) => `
-            <button type="button" class="lobby-item" data-lobby="${it.id}"${it.id === 'resume' ? ' hidden' : ''}>
-              <span class="lobby-item-label">${it.label}</span>
-              <span class="lobby-item-desc">${it.desc}</span>
-            </button>`,
-          ).join('')}
+          <div class="lobby-primary">${ITEMS.filter((it) => it.primary).map(item).join('')}</div>
+          <div class="lobby-secondary">${ITEMS.filter((it) => !it.primary).map(item).join('')}</div>
         </nav>
         <section class="lobby-play" hidden aria-label="모드 선택">
           <div class="lobby-play-head">
@@ -108,6 +113,7 @@ export class Lobby {
       </div>
       <footer class="lobby-footer">
         <span class="lobby-status" aria-live="polite"></span>
+        <span class="lobby-online muted" aria-live="polite">온라인 서버 확인 중…</span>
         <span class="lobby-map muted"></span>
       </footer>`;
     menu.root.appendChild(this.root);
@@ -136,6 +142,11 @@ export class Lobby {
       this.render();
     });
     rooms.onNotice((text) => this.notice(text));
+    rooms.onServerStatus((ok) => {
+      this.online = ok;
+      this.renderOnline();
+    });
+    void rooms.checkServer();
     this.render();
   }
 
@@ -216,6 +227,17 @@ export class Lobby {
     const status = this.q('.lobby-status');
     status.textContent = this.menu.loadingShown ? '맵 불러오는 중…' : text;
     status.classList.toggle('error', error);
-    this.q('.lobby-map').textContent = `배경: ${this.game.mapName}`;
+    this.q('.lobby-map').textContent = `작전 구역 · ${this.game.mapName}`;
+    this.renderOnline();
+  }
+
+  private online: boolean | null = null;
+
+  /** Relay reachable / not (checked by the multiplayer page), or the room this player is in. */
+  private renderOnline(): void {
+    const el = this.q('.lobby-online');
+    const room = this.room;
+    el.textContent = room ? `온라인 · 방 ${room.code} 접속 중` : this.online === null ? '온라인 서버 확인 중…' : this.online ? '온라인 서버 연결 가능' : '온라인 서버 응답 없음';
+    el.classList.toggle('ok', !!room || this.online === true);
   }
 }

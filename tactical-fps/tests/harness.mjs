@@ -48,10 +48,14 @@ export async function startEnv() {
  * until the map is loaded and the Play button is enabled. `page.errors`
  * collects page exceptions and console errors.
  */
-export async function openGame(env, { map = 'warehouse', quality = 'low', width = 640, height = 360, mode = 'training', objective = null, seed = null, lobby = false, init = null } = {}) {
+export async function openGame(env, { map = 'warehouse', quality = 'low', width = 640, height = 360, mode = 'training', objective = null, seed = null, lobby = false, init = null, pacedLock = true } = {}) {
   const context = await env.browser.newContext({ viewport: { width, height } });
   // init: a script run in the page before the game (counters, stubs).
   if (init) await context.addInitScript(init);
+  // Suites lock and free the mouse far faster than a player; newer Chrome refuses the 6th request
+  // within ~5 s. pacedLock: requests wait their turn instead (see pacePointerLock). Off for the
+  // suite that checks how the game takes a refusal.
+  if (pacedLock) await context.addInitScript(pacePointerLock);
   const page = await context.newPage();
   page.setDefaultTimeout(LOAD_TIMEOUT);
   page.errors = [];
@@ -199,3 +203,34 @@ export function countingInit() {
     });
   window.__counts = () => ({ listeners: { ...listeners }, sockets, audio });
 }
+
+/**
+ * Page init script: paces mouse-lock requests like a player would. Newer
+ * Chrome (measured on 153) refuses a pointer-lock request when five were
+ * made in roughly the last five seconds; older ones had no such limit. A
+ * request here waits until fewer than four were made in the last 5.5 s,
+ * then goes to the browser unchanged (same element, options and result),
+ * so the game still gets real locks, releases and refusals.
+ */
+export function pacePointerLock() {
+  const WINDOW = 5500;
+  const MAX = 4;
+  const made = [];
+  const request = Element.prototype.requestPointerLock;
+  let chain = Promise.resolve();
+  Element.prototype.requestPointerLock = function (...args) {
+    const turn = chain.then(async () => {
+      for (;;) {
+        const now = performance.now();
+        while (made.length && now - made[0] > WINDOW) made.shift();
+        if (made.length < MAX) break;
+        await new Promise((r) => setTimeout(r, WINDOW - (now - made[0]) + 20));
+      }
+      made.push(performance.now());
+      return request.apply(this, args);
+    });
+    chain = turn.catch(() => {});
+    return turn;
+  };
+}
+

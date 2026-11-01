@@ -5,7 +5,7 @@
 
 import { BOMB_CONFIG } from '../config';
 import { ECONOMY, TeamEconomy, type EconomyConfig } from './Economy';
-import type { KillEvent } from './Match';
+import { creditKill, killEvent, reassignSeat, type KillEvent, type SeatRecord } from './Match';
 
 export type Team = 'blue' | 'red';
 export const TEAMS: readonly Team[] = ['blue', 'red'];
@@ -76,6 +76,10 @@ export interface TeamScoreLine {
   kills: number;
   deaths: number;
   isPlayer: boolean;
+  /** Controller generation of the seat (see ScoreLine in Match.ts). */
+  gen: number;
+  /** The current controller's credited kills per weapon id (see ScoreLine in Match.ts). */
+  weaponKills: Record<string, number>;
 }
 
 /** What `update` did this tick (Game reacts: reset everyone, show results). */
@@ -86,6 +90,11 @@ export class TeamMatch {
   readonly feed: KillEvent[] = [];
   readonly history: RoundResult[] = [];
   readonly roundWins: Record<Team, number> = { blue: 0, red: 0 };
+  /**
+   * A room member's copy from an older host that does not send per-weapon
+   * kills: results then count the kill feed, as before.
+   */
+  legacyStats = false;
   /** Current round, from 1. */
   round = 1;
   phase: RoundPhase = 'prep';
@@ -110,7 +119,7 @@ export class TeamMatch {
     readonly config: TeamMatchConfig,
     players: readonly { id: string; name: string; team: Team; isPlayer: boolean }[],
   ) {
-    for (const p of players) this.scores.set(p.id, { ...p, kills: 0, deaths: 0 });
+    for (const p of players) this.scores.set(p.id, { ...p, kills: 0, deaths: 0, gen: 0, weaponKills: {} });
     this.economy = config.economy ? new TeamEconomy(config.economy, players) : null;
     this.phaseLeft = config.prepTime;
     this.roundTimeLeft = config.roundTime;
@@ -207,6 +216,16 @@ export class TeamMatch {
     return this.scores.get(id)?.name ?? id;
   }
 
+  /**
+   * Someone else controls seat `id` from now on: a fresh personal record
+   * (see reassignSeat). The team's rounds, history and money are the team's
+   * and the seat's, so they do not change.
+   */
+  reassign(id: string, name: string, restore?: SeatRecord): SeatRecord | null {
+    const line = this.scores.get(id);
+    return line ? reassignSeat(line, name, restore) : null;
+  }
+
   /** Lines of one team, most kills first, then fewest deaths, then the player first. */
   lines(team: Team): TeamScoreLine[] {
     return [...this.scores.values()]
@@ -219,19 +238,21 @@ export class TeamMatch {
    * after the round was decided changes nothing). No kill is credited for a
    * suicide, an unknown shooter or a teammate (friendly fire is off, so the
    * last can only come from a bug; it must not inflate anyone's score).
+   * Returns true when `killer` was credited.
    */
-  recordKill(killer: string, victim: string, weaponId: string, head: boolean): void {
-    if (this.phase !== 'live') return;
+  recordKill(killer: string, victim: string, weaponId: string, head: boolean): boolean {
+    if (this.phase !== 'live') return false;
     const v = this.scores.get(victim);
-    if (!v) return;
+    if (!v) return false;
     v.deaths++;
     const k = this.scores.get(killer);
     const credited = !!k && killer !== victim && k.team !== v.team;
     if (credited) {
-      k.kills++;
+      creditKill(k, weaponId);
       this.economy?.onKill(this.round, killer, victim);
     }
-    this.feed.push({ killer: credited ? killer : victim, victim, weaponId, head, at: this.elapsed });
+    this.feed.push(killEvent(this.scores, { killer: credited ? killer : victim, victim, weaponId, head, at: this.elapsed }));
+    return credited;
   }
 
   /**

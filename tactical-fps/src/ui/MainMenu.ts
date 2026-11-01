@@ -269,6 +269,12 @@ export class MainMenu {
     return { text: this.status.textContent ?? '', error: this.status.classList.contains('error') };
   }
 
+  /** The lobby is on screen (overlay shown, lobby view, not loading). */
+  get lobbyShown(): boolean {
+    const c = this.root.classList;
+    return c.contains('view-lobby') && !c.contains('hidden') && !c.contains('is-loading');
+  }
+
   get loadingShown(): boolean {
     return !this.loading.hidden;
   }

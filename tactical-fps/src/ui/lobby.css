@@ -23,14 +23,15 @@
   inset: 0;
   pointer-events: none;
   background:
-    linear-gradient(90deg, rgba(17, 19, 21, 0.97) 0%, rgba(17, 19, 21, 0.92) 30%, rgba(17, 19, 21, 0.6) 58%, rgba(17, 19, 21, 0.35) 100%),
-    linear-gradient(0deg, rgba(17, 19, 21, 0.9) 0%, rgba(17, 19, 21, 0) 22%);
+    linear-gradient(90deg, rgba(17, 19, 21, 0.95) 0%, rgba(17, 19, 21, 0.86) 28%, rgba(17, 19, 21, 0.35) 55%, rgba(17, 19, 21, 0.12) 100%),
+    linear-gradient(0deg, rgba(17, 19, 21, 0.85) 0%, rgba(17, 19, 21, 0) 20%),
+    linear-gradient(180deg, rgba(17, 19, 21, 0.5) 0%, rgba(17, 19, 21, 0) 18%);
 }
 .lobby-main {
   position: relative;
   display: flex;
   flex-direction: column;
-  width: min(560px, 100%);
+  width: min(520px, 100%);
   padding: clamp(28px, 8vh, 88px) var(--s-6) var(--s-5) clamp(24px, 6vw, 96px);
 }
 
@@ -51,11 +52,10 @@
   margin-top: var(--s-2);
 }
 
-/* Menu items: a plain list, label + one line of what it opens. */
+/* Menu: PLAY / MULTIPLAYER (and RESUME) large, the rest one compact row under them. */
 .lobby-nav {
-  display: flex;
-  flex-direction: column;
-  border-top: 1px solid var(--c-border);
+  display: grid;
+  gap: var(--s-3);
 }
 .lobby-nav[hidden],
 .lobby-play[hidden],
@@ -64,45 +64,39 @@
 .lobby-notice[hidden] {
   display: none;
 }
+.lobby-primary {
+  display: grid;
+  gap: var(--s-2);
+}
+.lobby-secondary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--s-2);
+}
 .lobby-item {
   position: relative;
   display: grid;
   gap: 2px;
-  padding: var(--s-3) var(--s-3) var(--s-3) var(--s-4);
-  border: 0;
-  border-bottom: 1px solid var(--c-border);
-  background: none;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: rgba(27, 30, 33, 0.82);
   color: var(--c-text);
   text-align: left;
   font: inherit;
   cursor: pointer;
-  transition: background var(--t-fast);
-}
-.lobby-item::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 3px;
-  background: transparent;
-  transition: background var(--t-fast);
+  transition: background var(--t-fast), border-color var(--t-fast);
 }
 .lobby-item:hover:not(:disabled),
 .lobby-item:focus-visible {
   outline: none;
-  background: var(--c-accent-soft);
-}
-.lobby-item:hover:not(:disabled)::before,
-.lobby-item:focus-visible::before {
-  background: var(--c-accent);
+  border-color: var(--c-accent);
+  background: rgba(45, 50, 55, 0.92);
 }
 .lobby-item:disabled {
   cursor: not-allowed;
   opacity: 0.45;
 }
 .lobby-item-label {
-  font-size: var(--fs-lg);
   font-weight: 700;
   letter-spacing: var(--tracking-caps);
 }
@@ -110,8 +104,45 @@
   color: var(--c-text-2);
   font-size: var(--fs-sm);
 }
+.lobby-item.primary {
+  padding: var(--s-4) var(--s-5);
+  border-left: 3px solid var(--c-border-strong);
+}
+.lobby-item.primary .lobby-item-label {
+  font-size: clamp(20px, 2vw, 26px);
+}
+.lobby-item.primary:hover:not(:disabled),
+.lobby-item.primary:focus-visible {
+  border-left-color: var(--c-accent);
+}
+/* PLAY: the main action, in the accent colour. */
+.lobby-item[data-lobby='play'] {
+  border-color: var(--c-accent);
+  background: var(--c-accent);
+  color: var(--c-accent-ink);
+}
+.lobby-item[data-lobby='play'] .lobby-item-desc {
+  color: rgba(21, 18, 13, 0.75);
+}
+.lobby-item[data-lobby='play']:hover:not(:disabled),
+.lobby-item[data-lobby='play']:focus-visible {
+  background: var(--c-accent-hover);
+  border-color: var(--c-accent-hover);
+  box-shadow: var(--focus-ring);
+}
 .lobby-item[data-lobby='resume'] .lobby-item-label {
   color: var(--c-accent);
+}
+.lobby-item.secondary {
+  justify-items: center;
+  padding: var(--s-3) var(--s-2);
+  text-align: center;
+}
+.lobby-item.secondary .lobby-item-label {
+  font-size: var(--fs-md);
+}
+.lobby-item.secondary .lobby-item-desc {
+  display: none;
 }
 
 /* PLAY: mode cards. */
@@ -219,6 +250,22 @@
 .lobby-status.error {
   color: var(--c-danger);
 }
+.lobby-online.ok {
+  color: var(--c-text-2);
+}
+.lobby-online.ok::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: var(--s-2);
+  border-radius: 50%;
+  background: #6fae6a;
+  vertical-align: middle;
+}
+.lobby-map {
+  margin-left: auto;
+}
 
 /* Menu header: back to the lobby. */
 .menu-lobby {
@@ -226,6 +273,40 @@
   margin-left: auto;
 }
 
+/* Very short screens (landscape phones, small windows): PLAY, MULTIPLAYER and the row under them on one screen. */
+@media (max-height: 420px) {
+  .lobby-main {
+    padding-top: var(--s-3);
+    padding-bottom: var(--s-2);
+  }
+  .lobby-brand {
+    margin-bottom: var(--s-3);
+  }
+  .lobby-title {
+    font-size: 34px;
+  }
+  .lobby-sub {
+    margin-top: var(--s-1);
+  }
+  .lobby-nav {
+    gap: var(--s-2);
+  }
+  .lobby-primary {
+    gap: var(--s-1);
+  }
+  .lobby-item.primary {
+    padding: var(--s-2) var(--s-4);
+  }
+  .lobby-item.primary .lobby-item-label {
+    font-size: var(--fs-lg);
+  }
+  .lobby-item.secondary {
+    padding: var(--s-2);
+  }
+  .lobby-footer {
+    padding-block: var(--s-2);
+  }
+}
 @media (max-width: 520px) {
   .lobby-main {
     padding: var(--s-5) var(--s-4);

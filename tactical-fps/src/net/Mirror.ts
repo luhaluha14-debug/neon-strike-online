@@ -14,7 +14,11 @@ const FEED_KEEP = 12;
 export interface MatchState {
   kind: 'dm';
   config: MatchConfig;
-  scores: [id: string, name: string, kills: number, deaths: number][];
+  /**
+   * `gen`: the seat's controller generation (who the personal record belongs to; see ScoreLine).
+   * `wk`: its confirmed kills per weapon (results / rewards). Both absent from an older host.
+   */
+  scores: [id: string, name: string, kills: number, deaths: number, gen?: number, wk?: Record<string, number>][];
   feed: KillEvent[];
   timeLeft: number;
   elapsed: number;
@@ -25,7 +29,7 @@ export interface MatchState {
 export interface TeamMatchState {
   kind: 'team';
   config: TeamMatchConfig;
-  scores: [id: string, name: string, team: Team, kills: number, deaths: number][];
+  scores: [id: string, name: string, team: Team, kills: number, deaths: number, gen?: number, wk?: Record<string, number>][];
   feed: KillEvent[];
   history: RoundResult[];
   roundWins: Record<Team, number>;
@@ -56,7 +60,7 @@ export function matchState(m: Match, rename: (id: string) => string, nameOf: (id
   return {
     kind: 'dm',
     config: { ...m.config },
-    scores: [...m.scores.values()].map((s) => [rename(s.id), nameOf(s.id, s.name), s.kills, s.deaths]),
+    scores: [...m.scores.values()].map((s) => [rename(s.id), nameOf(s.id, s.name), s.kills, s.deaths, s.gen, s.weaponKills]),
     feed: m.feed.slice(-FEED_KEEP).map((k) => ({ ...k, killer: rename(k.killer), victim: rename(k.victim) })),
     timeLeft: m.timeLeft,
     elapsed: m.elapsed,
@@ -70,7 +74,7 @@ export function teamMatchState(m: TeamMatch, rename: (id: string) => string, nam
   return {
     kind: 'team',
     config: { ...m.config },
-    scores: [...m.scores.values()].map((s) => [rename(s.id), nameOf(s.id, s.name), s.team, s.kills, s.deaths]),
+    scores: [...m.scores.values()].map((s) => [rename(s.id), nameOf(s.id, s.name), s.team, s.kills, s.deaths, s.gen, s.weaponKills]),
     feed: m.feed.slice(-FEED_KEEP).map((k) => ({ ...k, killer: rename(k.killer), victim: rename(k.victim) })),
     history: m.history.map((h) => ({ ...h, alive: { ...h.alive } })),
     roundWins: { ...m.roundWins },
@@ -114,12 +118,15 @@ export function applyMatch(prev: Match | null, s: MatchState, rename: (id: strin
     prev && prev.scores.size === ids.length && ids.every((id) => prev.scores.has(id))
       ? prev
       : new Match(s.config, s.scores.map(([id, name]) => ({ id: rename(id), name, isPlayer: rename(id) === 'local' })));
-  for (const [id, name, kills, deaths] of s.scores) {
+  for (const [id, name, kills, deaths, gen, wk] of s.scores) {
     const line = m.scores.get(rename(id))!;
     line.name = name;
     line.kills = kills;
     line.deaths = deaths;
+    line.gen = gen ?? 0;
+    line.weaponKills = weaponKills(wk);
   }
+  m.legacyStats = s.scores.some((x) => x[5] === undefined);
   replace(m.feed, s.feed.map((k) => ({ ...k, killer: rename(k.killer), victim: rename(k.victim) })));
   m.timeLeft = s.timeLeft;
   m.elapsed = s.elapsed;
@@ -142,12 +149,15 @@ export function applyTeamMatch(prev: TeamMatch | null, s: TeamMatchState, rename
         s.config,
         s.scores.map(([id, name, team]) => ({ id: rename(id), name, team, isPlayer: rename(id) === 'local' })),
       );
-  for (const [id, name, , kills, deaths] of s.scores) {
+  for (const [id, name, , kills, deaths, gen, wk] of s.scores) {
     const line = m.scores.get(rename(id))!;
     line.name = name;
     line.kills = kills;
     line.deaths = deaths;
+    line.gen = gen ?? 0;
+    line.weaponKills = weaponKills(wk);
   }
+  m.legacyStats = s.scores.some((x) => x[6] === undefined);
   replace(m.feed, s.feed.map((k) => ({ ...k, killer: rename(k.killer), victim: rename(k.victim) })));
   replace(m.history, s.history);
   m.roundWins.blue = s.roundWins.blue;
@@ -178,4 +188,12 @@ export function applyBomb(b: BombObjective, s: BombStateMsg, rename: (id: string
 function replace<T>(target: T[], items: readonly T[]): void {
   target.length = 0;
   target.push(...items);
+}
+
+/** The host's per-weapon counts, as received (only whole non-negative numbers; anything else is dropped). */
+function weaponKills(wk: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (wk && typeof wk === 'object')
+    for (const [w, n] of Object.entries(wk)) if (Number.isInteger(n) && (n as number) >= 0 && (n as number) <= 10_000) out[w] = n as number;
+  return out;
 }

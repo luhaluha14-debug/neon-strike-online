@@ -39,6 +39,21 @@ export interface MapDefinition {
   /** Anything that falls below this height is respawned. */
   killPlaneY: number;
   environment: MapEnvironment;
+  /** The lobby's picture of this map (LobbyBackdrop); without it a shot is picked from the spawns. */
+  lobby?: LobbyShotDef;
+}
+
+/**
+ * A hand-set lobby shot: camera position (m), view yaw / pitch (rad, the
+ * game camera's convention: yaw 0 looks along -Z), and where the operator
+ * figure stands (x, z; its feet go on the ground there) and faces.
+ */
+export interface LobbyShotDef {
+  camera: readonly [number, number, number];
+  yaw: number;
+  pitch: number;
+  figure: readonly [number, number];
+  figureYaw: number;
 }
 
 export const MAPS: readonly MapDefinition[] = [
@@ -70,6 +85,8 @@ export const MAPS: readonly MapDefinition[] = [
     defenseSpawnPrefix: 'DEF_SpawnPoint_',
     bombSitePattern: /^BombSite_([AB])_PlantZone_Volume$/,
     killPlaneY: -20,
+    // From the attack spawn up the avenue: Namsan and its tower at the end of the street.
+    lobby: { camera: [1.5, 2.3, 53], yaw: 0.12, pitch: 0.05, figure: [3.1, 46.2], figureYaw: 2.71 },
     environment: { fogNear: 120, fogFar: 650, viewDistance: 900 },
   },
   {
@@ -96,6 +113,8 @@ export const MAPS: readonly MapDefinition[] = [
     defenseSpawnPrefix: 'DEF_SpawnPoint_',
     bombSitePattern: /^Zone_([AB])_Site_PlantArea$/,
     killPlaneY: -20,
+    // From the attack spawn down the central alley toward the defenders' end.
+    lobby: { camera: [-1.2, 2.0, 30.5], yaw: 0.08, pitch: -0.02, figure: [1.1, 24.0], figureYaw: 2.67 },
     environment: { fogNear: 60, fogFar: 180, viewDistance: 400 },
   },
 ];

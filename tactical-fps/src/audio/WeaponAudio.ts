@@ -25,15 +25,17 @@ export class WeaponAudio {
     if (s.cycle) this.engine.play(s.cycle, { group: 'foley', gain: 0.8, delay });
     if (result.kind === 'miss') return;
     // Hit confirm, heard at the shooter (not placed in the world), right after the shot.
-    if (result.kind === 'target') {
-      const head = result.zone === 'head';
-      this.engine.play(head ? 'hit.head' : 'hit.body', { group: 'impact', gain: head ? 0.55 : 0.5, rateJitter: 0.03, delay: delay + 0.02 });
-    }
+    if (result.kind === 'target') this.hitConfirm(result.zone === 'head', delay + 0.02);
     if (s.hit) {
       this.engine.play(s.hit, { group: 'impact', gain: 0.8, rateJitter: 0.04, delay: delay + 0.03 });
       return;
     }
     this.impact(result.kind === 'target' ? 'impact.flesh' : 'impact', result.point, delay, listener);
+  }
+
+  /** Hit confirm at the shooter: this player's round hit someone (here, or resolved by the room's host). */
+  hitConfirm(head: boolean, delay = 0): void {
+    this.engine.play(head ? 'hit.head' : 'hit.body', { group: 'impact', gain: head ? 0.55 : 0.5, rateJitter: 0.03, delay });
   }
 
   /**

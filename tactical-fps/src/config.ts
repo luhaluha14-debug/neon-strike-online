@@ -16,8 +16,27 @@ export const PLAYER_CONFIG = {
 
   groundAccel: 60,
   groundFriction: 9,
-  airAccel: 12,
-  airControl: 0.35,
+  /**
+   * Air movement (Quake / CS style, apart from the ground values): a wish
+   * direction is taken up at `airAccel` × the move speed per second, but may
+   * only add up to `airWishSpeed` along itself. Holding a key therefore adds
+   * little; turning with the strafe key keeps the wish across the velocity,
+   * which gains speed (air strafing) — less the faster one already goes.
+   * Pressing against the motion slows it down.
+   */
+  airAccel: 3,
+  airWishSpeed: 0.9,
+  /** Horizontal speed no air movement can go beyond (m/s; bunny hopping and air strafing). */
+  maxAirSpeed: 9,
+  /** A jump pressed this long before touching down still fires on the landing tick (s). */
+  jumpBuffer: 0.1,
+  /**
+   * Falling without having jumped (off a ledge, a step down): the original
+   * air control, unchanged — steering up to `fallControl` × the move speed at
+   * `fallAccel`. The air movement above only applies after a jump.
+   */
+  fallAccel: 12,
+  fallControl: 0.35,
 
   jumpVelocity: 5.2,
   gravity: 18,

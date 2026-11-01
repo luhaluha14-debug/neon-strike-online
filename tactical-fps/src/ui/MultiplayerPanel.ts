@@ -5,6 +5,8 @@ import type { MainMenu } from './MainMenu';
 import './mp.css';
 
 const NAME_KEY = 'tactical-fps.mp.name';
+/** A relay that did not answer is asked once more after this long. */
+const RECHECK_MS = 5000;
 const MODE_LABEL: Record<RoomMode, string> = { deathmatch: '데스매치 (개인전)', team: '5대5 라운드전 (팀전)' };
 const TEAM_LABEL = { blue: 'BLUE', red: 'RED' } as const;
 
@@ -37,6 +39,8 @@ export class MultiplayerPanel implements LobbyRoomSource {
   private lastCode: string | null = null;
   private roomListeners: ((room: RoomInfo | null) => void)[] = [];
   private noticeListeners: ((text: string) => void)[] = [];
+  private statusListeners: ((ok: boolean) => void)[] = [];
+  private checks = 0;
 
   constructor(
     menu: MainMenu,
@@ -191,11 +195,25 @@ export class MultiplayerPanel implements LobbyRoomSource {
     return this.el.querySelector<T>(sel)!;
   }
 
-  private async checkServer(): Promise<void> {
-    if (this.session?.room) return;
+  onServerStatus(listener: (ok: boolean) => void): void {
+    this.statusListeners.push(listener);
+  }
+
+  /** Is the relay up? Shown on this page and (through onServerStatus) in the lobby. */
+  async checkServer(retry = true): Promise<void> {
+    if (this.session?.room || this.busy) return;
     const line = this.q('.mp-server');
     line.textContent = '서버 확인 중…';
-    const ok = await relayAvailable();
+    // Checks can overlap (lobby at start, this page when opened): only the latest one's answer counts.
+    const seq = ++this.checks;
+    const ok = await relayAvailable(8000);
+    if (seq !== this.checks || this.busy) return;
+    // No answer can be a busy moment (a slow machine, a waking free server): ask once more shortly.
+    if (!ok && retry)
+      setTimeout(() => {
+        if (seq === this.checks) void this.checkServer(false);
+      }, RECHECK_MS);
+    for (const l of this.statusListeners) l(ok);
     line.textContent = ok ? '멀티플레이 서버 연결 가능' : '서버 응답 없음 — 무료 서버는 깨어나는 데 1분 정도 걸릴 수 있습니다. 참가를 누르면 기다렸다가 연결합니다.';
     line.classList.toggle('ok', ok);
   }

@@ -1,4 +1,4 @@
-import type { KillEvent, Match } from '../game/Match';
+import { feedName, type KillEvent, type Match } from '../game/Match';
 import './match.css';
 
 const FEED_SECONDS = 6;
@@ -124,14 +124,18 @@ export class MatchHud {
 
   private feedItem(m: Match, k: KillEvent): HTMLLIElement {
     const li = document.createElement('li');
+    // A seat taken over since (a room member replaced a bot): the entry keeps the name and owner of then.
     const killer = m.scores.get(k.killer);
     const victim = m.scores.get(k.victim);
-    li.className = killer?.isPlayer ? 'mine' : victim?.isPlayer ? 'me-died' : '';
+    const killerMe = !!killer?.isPlayer && (k.kg ?? 0) === killer.gen;
+    const victimMe = !!victim?.isPlayer && (k.vg ?? 0) === victim.gen;
+    li.className = killerMe ? 'mine' : victimMe ? 'me-died' : '';
     const name = (s: string, isMe?: boolean) => `<span class="${isMe ? 'me' : ''}">${s}</span>`;
+    const victimName = feedName(m.scores, k.victim, k.vg, k.vn);
     li.innerHTML =
       k.killer === k.victim || !killer
-        ? `${name(m.name(k.victim), victim?.isPlayer)} <span class="kf-w">사망</span>`
-        : `${name(killer.name, killer.isPlayer)} <span class="kf-w">${WEAPON_SHORT[k.weaponId] ?? k.weaponId}${k.head ? ' · HS' : ''}</span> ${name(m.name(k.victim), victim?.isPlayer)}`;
+        ? `${name(victimName, victimMe)} <span class="kf-w">사망</span>`
+        : `${name(feedName(m.scores, k.killer, k.kg, k.kn), killerMe)} <span class="kf-w">${WEAPON_SHORT[k.weaponId] ?? k.weaponId}${k.head ? ' · HS' : ''}</span> ${name(victimName, victimMe)}`;
     return li;
   }
 

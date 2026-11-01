@@ -1,10 +1,14 @@
 import { SAMPLE_RATE } from './dsp';
 import { renderSound, VARIANTS, type SoundId } from './weaponSounds';
 
-export type VoiceGroup = 'shot' | 'impact' | 'foley';
+export type VoiceGroup = 'shot' | 'impact' | 'foley' | 'confirm';
 
-/** Most simultaneous voices per group; the oldest is faded out to make room. */
-const GROUP_LIMIT: Record<VoiceGroup, number> = { shot: 10, impact: 6, foley: 6 };
+/**
+ * Most simultaneous voices per group; the oldest is faded out to make room.
+ * `confirm` (kill confirm) has its own small pool so a burst of impacts in
+ * full-auto fire can never cut it off.
+ */
+const GROUP_LIMIT: Record<VoiceGroup, number> = { shot: 10, impact: 6, foley: 6, confirm: 2 };
 
 export interface PlayOptions {
   /** Seconds from now (keeps shots that fired in the same frame correctly spaced). */

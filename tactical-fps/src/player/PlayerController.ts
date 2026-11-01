@@ -25,6 +25,14 @@ export class PlayerController {
   health: number = PLAYER_CONFIG.maxHealth;
 
   private jumpHeld = false;
+  /** Time left on a jump press made in the air (it fires on landing; see jumpBuffer). */
+  private jumpBuffered = 0;
+  /** Ticks on the ground in a row (0 on the tick it lands). */
+  private groundTicks = 0;
+  /** In the air because of a jump (air movement), not a fall (the original fall control). */
+  private jumped = false;
+  /** Pushed sideways by a wall or slope during this tick (any collision pass; see the wall-slide limit). */
+  private wallContact = false;
   private readonly hit: CapsuleHit = { grounded: false, groundNormal: new THREE.Vector3(0, 1, 0), hitCeiling: false };
 
   constructor(private readonly world: CollisionWorld) {}
@@ -37,6 +45,10 @@ export class PlayerController {
     this.grounded = false;
     this.crouching = false;
     this.height = PLAYER_CONFIG.standHeight;
+    this.jumpBuffered = 0;
+    this.groundTicks = 0;
+    this.jumped = false;
+    this.wallContact = false;
   }
 
   /** Mouse look is applied per render frame for responsiveness, not per tick. */
@@ -68,8 +80,23 @@ export class PlayerController {
     if (_wish.lengthSq() > 1) _wish.normalize();
 
     const maxSpeed = this.crouching ? cfg.crouchSpeed : input.walk ? cfg.walkSpeed : cfg.runSpeed;
+    // A jump is a fresh press (holding the key does not hop again); pressed in the air it waits for the landing.
+    const pressed = input.jump && !this.jumpHeld;
+    this.wallContact = false;
+    /** Ground ticks: speed before accelerating, to limit a wall slide (see below); -1 = not a ground tick. */
+    let groundPre = -1;
+    if (pressed && !this.grounded) this.jumpBuffered = cfg.jumpBuffer;
 
-    if (this.grounded) {
+    if (this.grounded && this.groundTicks === 0 && (pressed || this.jumpBuffered > 0) && !this.crouching) {
+      // Bunny hop: jumping again on the very tick of landing skips the ground friction, so a
+      // well-timed hop keeps its speed (a late one has already lost some to friction).
+      this.velocity.y = cfg.jumpVelocity;
+      this.grounded = false;
+      this.jumpBuffered = 0;
+      this.jumped = true;
+      this.airMove(_wish, maxSpeed, dt);
+    } else if (this.grounded) {
+      this.groundTicks++;
       // Friction then acceleration toward the target velocity (crisp, low-slide stops).
       const speed = Math.hypot(this.velocity.x, this.velocity.z);
       if (speed > 0) {
@@ -78,19 +105,23 @@ export class PlayerController {
         this.velocity.x *= scale;
         this.velocity.z *= scale;
       }
+      groundPre = Math.hypot(this.velocity.x, this.velocity.z);
       this.accelerate(_wish, maxSpeed, cfg.groundAccel, dt);
 
-      if (input.jump && !this.jumpHeld && !this.crouching) {
+      if (pressed && !this.crouching) {
         this.velocity.y = cfg.jumpVelocity;
         this.grounded = false;
+        this.jumped = true;
       } else {
         this.velocity.y = 0;
       }
     } else {
-      this.accelerate(_wish, maxSpeed * cfg.airControl + 0.01, cfg.airAccel, dt);
+      if (this.jumped) this.airMove(_wish, maxSpeed, dt);
+      else this.accelerate(_wish, maxSpeed * cfg.fallControl + 0.01, cfg.fallAccel, dt);
       this.velocity.y = Math.max(this.velocity.y - cfg.gravity * dt, -cfg.maxFallSpeed);
     }
     this.jumpHeld = input.jump;
+    this.jumpBuffered = Math.max(0, this.jumpBuffered - dt);
 
     const wasGrounded = this.grounded;
     const jumped = this.velocity.y > 0;
@@ -101,6 +132,46 @@ export class PlayerController {
     if (wasGrounded && !this.grounded && !jumped) this.snapToGround();
 
     if (this.grounded && this.velocity.y < 0) this.velocity.y = 0;
+    if (groundPre >= 0 && this.wallContact) {
+      // Running diagonally into a wall: the wall takes away the part of the velocity going into it
+      // each tick, so the acceleration never sees the wish speed reached and kept adding along the
+      // wall (up to ~14 m/s). Pushed by a wall, a ground tick may not end faster than it began or
+      // than the move speed. (Walking up ramps and steps stays under the move speed: unchanged.)
+      const h = Math.hypot(this.velocity.x, this.velocity.z);
+      const limit = Math.max(groundPre, maxSpeed);
+      if (h > limit) {
+        this.velocity.x *= limit / h;
+        this.velocity.z *= limit / h;
+      }
+    }
+    if (!this.grounded) this.groundTicks = 0;
+    else this.jumped = false;
+  }
+
+  /**
+   * Air acceleration (see PLAYER_CONFIG.airAccel): the wish direction may add
+   * at most `airWishSpeed` along itself, at `airAccel` × the move speed per
+   * second. Never pushes the horizontal speed past `maxAirSpeed`.
+   */
+  private airMove(wishDir: THREE.Vector3, maxSpeed: number, dt: number): void {
+    const cfg = PLAYER_CONFIG;
+    const len = wishDir.length();
+    if (len < 1e-4) return;
+    const dirX = wishDir.x / len;
+    const dirZ = wishDir.z / len;
+    const wishSpeed = maxSpeed * len;
+    const add = Math.min(wishSpeed, cfg.airWishSpeed) - (this.velocity.x * dirX + this.velocity.z * dirZ);
+    if (add <= 0) return;
+    const before = Math.hypot(this.velocity.x, this.velocity.z);
+    const gain = Math.min(cfg.airAccel * wishSpeed * dt, add);
+    this.velocity.x += dirX * gain;
+    this.velocity.z += dirZ * gain;
+    const after = Math.hypot(this.velocity.x, this.velocity.z);
+    const limit = Math.max(before, cfg.maxAirSpeed);
+    if (after > limit) {
+      this.velocity.x *= limit / after;
+      this.velocity.z *= limit / after;
+    }
   }
 
   private accelerate(wishDir: THREE.Vector3, wishSpeed: number, accel: number, dt: number): void {
@@ -138,6 +209,7 @@ export class PlayerController {
 
     // Remove velocity going into the surfaces we were pushed out of.
     const pushLen = Math.hypot(dx, dz);
+    if (pushLen > 1e-6) this.wallContact = true;
     if (pushLen > 1e-6) {
       const nx = dx / pushLen;
       const nz = dz / pushLen;
