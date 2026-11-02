@@ -4,6 +4,7 @@ import type { ArmsAppearance } from '../../skins/SkinRenderer';
 import { FirstPersonArms } from './FirstPersonArms';
 import type { ViewmodelPose, WeaponCategory } from '../WeaponDefinition';
 import type { WeaponAnimState, WeaponView } from './WeaponView';
+import { pumpTravel } from './GltfWeaponView';
 
 export interface ViewModelMotion {
   /** Look delta this frame (radians) — drives sway. */
@@ -18,14 +19,38 @@ export interface ViewModelMotion {
 /** Duration of the placeholder melee slash (s). */
 const SLASH_TIME = 0.32;
 
-/** View kick, muzzle flash size and flash light per weapon category (one shot). */
-const SHOT_FEEL: Record<Exclude<WeaponCategory, 'melee'>, { kick: number; flash: number; light: number }> = {
-  rifle: { kick: 1.0, flash: 1.1, light: 1.6 },
-  sniper: { kick: 1.9, flash: 1.9, light: 2.6 },
-  smg: { kick: 0.75, flash: 0.9, light: 1.3 },
-  shotgun: { kick: 2.2, flash: 2.0, light: 2.8 },
-  pistol: { kick: 1.1, flash: 0.8, light: 1.2 },
+interface ShotFeel {
+  /** Impulse of the kick spring per shot. */
+  kick: number;
+  /** How the kick shows: muzzle rise (rad per unit) and push back toward the eye (m per unit). */
+  rise: number;
+  back: number;
+  /** Random sideways roll impulse per shot (± rad/s): the weapon twists a little, never the same way twice. */
+  roll: number;
+  flash: number;
+  light: number;
+}
+
+/**
+ * Per weapon category: the rifle pushes back evenly, the SMG buzzes (small kicks, more twist), the
+ * pistol snaps up (rise more than push), the shotgun and sniper shove hard.
+ */
+const SHOT_FEEL: Record<Exclude<WeaponCategory, 'melee'>, ShotFeel> = {
+  // Peak of one shot: rise ~0.9°, push 6 mm, twist ~0.4°; a full-auto spray holds ~1.5° / 1 cm.
+  rifle: { kick: 1.0, rise: 0.64, back: 0.25, roll: 0.29, flash: 1.1, light: 1.6 },
+  // ~2° / 13 mm, then the bolt.
+  sniper: { kick: 1.9, rise: 0.75, back: 0.28, roll: 0.43, flash: 1.9, light: 2.6 },
+  // ~0.6° / 4 mm per shot, more twist: a buzz rather than a shove.
+  smg: { kick: 0.75, rise: 0.57, back: 0.22, roll: 0.36, flash: 0.9, light: 1.3 },
+  // ~2.2° / 15 mm, then the pump.
+  shotgun: { kick: 2.2, rise: 0.72, back: 0.28, roll: 0.57, flash: 2.0, light: 2.8 },
+  // Snaps up ~2°, hardly pushes back (3 mm).
+  pistol: { kick: 1.1, rise: 1.3, back: 0.11, roll: 0.43, flash: 0.8, light: 1.2 },
 };
+const RIFLE_FEEL = SHOT_FEEL.rifle;
+
+/** Pose offsets of the procedural animations this frame (relative to rest); reused, no per-frame garbage. */
+const off = { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0 };
 
 /**
  * Renders the held weapon in its own scene after the world, with the depth
@@ -60,11 +85,33 @@ export class ViewModelLayer {
   // Spring-ish state.
   private kick = 0;
   private kickVel = 0;
+  /** How the current weapon's kick shows (from its category). */
+  private feel: ShotFeel = RIFLE_FEEL;
+  /** Sideways twist of the last shots (rad), sprung back like the kick. */
+  private roll = 0;
+  private rollVel = 0;
+  /** Landing dip (sprung). */
+  private land = 0;
+  private landVel = 0;
+  private wasGrounded = true;
+  private breathPhase = 0;
+  /** Category of the model in hand (the anim state already describes the next weapon during a holster). */
+  private shownCategory: WeaponCategory = 'rifle';
+  /** Switching: the model being put away until `holster` runs out, then `incoming` is drawn. */
+  private incoming: { view: WeaponView; pose?: ViewmodelPose; category: WeaponCategory } | null = null;
+  private holster = 0;
+  private holsterTotal = 0;
+  /** Draw progress the new model starts from (the weapon's draw began during the holster): remapped to 0..1. */
+  private equipBase = 0;
+  private lastEquip = 1;
+  /** Reload progress last frame, and time since a reload completed (a shotgun racks its pump then). */
+  private lastReload: number | null = null;
+  private sinceReloadEnd = Infinity;
   private swayX = 0;
   private swayY = 0;
   private bobPhase = 0;
   private bobAmount = 0;
-  private magRestY = 0;
+  private readonly magRest = new THREE.Vector3();
 
   constructor(aspect: number) {
     this.camera = new THREE.PerspectiveCamera(62, aspect, 0.01, 10);
@@ -99,8 +146,13 @@ export class ViewModelLayer {
     return out;
   }
 
-  /** The model currently in hand (debug / tests). */
+  /** The selected weapon's model: during a switch, the one about to be drawn (debug / tests). */
   get currentView(): WeaponView | null {
+    return this.incoming?.view ?? this.view;
+  }
+
+  /** The model physically in the hands (during a switch, the one going down). */
+  get inHand(): WeaponView | null {
     return this.view;
   }
 
@@ -108,8 +160,28 @@ export class ViewModelLayer {
     return this.arms;
   }
 
-  /** Puts a weapon model in the hands at its configured pose. */
-  setView(view: WeaponView, pose?: ViewmodelPose): void {
+  /**
+   * Puts a weapon model in the hands at its configured pose. With `holster` (s) the model in hand is
+   * put away first and the new one drawn after it, inside the weapon's own draw time (a switch never
+   * takes longer to be able to fire). A model given while one is still waiting replaces it.
+   */
+  setView(view: WeaponView, pose?: ViewmodelPose, holster = 0, category?: WeaponCategory): void {
+    if (this.incoming) {
+      // The waiting model is replaced (its GLB finished loading, or another switch): the holster goes on.
+      if (this.incoming.view !== view) this.incoming.view.dispose();
+      this.incoming = { view, pose, category: category ?? this.incoming.category };
+      return;
+    }
+    if (holster > 0 && this.view) {
+      this.incoming = { view, pose, category: category ?? this.shownCategory };
+      this.holster = this.holsterTotal = holster;
+      return;
+    }
+    this.install(view, pose, category);
+  }
+
+  private install(view: WeaponView, pose?: ViewmodelPose, category?: WeaponCategory): void {
+    if (category) this.shownCategory = category;
     this.flash.removeFromParent();
     if (this.view) {
       this.pivot.remove(this.view.object);
@@ -122,13 +194,15 @@ export class ViewModelLayer {
     this.view = view;
     this.pivot.add(view.object);
     // Arms attach to whatever anchors the weapon provides — no per-weapon code here.
-    this.arms = new FirstPersonArms(view.gripAnchor, view.supportAnchor, view.magazine, view.rightHand, view.armPose);
+    // The support hand reaches for the magazine on a reload (a moving part, or a fixed spot on one-piece models).
+    this.arms = new FirstPersonArms(view.gripAnchor, view.supportAnchor, view.magazine ?? view.reloadGrab ?? undefined, view.rightHand, view.armPose);
     this.arms.applyLook(this.armsLook);
     this.pivot.add(this.arms.object);
     view.muzzle?.add(this.flash);
     this.flashTime = 0;
     this.kick = this.kickVel = 0;
-    this.magRestY = view.magazine?.position.y ?? 0;
+    this.roll = this.rollVel = 0;
+    if (view.magazine) this.magRest.copy(view.magazine.position);
     if (pose) this.setPose(pose);
   }
 
@@ -136,6 +210,26 @@ export class ViewModelLayer {
   setArmsLook(look: ArmsAppearance | null): void {
     this.armsLook = look;
     this.arms?.applyLook(look);
+  }
+
+  /** A fresh start (respawn, round start): a switch in progress completes, kicks and dips are cleared. */
+  resetMotion(): void {
+    if (this.incoming) {
+      const { view, pose, category } = this.incoming;
+      this.incoming = null;
+      this.install(view, pose, category);
+    }
+    this.holster = this.holsterTotal = 0;
+    this.equipBase = 0;
+    this.kick = this.kickVel = this.roll = this.rollVel = this.land = this.landVel = 0;
+    this.lastReload = null;
+    this.sinceReloadEnd = Infinity;
+    this.flashTime = 0;
+  }
+
+  /** A switch is putting the old model away (tests / debug). */
+  get holstering(): boolean {
+    return this.incoming !== null;
   }
 
   setPose(pose: ViewmodelPose): void {
@@ -164,7 +258,9 @@ export class ViewModelLayer {
   onShot(category: WeaponCategory): void {
     if (category === 'melee') return;
     const k = SHOT_FEEL[category];
+    this.feel = k;
     this.kickVel += k.kick;
+    this.rollVel += (Math.random() < 0.5 ? -1 : 1) * k.roll * (0.6 + Math.random() * 0.4);
     if (this.view?.muzzle) {
       this.flashTime = 0.05;
       this.flash.rotation.z = Math.random() * Math.PI;
@@ -181,9 +277,16 @@ export class ViewModelLayer {
     const damping = 26;
     const steps = Math.ceil(dt / (1 / 240));
     const h = dt / steps;
+    // Landing after a jump or fall: a short dip of the weapon.
+    if (m.grounded && !this.wasGrounded) this.landVel -= 0.7;
+    this.wasGrounded = m.grounded;
     for (let i = 0; i < steps; i++) {
       this.kickVel += (-stiffness * this.kick - damping * this.kickVel) * h;
       this.kick += this.kickVel * h;
+      this.rollVel += (-stiffness * this.roll - damping * this.rollVel) * h;
+      this.roll += this.rollVel * h;
+      this.landVel += (-120 * this.land - 18 * this.landVel) * h;
+      this.land += this.landVel * h;
     }
 
     // Sway lags behind look input.
@@ -199,35 +302,74 @@ export class ViewModelLayer {
     this.bobPhase += dt * (6 + 5 * m.speed01);
     const bobX = Math.sin(this.bobPhase) * 0.008 * this.bobAmount;
     const bobY = -Math.abs(Math.cos(this.bobPhase)) * 0.008 * this.bobAmount;
+    // Breathing while standing still: a slow, barely visible rise and fall.
+    this.breathPhase += dt * 1.7;
+    const still = Math.max(0, 1 - this.bobAmount * 2);
 
     // Pose offsets from the placeholder animations (all relative to rest).
-    const off = { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0 };
+    off.x = off.y = off.z = off.rx = off.ry = off.rz = 0;
+    // Moving: the weapon rolls a touch with each step; a landing dips it.
+    off.rz += Math.sin(this.bobPhase) * 0.012 * this.bobAmount;
+    // (A landing peaks at ~7 mm down and ~0.6° muzzle down, back up within half a second.)
+    off.y += this.land * 0.3 + Math.sin(this.breathPhase) * 0.0012 * still;
+    off.rx += this.land * 0.4 + Math.sin(this.breathPhase) * 0.002 * still;
 
-    // Reload: dip and roll, magazine drops out and back in.
-    if (anim.reload !== null) {
-      const t = anim.reload;
-      const envelope = Math.sin(Math.min(t, 1) * Math.PI);
-      off.y -= envelope * 0.07;
-      off.rx -= envelope * 0.07 * 1.2;
-      off.rz += envelope * 0.55;
+    // Switching: the model in hand goes down first; the new one is drawn once it is out of view.
+    let equip = anim.equip;
+    if (this.incoming) {
+      this.holster -= dt;
+      const p = 1 - Math.max(this.holster, 0) / this.holsterTotal;
+      drawOffset(this.shownCategory, easeIn(p));
+      if (this.holster <= 0) {
+        const { view, pose, category } = this.incoming;
+        this.incoming = null;
+        this.install(view, pose, category);
+        this.equipBase = Math.min(anim.equip, 0.999);
+      }
+      equip = 0;
+    } else {
+      // A draw that starts over (another switch, a redraw) is not remapped.
+      if (anim.equip < this.lastEquip - 1e-6 && anim.equip < this.equipBase) this.equipBase = 0;
+      if (anim.equip >= 1) this.equipBase = 0;
+      equip = this.equipBase > 0 ? Math.max(0, (anim.equip - this.equipBase) / (1 - this.equipBase)) : anim.equip;
+      this.shownCategory = anim.category;
+    }
+    this.lastEquip = anim.equip;
+    const showing = this.incoming === null;
+
+    // A completed reload: the shotgun racks its pump (the reload ends with the pump sound).
+    if (this.lastReload !== null && anim.reload === null && this.lastReload > 0.85) this.sinceReloadEnd = 0;
+    else this.sinceReloadEnd += dt;
+    this.lastReload = anim.reload;
+    const sinceCycle = anim.category === 'shotgun' ? Math.min(anim.sinceShot, this.sinceReloadEnd) : anim.sinceShot;
+
+    // Pump action: the weapon rocks a little while the off hand racks it.
+    if (showing && anim.category === 'shotgun') {
+      const pump = pumpTravel(sinceCycle);
+      off.rz += pump * 0.05;
+      off.rx += pump * 0.025;
+      off.y -= pump * 0.006;
+    }
+
+    // Reload: each kind of weapon its own motion, timed to its reload sounds; the magazine drops out and back in.
+    if (showing && anim.reload !== null) {
+      reloadOffset(anim.category, anim.reload);
       if (this.view?.magazine) {
+        const t = anim.reload;
         const out = t < 0.25 ? t / 0.25 : t < 0.6 ? 1 : Math.max(0, 1 - (t - 0.6) / 0.25);
-        this.view.magazine.position.y = this.magRestY - out * 0.25;
+        this.view.magazine.position.copy(this.magRest).addScaledVector(this.view.magazineDrop ?? DOWN, out * 0.25);
         this.view.magazine.visible = !(t > 0.3 && t < 0.55);
       }
     } else if (this.view?.magazine) {
-      this.view.magazine.position.y = this.magRestY;
+      this.view.magazine.position.copy(this.magRest);
       this.view.magazine.visible = true;
     }
 
-    // Equip: rise from below the screen edge.
-    const drop = 1 - easeOut(anim.equip);
-    off.y -= drop * 0.24;
-    off.rx -= drop * 0.75;
-    off.rz += drop * 0.25;
+    // Draw: rise from below the screen edge, each kind of weapon its own way.
+    if (showing) drawOffset(anim.category, 1 - easeOut(equip));
 
     // Melee slash: sweep from the right across the centre and back.
-    if (anim.category === 'melee' && anim.sinceShot < SLASH_TIME) {
+    if (showing && anim.category === 'melee' && anim.sinceShot < SLASH_TIME) {
       const sw = Math.sin((anim.sinceShot / SLASH_TIME) * Math.PI);
       off.x -= sw * 0.11;
       off.z -= sw * 0.06;
@@ -237,7 +379,7 @@ export class ViewModelLayer {
     }
 
     // Inspect: turn the weapon to show its side, then back.
-    if (anim.inspect !== null) {
+    if (showing && anim.inspect !== null) {
       const e = Math.sin(anim.inspect * Math.PI);
       const wobble = Math.sin(anim.inspect * Math.PI * 2) * 0.15;
       if (anim.category === 'melee') {
@@ -255,8 +397,17 @@ export class ViewModelLayer {
       }
     }
 
-    this.view?.animate?.(anim);
-    this.arms?.update(anim.reload);
+    if (showing) {
+      _anim.category = anim.category;
+      _anim.equip = equip;
+      _anim.reload = anim.reload;
+      _anim.sinceShot = sinceCycle;
+      _anim.fireInterval = anim.fireInterval;
+      _anim.inspect = anim.inspect;
+      _anim.empty = anim.empty;
+      this.view?.animate?.(_anim);
+    }
+    this.arms?.update(showing ? anim.reload : null);
 
     const crouchOffset = m.crouching ? 0.01 : 0;
     const rest = this.restPosition;
@@ -264,12 +415,12 @@ export class ViewModelLayer {
     this.pivot.position.set(
       rest.x + this.swayX + bobX + off.x,
       rest.y + this.swayY + bobY - crouchOffset + off.y,
-      rest.z + this.kick * 0.045 + off.z,
+      rest.z + this.kick * this.feel.back + off.z,
     );
     this.pivot.rotation.set(
-      rr.x + this.kick * 0.06 + this.swayY * 0.8 + off.rx,
-      rr.y + this.swayX * 0.8 + off.ry,
-      rr.z + off.rz,
+      rr.x + this.kick * this.feel.rise + this.swayY * 0.8 + off.rx,
+      rr.y + this.swayX * 0.8 + this.roll * 0.4 + off.ry,
+      rr.z + this.roll + off.rz,
     );
     this.pivot.scale.setScalar(this.restScale);
 
@@ -292,6 +443,98 @@ export class ViewModelLayer {
 function easeOut(t: number): number {
   const c = Math.min(Math.max(t, 0), 1);
   return 1 - (1 - c) * (1 - c);
+}
+
+function easeIn(t: number): number {
+  const c = Math.min(Math.max(t, 0), 1);
+  return c * c;
+}
+
+/** Scratch animation state handed to the model (sinceShot / equip remapped); no per-frame garbage. */
+const DOWN = new THREE.Vector3(0, -1, 0);
+const _anim: WeaponAnimState = { category: 'rifle', equip: 1, reload: null, sinceShot: Infinity, fireInterval: 1, inspect: null };
+
+/**
+ * Out-of-view pose of a draw / holster, `d` 0 (in hand) .. 1 (below the screen edge): rifles come up
+ * rolling, the SMG flicks in from the right, the pistol swings up muzzle first, the shotgun and the
+ * sniper rifle rise heavy and rolled, the knife flips in.
+ */
+const DRAW: Record<WeaponCategory, { x: number; y: number; rx: number; rz: number }> = {
+  rifle: { x: 0, y: 0.24, rx: 0.75, rz: -0.25 },
+  smg: { x: -0.04, y: 0.22, rx: 0.6, rz: -0.4 },
+  pistol: { x: -0.03, y: 0.2, rx: 0.95, rz: 0.15 },
+  shotgun: { x: 0, y: 0.26, rx: 0.55, rz: -0.45 },
+  sniper: { x: -0.03, y: 0.28, rx: 0.5, rz: -0.35 },
+  melee: { x: 0.02, y: 0.18, rx: 0.4, rz: 0.6 },
+};
+function drawOffset(category: WeaponCategory, d: number): void {
+  if (d <= 0) return;
+  const k = DRAW[category];
+  off.x -= d * k.x;
+  off.y -= d * k.y;
+  off.rx -= d * k.rx;
+  off.rz -= d * k.rz;
+}
+
+/** 0 → 1 → 0 bump over [at, at + width] (a short jolt at a reload sound). */
+function bump(t: number, at: number, width: number): number {
+  return t < at || t > at + width ? 0 : Math.sin(((t - at) / width) * Math.PI);
+}
+
+/**
+ * Reload motion per kind of weapon, `t` 0..1 of the reload, with jolts where its sounds are
+ * (weapons.ts `sounds.reload` / `reloadEnd`).
+ */
+function reloadOffset(category: WeaponCategory, t: number): void {
+  const e = Math.sin(Math.min(t, 1) * Math.PI);
+  switch (category) {
+    case 'rifle':
+      // Rolled right and dipped for the magazine (out 0.04, in 0.81), the charging handle at the end.
+      off.y -= e * 0.07;
+      off.rx -= e * 0.084;
+      off.rz += e * 0.55;
+      off.y += bump(t, 0.81, 0.08) * 0.01;
+      off.z += bump(t, 0.9, 0.08) * 0.012;
+      off.rx += bump(t, 0.9, 0.08) * 0.03;
+      break;
+    case 'smg':
+      // Lighter: tipped in less, a slap at the magazine in (0.78).
+      off.y -= e * 0.055;
+      off.rx -= e * 0.07;
+      off.rz += e * 0.4;
+      off.x -= e * 0.015;
+      off.y += bump(t, 0.78, 0.07) * 0.01;
+      break;
+    case 'pistol':
+      // One hand: tilted left with the muzzle up, the magazine in at 0.72, the slide released at the end.
+      off.y -= e * 0.045;
+      off.x -= e * 0.02;
+      off.rx += e * 0.18;
+      off.rz -= e * 0.35;
+      off.y += bump(t, 0.72, 0.07) * 0.008;
+      off.rx -= bump(t, 0.93, 0.07) * 0.05;
+      break;
+    case 'shotgun':
+      // Brought up muzzle high and canted left so the loading port underneath faces the eye (the support
+      // hand feeds shells there), a push for every shell (0.15, 0.4, 0.65).
+      off.y += e * 0.05;
+      off.rx += e * 0.35;
+      off.rz -= e * 0.3;
+      for (const at of [0.15, 0.4, 0.65]) {
+        const b = bump(t, at, 0.08);
+        off.y += b * 0.008;
+        off.z -= b * 0.01;
+      }
+      break;
+    case 'sniper':
+      // Heavy: dipped and rolled, the bolt opened and closed by the model (SniperRifleView.animateBolt).
+      off.y -= e * 0.065;
+      off.rx -= e * 0.07;
+      off.rz += e * 0.45;
+      break;
+    case 'melee':
+      break;
+  }
 }
 
 function makeFlashTexture(): THREE.CanvasTexture {

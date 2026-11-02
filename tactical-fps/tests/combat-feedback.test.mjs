@@ -1,6 +1,7 @@
 // Combat feedback (real game, real Web Audio in the browser; no speakers):
 // a shot, a hit (body / head) and a kill each have their own sound and none
-// stands in for another; the kill confirm has its own voice pool, so a burst
+// stands in for another; a shotgun round (and a member's round reported pellet
+// by pellet by the host) is one hit marker and one hit sound; the kill confirm has its own voice pool, so a burst
 // of impacts cannot cut it off; long full-auto fire (magazines and reloads)
 // keeps the number of live voices bounded, releases them afterwards and adds
 // no window / document / canvas listeners.
@@ -79,6 +80,88 @@ test('a shot, a hit, a head hit and a kill each sound different; a hit is not a 
   assert.equal(k[0].group, 'confirm');
   assert.equal(k[0].ok, true, 'played by the engine');
   assert.deepEqual(page.errors, []);
+});
+
+test('one shotgun round: one hit marker and one hit sound however many pellets hit; a member hearing of each pellet from the host: the same', async () => {
+  const r = await page.evaluate(async () => {
+    const g = window.game;
+    const T = window.T;
+    const { SG_01 } = await import('/src/weapons/weapons.ts');
+    const marks = [];
+    const show = g.hud.showHitMarker.bind(g.hud);
+    g.hud.showHitMarker = (head, kill) => (marks.push([head, kill]), show(head, kill));
+    const hitSounds = () => window.__played.filter((p) => p.id === 'hit.body' || p.id === 'hit.head').map((p) => p.id);
+    g.weapons.setLoadout([SG_01]);
+    T.run(60);
+    // A bot 3 m ahead, the player looking at its chest; one round.
+    const p = g.player;
+    const bot = g.squad.bots.find((b) => b.alive);
+    const ahead = p.position.clone().add(p.position.clone().set(-Math.sin(p.yaw), 0, -Math.cos(p.yaw)).multiplyScalar(3));
+    bot.controller.teleport(ahead, 0);
+    bot.controller.position.y = p.position.y;
+    p.pitch = -0.08;
+    let pelletHits = 0;
+    const onShot = g.weapons.events.onShot;
+    g.weapons.events.onShot = (res, ...rest) => {
+      if (res.kind === 'target') pelletHits++;
+      onShot(res, ...rest);
+    };
+    window.__played = [];
+    g.weapons.step({ fire: true, reload: false }, 1 / 120);
+    g.weapons.step({ fire: false, reload: false }, 1 / 120);
+    T.run(1);
+    g.weapons.events.onShot = onShot;
+    const local = { pelletHits, marks: marks.splice(0), sounds: hitSounds(), shots: window.__played.filter((x) => x.id === 'sg01.shot').length };
+    // A room member's round: the host reports each pellet (seven body hits and a head hit) as its own message.
+    T.run(10);
+    window.__played = [];
+    // Shown right after they arrive (a moment to gather the round), without waiting for a frame:
+    // a member's frames may not be running.
+    for (let i = 0; i < 7; i++) g.netHit({ k: 'hit', head: false, kill: false });
+    g.netHit({ k: 'hit', head: true, kill: false });
+    await new Promise((r) => setTimeout(r, 60));
+    const net = { marks: marks.splice(0), sounds: hitSounds() };
+    // Two rounds a fire interval apart (real time: reports are shown on arrival) are two confirms.
+    T.run(10);
+    window.__played = [];
+    g.netHit({ k: 'hit', head: false, kill: false });
+    await new Promise((r) => setTimeout(r, 100));
+    g.netHit({ k: 'hit', head: false, kill: false });
+    await new Promise((r) => setTimeout(r, 60));
+    const two = { marks: marks.splice(0), sounds: hitSounds() };
+    g.hud.showHitMarker = show;
+    return { local, net, two };
+  });
+  assert.ok(r.local.pelletHits >= 2, `several pellets hit (${r.local.pelletHits})`);
+  assert.equal(r.local.shots, 1, 'one gunshot');
+  assert.equal(r.local.marks.length, 1, `one marker (${JSON.stringify(r.local.marks)})`);
+  assert.equal(r.local.sounds.length, 1, `one hit sound (${r.local.sounds})`);
+  assert.deepEqual(r.net, { marks: [[true, false]], sounds: ['hit.head'] });
+  assert.deepEqual(r.two, { marks: [[false, false], [false, false]], sounds: ['hit.body', 'hit.body'] });
+  assert.deepEqual(page.errors, []);
+});
+
+test(`another shooter's gunshot: farther = quieter, later and duller (low-pass); up close, full range`, async () => {
+  const r = await page.evaluate(() => {
+    const g = window.game;
+    const shots = [];
+    const play = g.audio.play;
+    g.audio.play = (id, o = {}) => (id.endsWith('.shot') && shots.push({ id, gain: o.gain, delay: o.delay, lowpass: o.lowpass ?? null }), play(id, o));
+    const w = g.weapons.loadout[0];
+    for (const d of [3, 50, 120]) {
+      const origin = g.camera.position.clone().add(g.camera.position.clone().set(d, 0, 0));
+      g.weaponAudio.onRemoteShot(w, origin, { kind: 'miss', end: origin }, g.camera);
+    }
+    g.audio.play = play;
+    return shots;
+  });
+  assert.equal(r.length, 3);
+  const [near, mid, far] = r;
+  assert.equal(near.lowpass, null, 'up close: full range');
+  assert.ok(mid.lowpass > 5000 && mid.lowpass < 9000, `50 m: ${mid.lowpass} Hz`);
+  assert.ok(far.lowpass < mid.lowpass && far.lowpass >= 1200, `120 m: ${far.lowpass} Hz`);
+  assert.ok(near.gain > mid.gain && mid.gain > far.gain, 'quieter with distance');
+  assert.ok(near.delay < mid.delay && mid.delay < far.delay, 'later with distance');
 });
 
 test('the kill confirm is not cut off by a burst of impacts (its own voice pool)', async () => {

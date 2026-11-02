@@ -142,6 +142,21 @@ export async function golden(name, actual) {
 }
 
 /**
+ * Init script (openGame `init`): every Math.random draw in the page comes from a fixed sequence
+ * (bullet spread, recoil, effects). With `seed` (the bots' own choices) a stretch of bot play is the
+ * same on every run.
+ */
+export function seededRandomInit() {
+  let a = 12345;
+  Math.random = () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
  * Page init script for leak checks: counts listeners added to window /
  * document / the canvas, WebSockets and AudioContexts created. Read with
  * `window.__counts()`;

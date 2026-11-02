@@ -91,7 +91,12 @@ const teamWeaponCases = [
   ['SMG-01 reload 40 %', 'smg01', { reload: 0.4 }, 6.0, 71],
   ['SG-01 idle', 'sg01', {}, 8.4, 7],
   ['SG-01 just fired', 'sg01', { sinceShot: 0.03 }, 8.4, 7],
+  // The support hand racked back on the pump (0.24-0.30 s after a round), same budget.
+  ['SG-01 pump racked back', 'sg01', { sinceShot: 0.27 }, 8.4, 7],
   ['SG-01 reload 82 %', 'sg01', { reload: 0.82 }, 8.4, 7],
+  // Rigged models (tools/rig-weapons.mjs): the support hand at the loading port / on the real magazine, same budgets.
+  ['SG-01 reload 40 % (hand at the loading port)', 'sg01', { reload: 0.4 }, 8.4, 7],
+  ['SMG-01 reload 82 % (magazine going in)', 'smg01', { reload: 0.82 }, 6.0, 71],
   ['PIS-01 idle', 'pis01', {}, 3.3, 10],
   ['PIS-01 just fired', 'pis01', { sinceShot: 0.03 }, 3.3, 10],
   ['PIS-01 reload 40 %', 'pis01', { reload: 0.4 }, 3.3, 10],

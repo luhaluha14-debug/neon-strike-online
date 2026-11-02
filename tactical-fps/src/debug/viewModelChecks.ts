@@ -28,7 +28,7 @@ const _ray = new THREE.Ray();
 const DIRS = [new THREE.Vector3(1, 0.13, 0.07), new THREE.Vector3(-0.11, 1, 0.05), new THREE.Vector3(0.09, -0.06, 1)].map((d) => d.normalize());
 
 export function checkViewModel(layer: ViewModelLayer, tolerance = 0.0015, nearLimit = 0.06): ViewModelCheckResult {
-  const view = layer.currentView;
+  const view = layer.inHand;
   const arms = layer.currentArms;
   if (!view || !arms) throw new Error('no weapon in hand');
   layer.scene.updateMatrixWorld(true);

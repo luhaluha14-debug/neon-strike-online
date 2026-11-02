@@ -36,12 +36,17 @@ export const AR_01: WeaponDefinition = {
     pitchGrowthPerShot: deg(0.04),
     growthShots: 8,
     maxPitch: deg(6),
-    yawJitter: deg(0.18),
-    yawDrift: deg(0.16),
+    // Sideways: a small random wobble on a fixed S path (right, then left, then right; the
+    // same every spray, so it can be learnt and pulled against).
+    yawJitter: deg(0.09),
+    yawDrift: deg(0.3),
     yawDriftAfterShots: 9,
+    yawDriftSign: -1,
+    yawSwayShots: 9,
     kickResponse: 28,
     recoveryDelay: 0.14,
     recoverySpeed: deg(22),
+    yawRecovery: true,
     sprayResetTime: 0.35,
   },
   view: {
@@ -114,6 +119,8 @@ export const SR_01: WeaponDefinition = {
     kickResponse: 34,
     recoveryDelay: 0.25,
     recoverySpeed: deg(9),
+    // The scope settles back on the aim after the kick (sideways too) while the bolt cycles.
+    yawRecovery: true,
     sprayResetTime: 1.2,
   },
   view: {
@@ -243,17 +250,22 @@ export const SMG_01: WeaponDefinition = {
     pitchGrowthPerShot: deg(0.025),
     growthShots: 8,
     maxPitch: deg(4.5),
-    yawJitter: deg(0.15),
-    yawDrift: deg(0.12),
+    // Lighter and quicker than the rifle: its S path starts to the left and turns sooner.
+    yawJitter: deg(0.08),
+    yawDrift: deg(0.22),
     yawDriftAfterShots: 10,
+    yawDriftSign: 1,
+    yawSwayShots: 7,
     kickResponse: 30,
     recoveryDelay: 0.12,
     recoverySpeed: deg(24),
+    yawRecovery: true,
     sprayResetTime: 0.3,
   },
   view: {
     kind: 'gltf',
-    url: '/weapons/smg01.glb',
+    // Rigged from smg01.glb by tools/rig-weapons.mjs: Magazine and ChargingHandle are their own parts.
+    url: '/weapons/smg01_rig.glb',
     fallback: 'ar01',
     fit: {
       rotation: [0, -Math.PI / 2, 0],
@@ -263,6 +275,8 @@ export const SMG_01: WeaponDefinition = {
       support: { position: [0, 0.05, -0.215] },
       hand: { width: 0.036, depth: 0.045, index: 'trigger' },
       muzzle: [0, 0.11, -0.335],
+      // The curved magazine rakes forward: it drops out along its own angle.
+      magazineDrop: [0, -0.906, -0.423],
     },
     pose: { position: [0.17, -0.22, -0.52], rotation: [0.02, 0.12, -0.04], scale: 1 },
   },
@@ -321,11 +335,13 @@ export const SG_01: WeaponDefinition = {
     kickResponse: 32,
     recoveryDelay: 0.2,
     recoverySpeed: deg(12),
+    yawRecovery: true,
     sprayResetTime: 1,
   },
   view: {
     kind: 'gltf',
-    url: '/weapons/sg01.glb',
+    // Rigged from sg01.glb by tools/rig-weapons.mjs: Pump, PumpBolt and a Shell for the loading port.
+    url: '/weapons/sg01_rig.glb',
     fallback: 'ar01',
     // The file's object sits 0.4 m below its origin; the pose lifts it back.
     fit: {
@@ -336,6 +352,8 @@ export const SG_01: WeaponDefinition = {
       support: { position: [0, -0.405, -0.15] },
       hand: { width: 0.04, depth: 0.046, index: 'trigger' },
       muzzle: [0, -0.322, -0.42],
+      // Reload: the support hand leaves the pump for the loading port under the receiver (shells go in there).
+      magwell: [0, -0.4, 0.1],
       // Elbows are in weapon space: 0.4 m lower than the default to follow the file's offset, the right one further back (long stock).
       armPose: { rightElbow: [0.17, -0.73, 0.6], leftElbow: [-0.3, -0.78, 0.05] },
     },
@@ -388,17 +406,19 @@ export const PIS_01: WeaponDefinition = {
     pitchGrowthPerShot: deg(0.1),
     growthShots: 5,
     maxPitch: deg(5),
-    yawJitter: deg(0.3),
+    yawJitter: deg(0.2),
     yawDrift: 0,
     yawDriftAfterShots: 99,
     kickResponse: 34,
     recoveryDelay: 0.12,
     recoverySpeed: deg(18),
+    yawRecovery: true,
     sprayResetTime: 0.45,
   },
   view: {
     kind: 'gltf',
-    url: '/weapons/pis01.glb',
+    // Rigged from pis01.glb by tools/rig-weapons.mjs: Slide, Trigger and Magazine are their own parts.
+    url: '/weapons/pis01_rig.glb',
     fallback: 'ar01',
     fit: {
       rotation: [0, -Math.PI / 2, 0],
@@ -406,6 +426,8 @@ export const PIS_01: WeaponDefinition = {
       grip: { position: [0, -0.012, 0.06], rotation: [-0.3, 0, 0] },
       hand: { width: 0.03, depth: 0.04, index: 'trigger' },
       muzzle: [0, 0.055, -0.1],
+      // The magazine leaves down the raked grip.
+      magazineDrop: [0, -0.95, 0.31],
     },
     pose: { position: [0.15, -0.21, -0.44], rotation: [0.02, 0.06, -0.02], scale: 1 },
   },

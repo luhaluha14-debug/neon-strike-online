@@ -126,9 +126,10 @@ export class WeaponSystem {
     this.events.onEquip?.(this.weapon, this.slot);
   }
 
-  /** Call once per rendered frame with the player's raw vertical look input. */
-  onLookInput(pitchDelta: number): void {
+  /** Call once per rendered frame with the player's raw look input. */
+  onLookInput(pitchDelta: number, yawDelta = 0): void {
     this.recoil.absorbPlayerPitch(pitchDelta);
+    this.recoil.absorbPlayerYaw(yawDelta);
   }
 
   step(input: WeaponCommand, dt: number): void {

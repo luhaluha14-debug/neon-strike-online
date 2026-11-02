@@ -5,6 +5,15 @@ import type { AudioEngine } from './AudioEngine';
 import type { SoundId } from './weaponSounds';
 
 const SPEED_OF_SOUND = 343;
+
+/**
+ * Air takes the crack out of a far gunshot: full range up close, a low-pass from 10 m on
+ * (~13 kHz at 10 m, ~7 kHz at 50 m, ~3 kHz at 100 m, 1.2 kHz floor). Undefined = no filter.
+ */
+export function distantLowpass(distance: number): number | undefined {
+  if (distance < 10) return undefined;
+  return Math.max(1200, 16000 * Math.exp(-distance / 60));
+}
 const _dir = new THREE.Vector3();
 const _right = new THREE.Vector3();
 
@@ -18,14 +27,17 @@ export class WeaponAudio {
 
   constructor(private readonly engine: AudioEngine) {}
 
-  /** One call per fired round / melee attack. `delay` spaces shots that fired within the same frame. */
-  onShot(weapon: Weapon, result: HitscanResult, delay: number, listener: THREE.Camera): void {
+  /**
+   * One call per fired round / melee attack. `delay` spaces shots that fired within the same frame.
+   * `confirm` false: the hit confirm is left to the caller (the game merges a round's pellets, HitFeedback).
+   */
+  onShot(weapon: Weapon, result: HitscanResult, delay: number, listener: THREE.Camera, confirm = true): void {
     const s = weapon.def.sounds;
     this.engine.play(s.fire, { group: 'shot', gain: s.fireVolume, rateJitter: 0.025, delay });
     if (s.cycle) this.engine.play(s.cycle, { group: 'foley', gain: 0.8, delay });
     if (result.kind === 'miss') return;
     // Hit confirm, heard at the shooter (not placed in the world), right after the shot.
-    if (result.kind === 'target') this.hitConfirm(result.zone === 'head', delay + 0.02);
+    if (confirm && result.kind === 'target') this.hitConfirm(result.zone === 'head', delay + 0.02);
     if (s.hit) {
       this.engine.play(s.hit, { group: 'impact', gain: 0.8, rateJitter: 0.04, delay: delay + 0.03 });
       return;
@@ -55,6 +67,7 @@ export class WeaponAudio {
       pan: _dir.dot(_right) * 0.75,
       rateJitter: 0.03,
       delay: Math.min(d / SPEED_OF_SOUND, 0.4),
+      lowpass: distantLowpass(d),
     });
     if (result.kind !== 'miss') this.impact(result.kind === 'target' ? 'impact.flesh' : 'impact', result.point, 0, listener);
   }

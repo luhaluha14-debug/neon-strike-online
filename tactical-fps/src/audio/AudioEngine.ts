@@ -20,6 +20,8 @@ export interface PlayOptions {
   /** ± random pitch/length variation (0.03 = ±3 %). */
   rateJitter?: number;
   group?: VoiceGroup;
+  /** Low-pass cutoff (Hz): a distant sound loses its crack (absent = full range). */
+  lowpass?: number;
 }
 
 interface Voice {
@@ -106,7 +108,15 @@ export class AudioEngine {
     source.playbackRate.value = 1 + (Math.random() * 2 - 1) * jitter;
     const gain = ctx.createGain();
     gain.gain.value = (opts.gain ?? 1) * (1 + (Math.random() * 2 - 1) * jitter * 2);
-    source.connect(gain);
+    let filter: BiquadFilterNode | null = null;
+    if (opts.lowpass) {
+      filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = opts.lowpass;
+      source.connect(filter).connect(gain);
+    } else {
+      source.connect(gain);
+    }
     let pan: StereoPannerNode | null = null;
     if (opts.pan) {
       pan = ctx.createStereoPanner();
@@ -121,6 +131,7 @@ export class AudioEngine {
     source.onended = () => {
       voice.ended = true;
       source.disconnect();
+      filter?.disconnect();
       gain.disconnect();
       pan?.disconnect();
       const i = this.voices.indexOf(voice);

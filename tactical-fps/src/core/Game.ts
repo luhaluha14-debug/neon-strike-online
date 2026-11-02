@@ -57,6 +57,7 @@ import { MultiplayerPanel } from '../ui/MultiplayerPanel';
 import { Lobby } from '../ui/Lobby';
 import { LobbyBackdrop } from './LobbyBackdrop';
 import { KillConfirm } from '../game/KillConfirm';
+import { HitFeedback } from '../game/HitFeedback';
 import { LoadoutService } from '../economy/LoadoutService';
 import { findSkin, PLAYER_TARGET } from '../economy/SkinCatalog';
 import type { AccountState, MatchResult, SkinDef } from '../economy/types';
@@ -71,6 +72,17 @@ import { NetHost, type HostGame } from '../net/NetHost';
 import { NetClient, type ClientGame } from '../net/NetClient';
 import type { ToClient } from '../net/GameMessages';
 import { applyBomb, applyMatch, applyTeamMatch, type BombStateMsg, type MatchState, type TeamMatchState } from '../net/Mirror';
+
+/**
+ * Switching weapons: how long the one in hand takes to go down before the new one is drawn (s). Part
+ * of the new weapon's draw time, never added to it: at most 0.15 s, under a third of the draw.
+ */
+function holsterTime(def: WeaponDefinition): number {
+  return Math.min(0.15, def.equipTime * 0.3);
+}
+
+/** How long a room member collects the host's hit reports of one round before showing them (ms). */
+const NET_HIT_GATHER_MS = 15;
 
 const QUALITY_OPTIONS: readonly { value: QualityLevel | 'auto'; label: string }[] = [
   { value: 'auto', label: '자동 (권장)' },
@@ -595,7 +607,8 @@ export class Game implements HostGame, ClientGame {
     this.updateLoadoutHud();
     this.weapons.events = {
       onEquip: (weapon, slot) => {
-        this.showWeaponModel(weapon.def);
+        // A different weapon: the one in hand is put away first (inside the new one's draw time).
+        this.showWeaponModel(weapon.def, weapon.def !== this.shownDef ? holsterTime(weapon.def) : 0);
         this.weaponAudio.onEquip(weapon);
         this.updateLoadoutHud(slot);
       },
@@ -609,7 +622,7 @@ export class Game implements HostGame, ClientGame {
         // A shotgun round: one blast, one kick; every pellet keeps its own hit, tracer and impact.
         // (No pellet index = a single-bullet round.)
         if (!pellet) {
-          this.weaponAudio.onShot(weapon, result, delay, this.camera);
+          this.weaponAudio.onShot(weapon, result, delay, this.camera, false);
           this.viewModel.onShot(weapon.def.category);
         }
         if (weapon.def.category !== 'melee' && this.viewModel.muzzleInWorld(this.camera, _muzzleWorld)) {
@@ -620,7 +633,8 @@ export class Game implements HostGame, ClientGame {
         if (result.kind === 'target') {
           const kill = !result.target.alive;
           this.blood.spawn(result.point, dir, result.zone === 'head');
-          this.hud.showHitMarker(result.zone === 'head', kill);
+          // One marker and hit sound per round, however many pellets hit (shown at the end of the frame).
+          this.hitFeedback.add(result.zone === 'head', kill, delay + 0.02);
           this.lastHit = `${result.zone} ${result.damage} @ ${result.distance.toFixed(1)} m${kill ? '  KILL' : ''}`;
         }
         if (import.meta.env.DEV && this.debugShots) console.debug('[shot]', result.kind, 'distance' in result ? result.distance.toFixed(2) : '');
@@ -669,6 +683,7 @@ export class Game implements HostGame, ClientGame {
     this.player.teleport(pos, spawn?.yaw ?? 0);
     if (keepWeapons) this.weapons?.clearTransient();
     else this.weapons?.resetForRespawn();
+    this.viewModel.resetMotion();
     this.body.reset();
     // A team match survivor keeps the armour left on the vest (LOADOUT_RULES).
     this.combat?.reset(keepWeapons && LOADOUT_RULES.keepOnSurvive.armor);
@@ -1129,6 +1144,15 @@ export class Game implements HostGame, ClientGame {
   }
 
   /** Kill confirm sound: only kills the match credited to this player, each once (KillConfirm). */
+  /** The player's hit marker + hit sound, merged per round: this game's own rounds (pellets), per frame. */
+  readonly hitFeedback = new HitFeedback((head, kill, sound, delay) => this.showHit(head, kill, sound, delay));
+  /** The same for a room member's rounds, as the host reports them (on arrival, real time). */
+  readonly netHitFeedback = new HitFeedback((head, kill, sound, delay) => this.showHit(head, kill, sound, delay));
+  private netHitTimer: number | null = null;
+  private showHit(head: boolean, kill: boolean, sound: boolean, delay: number): void {
+    this.hud.showHitMarker(head, kill);
+    if (sound) this.weaponAudio.hitConfirm(head, delay);
+  }
   readonly killConfirm = new KillConfirm(() => this.audio.play('kill.confirm', { group: 'confirm', gain: 0.6, delay: 0.05 }));
 
   /** The match credited `killer` with killing `victim`: the player's kill confirm, or a room member's (sent by the host). */
@@ -1377,7 +1401,7 @@ export class Game implements HostGame, ClientGame {
     this.hud.setScoped(this.scoped);
     const lookYaw = this.inputState.lookYaw;
     const lookPitch = this.inputState.lookPitch;
-    this.weapons?.onLookInput(lookPitch);
+    this.weapons?.onLookInput(lookPitch, lookYaw);
     player.applyLook(this.inputState);
 
     // The buy menu releases the mouse but the round clock keeps running behind it.
@@ -1530,6 +1554,7 @@ export class Game implements HostGame, ClientGame {
     if (this.teamMatch) this.hud.setDeath(dead ? 0 : null, 1);
     else this.hud.setDeath(dead ? combat!.respawnIn : null, RESPAWN_DELAY);
     this.updateWeaponHud();
+    this.hitFeedback.flush(timestamp / 1000);
     this.updateStats(frameTime);
   }
 
@@ -1583,19 +1608,19 @@ export class Game implements HostGame, ClientGame {
    * Shows a weapon model in the first-person hands at its configured pose.
    * GLB models show their procedural fallback until the file has loaded.
    */
-  private showWeaponModel(def: WeaponDefinition): void {
+  private showWeaponModel(def: WeaponDefinition, holster = 0): void {
     const spec = def.view;
     this.shownSpec = spec;
     this.shownDef = def;
     this.shownSkin = this.weaponSkinAsset(def);
     const view = createWeaponView(spec);
     this.skins.dressWeapon(view, def.id, this.shownSkin);
-    this.viewModel.setView(view, spec.pose);
+    this.viewModel.setView(view, spec.pose, holster, def.category);
     loadWeaponView(spec)
       ?.then((view) => {
         if (this.shownSpec !== spec) return view.dispose();
         this.skins.dressWeapon(view, def.id, this.shownSkin);
-        this.viewModel.setView(view, spec.pose);
+        this.viewModel.setView(view, spec.pose, 0, def.category);
       })
       .catch((err) => console.warn('[weapon] could not load GLB model, keeping the placeholder', err));
   }
@@ -1731,6 +1756,7 @@ export class Game implements HostGame, ClientGame {
       sinceShot: w.timeSinceShot,
       fireInterval: w.fireInterval,
       inspect: this.weapons?.inspectProgress ?? null,
+      empty: w.usesAmmo && w.magazine === 0,
     };
   }
 
@@ -2289,6 +2315,7 @@ export class Game implements HostGame, ClientGame {
     p.velocity.set(0, 0, 0);
     if (m.loadout) this.setNetLoadout(m.loadout, m.grenades);
     else if (m.alive) this.weapons?.resetForRespawn();
+    this.viewModel.resetMotion();
     this.combat?.setFromHost(m.hp, m.armor, m.alive);
     this.body.reset();
     this.hud.setDeath(null, RESPAWN_DELAY);
@@ -2334,9 +2361,14 @@ export class Game implements HostGame, ClientGame {
   }
 
   netHit(m: Extract<ToClient, { k: 'hit' }>): void {
-    // The host resolved this player's round as a hit: the same marker and hit sound as a hit in single player.
-    this.hud.showHitMarker(m.head, m.kill);
-    this.weaponAudio.hitConfirm(m.head);
+    // The host resolved this player's round as a hit: the same marker and hit sound as a hit in single
+    // player, once per round: the host reports each pellet of a shotgun round on its own and they
+    // arrive together, so they are collected for a moment (real time: frames may not be running).
+    this.netHitFeedback.add(m.head, m.kill);
+    this.netHitTimer ??= window.setTimeout(() => {
+      this.netHitTimer = null;
+      this.netHitFeedback.flush(performance.now() / 1000);
+    }, NET_HIT_GATHER_MS);
   }
 
   netThrow(m: Extract<ToClient, { k: 'throw' }>): void {
