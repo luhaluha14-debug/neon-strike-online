@@ -110,7 +110,7 @@ export class FirstPersonArms {
     if (reloadProgress !== null && this.magazine) {
       const t = reloadProgress;
       grab = smoothstep(0.04, 0.18, t) * (1 - smoothstep(0.8, 0.95, t));
-      _target.copy(this.magazine.position).add(MAG_GRAB_OFFSET);
+      modelSpace(this.magazine, this.gripAnchor.parent, _target).add(MAG_GRAB_OFFSET);
       this.left.position.lerp(_target, grab);
       _q.setFromEuler(MAG_GRAB_ROT);
       this.left.quaternion.slerp(_q, grab);
@@ -326,6 +326,19 @@ interface Limb {
 }
 
 const MAG_GRAB_OFFSET = new THREE.Vector3(0.0, -0.11, 0.0);
+
+/**
+ * Position of `o` in the weapon model's space (`root`, where the hands live): its own position carried
+ * up through any parents in between (a part inside a rotated GLB scene), with their current transforms.
+ */
+function modelSpace(o: THREE.Object3D, root: THREE.Object3D | null, out: THREE.Vector3): THREE.Vector3 {
+  out.copy(o.position);
+  for (let p = o.parent; p && p !== root; p = p.parent) {
+    p.updateMatrix();
+    out.applyMatrix4(p.matrix);
+  }
+  return out;
+}
 const MAG_GRAB_ROT = new THREE.Euler(0.15, 0, 0.35);
 
 const _up = new THREE.Vector3(0, 1, 0);

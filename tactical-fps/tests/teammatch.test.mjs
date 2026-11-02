@@ -6,14 +6,16 @@
 
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startEnv, openGame, installFrameDriver } from './harness.mjs';
+import { startEnv, openGame, installFrameDriver, seededRandomInit } from './harness.mjs';
 
 let env;
 let page;
 before(async () => {
   env = await startEnv();
   // Elimination rules (round won by wiping out the other team / most survivors at time); the C4 rules: bomb.test.mjs.
-  page = await openGame(env, { map: 'warehouse', mode: 'team', objective: 'elimination' });
+  // Bot play from a fixed seed (their choices and every random draw): the bots fight on their own while
+  // the tests run, and a fight they happen to finish must not decide a test (reproducible runs).
+  page = await openGame(env, { map: 'warehouse', mode: 'team', objective: 'elimination', seed: 7, init: seededRandomInit });
   await page.click('.play-button');
   await page.waitForFunction(() => !!document.pointerLockElement && document.querySelector('.hud').classList.contains('playing'));
   await page.mouse.move(0, 0);
@@ -283,6 +285,9 @@ test('a team wiped out ends the round at once; the dead stay dead; the next roun
     const g = window.game;
     const T = window.T;
     const reds = g.squad.bots.filter((b) => b.team === 'red');
+    // Only the test decides who dies here: the living bots still play and might meet in these 4 s
+    // (a fight of theirs is not what this checks). T.kill lifts the protection of its target.
+    for (const t of T.all()) t.target.protection = 1e9;
     // Four reds down: the round goes on, and the dead are not respawned (well past the 3 s free-for-all delay).
     for (const b of reds.slice(0, 4)) T.kill(b.combat, 'local');
     T.run(2);

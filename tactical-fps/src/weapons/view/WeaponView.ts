@@ -22,6 +22,8 @@ export interface WeaponAnimState {
   fireInterval: number;
   /** 0..1 while inspecting, else null. */
   inspect: number | null;
+  /** The magazine is empty (a pistol's slide stays locked back). */
+  empty?: boolean;
 }
 
 /**
@@ -41,6 +43,10 @@ export interface WeaponView {
   readonly muzzle: THREE.Object3D | null;
   /** Optional: animated during reloads. */
   readonly magazine?: THREE.Object3D;
+  /** Optional: where the support hand reaches on a reload when there is no magazine part to move. */
+  readonly reloadGrab?: THREE.Object3D;
+  /** Direction the magazine drops out along (in its parent's space; default straight down). */
+  readonly magazineDrop?: THREE.Vector3;
   /** Firing-hand pose (+Y along the grip, +Z toward the shooter). */
   readonly gripAnchor: THREE.Object3D;
   readonly rightHand: HandGripProfile;

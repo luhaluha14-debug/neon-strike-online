@@ -8,7 +8,7 @@
 
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startEnv, openGame, installFrameDriver } from './harness.mjs';
+import { startEnv, openGame, installFrameDriver, seededRandomInit } from './harness.mjs';
 
 let env;
 let page;
@@ -28,15 +28,7 @@ before(async () => {
     map: 'warehouse',
     mode: 'team',
     seed: 7,
-    init: () => {
-      let a = 12345;
-      Math.random = () => {
-        a = (a + 0x6d2b79f5) >>> 0;
-        let t = Math.imul(a ^ (a >>> 15), 1 | a);
-        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-      };
-    },
+    init: seededRandomInit,
   });
 });
 after(async () => {
@@ -50,7 +42,7 @@ test('every shipped GLB loads: three weapons in use, three locked weapons, two c
     const { GLTFLoader } = await import('/node_modules/three/examples/jsm/loaders/GLTFLoader.js');
     const loader = new GLTFLoader();
     const out = {};
-    for (const url of ['/weapons/ar01.glb', '/weapons/sr01.glb', '/weapons/m9_bayonet.glb', '/weapons/smg01.glb', '/weapons/sg01.glb', '/weapons/pis01.glb', '/characters/operator.glb', '/characters/terrorist.glb']) {
+    for (const url of ['/weapons/ar01.glb', '/weapons/sr01.glb', '/weapons/m9_bayonet.glb', '/weapons/smg01.glb', '/weapons/sg01.glb', '/weapons/pis01.glb', '/weapons/smg01_rig.glb', '/weapons/sg01_rig.glb', '/weapons/pis01_rig.glb', '/characters/operator.glb', '/characters/terrorist.glb']) {
       const res = await fetch(url);
       const gltf = await loader.loadAsync(url);
       let meshes = 0;
@@ -74,6 +66,16 @@ test('every shipped GLB loads: three weapons in use, three locked weapons, two c
   assert.equal(r['/weapons/smg01.glb'].size[0], 0.68);
   assert.equal(r['/weapons/sg01.glb'].size[0], 1.01);
   assert.equal(r['/weapons/pis01.glb'].size[0], 0.19);
+  // Their rigs (tools/rig-weapons.mjs, what the game loads): the same models in moving parts, same size and
+  // materials (the shotgun adds its shell's two, the pistol magazine shows below the grip only when it drops).
+  for (const id of ['smg01', 'sg01', 'pis01']) {
+    const src = r[`/weapons/${id}.glb`];
+    const rig = r[`/weapons/${id}_rig.glb`];
+    assert.deepEqual(rig.size, src.size, `${id}: rig the size of the source`);
+    assert.ok(rig.meshes > src.meshes, `${id}: split into parts (${rig.meshes} meshes)`);
+    assert.deepEqual(rig.mats.filter((m) => !m.startsWith('Shell_')), src.mats, `${id}: the source's materials`);
+  }
+  assert.deepEqual(r['/weapons/sg01_rig.glb'].mats.filter((m) => m.startsWith('Shell_')), ['Shell_Brass', 'Shell_Hull']);
   // Characters: about 1.75 m tall, no skeleton and no animation (static pose).
   for (const url of ['/characters/operator.glb', '/characters/terrorist.glb']) {
     assert.ok(r[url].size[1] > 1.7 && r[url].size[1] < 1.8, `${url} height ${r[url].size[1]}`);

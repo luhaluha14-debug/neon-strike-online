@@ -18,15 +18,24 @@ export interface RecoilProfile {
   maxPitch: number;
   /** Random horizontal kick range per shot (radians, ±). */
   yawJitter: number;
-  /** Horizontal drift that starts after `yawDriftAfterShots` consecutive shots (radians/shot, ±, direction picked per burst). */
+  /** Horizontal drift that starts after `yawDriftAfterShots` consecutive shots (radians/shot). */
   yawDrift: number;
   yawDriftAfterShots: number;
+  /**
+   * Learnable spray: the drift goes `yawDriftSign` first (1 = right) and swings to the other side
+   * every `yawSwayShots` shots (an S-shaped pattern, the same every spray). Absent: the drift keeps
+   * one side, picked at random per burst.
+   */
+  yawDriftSign?: 1 | -1;
+  yawSwayShots?: number;
   /** How quickly the camera catches up with the kick (1/s). Higher = snappier. */
   kickResponse: number;
   /** Time after the last shot before the view starts settling back (s). */
   recoveryDelay: number;
   /** Recovery speed back toward the pre-spray aim (radians/s). */
   recoverySpeed: number;
+  /** The sideways kick settles back too (with the climb), so the view returns to where it was aimed. */
+  yawRecovery?: boolean;
   /** Shots-in-a-row counter resets after this long without firing (s). */
   sprayResetTime: number;
 }
@@ -86,6 +95,13 @@ export interface GltfFit {
   muzzle?: Vec3;
   /** File nodes gathered into the part the reload animation drops out. */
   magazine?: readonly string[];
+  /**
+   * One-piece models (no magazine node): where the magazine sits, for the support hand to reach on a
+   * reload (nothing on the model moves).
+   */
+  magwell?: Vec3;
+  /** Direction (model space) the magazine drops out along, e.g. down a raked grip (default straight down). */
+  magazineDrop?: Vec3;
   /** File nodes gathered into the bolt (cycled after each shot), pivoting on the bore axis at `pivot`. */
   bolt?: { nodes: readonly string[]; pivot: Vec3 };
   /** Glove shape around the grip (defaults to a rifle pistol grip). */

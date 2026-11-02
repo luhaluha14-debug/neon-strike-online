@@ -234,7 +234,14 @@ export function animateBolt(bolt: THREE.Object3D, rest: THREE.Vector3, state: We
   const t = (state.sinceShot - 0.18) / (cycle - 0.3);
   let lift = 0;
   let back = 0;
-  if (t > 0 && t < 1) {
+  if (state.reload !== null) {
+    // Reload: the bolt is opened before the magazine comes out and closed after the new one is in
+    // (the chamber sound at the end).
+    const r = state.reload;
+    const open = smooth(Math.min(1, Math.max(0, (r - 0.02) / 0.1))) * (1 - smooth(Math.min(1, Math.max(0, (r - 0.86) / 0.12))));
+    lift = Math.min(1, open * 2);
+    back = open;
+  } else if (t > 0 && t < 1) {
     if (t < 0.2) lift = t / 0.2;
     else if (t < 0.8) {
       lift = 1;
