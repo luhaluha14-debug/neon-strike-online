@@ -7,6 +7,13 @@ export interface MapEnvironment {
   fogFar: number;
   /** Camera far plane (m). Large maps with distant scenery need more. */
   viewDistance: number;
+  /**
+   * Light under cover (SkyOcclusion): what's left of the sky fill (`skyFloor`) and of sky
+   * reflections (`reflectFloor`) where no sky is seen. Kept high enough that anyone indoors is
+   * still easy to see. Absent = 0.6 / 0.45.
+   */
+  skyFloor?: number;
+  reflectFloor?: number;
 }
 
 export interface MapDefinition {
@@ -87,7 +94,8 @@ export const MAPS: readonly MapDefinition[] = [
     killPlaneY: -20,
     // From the attack spawn up the avenue: Namsan and its tower at the end of the street.
     lobby: { camera: [1.5, 2.3, 53], yaw: 0.12, pitch: 0.05, figure: [3.1, 46.2], figureYaw: 2.71 },
-    environment: { fogNear: 120, fogFar: 650, viewDistance: 900 },
+    // An open city: covered passages and lobbies a little darker than the street, nothing gloomy.
+    environment: { fogNear: 120, fogFar: 650, viewDistance: 900, skyFloor: 0.64, reflectFloor: 0.5 },
   },
   {
     id: 'warehouse',
@@ -115,7 +123,8 @@ export const MAPS: readonly MapDefinition[] = [
     killPlaneY: -20,
     // From the attack spawn down the central alley toward the defenders' end.
     lobby: { camera: [-1.2, 2.0, 30.5], yaw: 0.08, pitch: -0.02, figure: [1.1, 24.0], figureYaw: 2.67 },
-    environment: { fogNear: 60, fogFar: 180, viewDistance: 400 },
+    // Warehouses: halls and loading bays clearly darker than the yards (contrast for cover play).
+    environment: { fogNear: 60, fogFar: 180, viewDistance: 400, skyFloor: 0.5, reflectFloor: 0.38 },
   },
 ];
 

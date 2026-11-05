@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
+import { SURFACE_KINDS, type SurfaceKind } from './SurfaceMaterials';
 import type { ExtendedTriangle } from 'three-mesh-bvh';
 
 export interface CapsuleHit {
@@ -111,6 +112,20 @@ export class CollisionWorld {
         intersectsTriangle: (tri: ExtendedTriangle) => tri.closestPointToSegment(segment, _triPoint, _capPoint) < radius,
       }),
     );
+  }
+
+  /**
+   * Surface kind of the map at a bullet impact (`point` on the surface, `normal` facing out), from the
+   * collision geometry's `surface` tags; null when unknown (no tags, nothing there).
+   */
+  surfaceAt(point: THREE.Vector3, normal: THREE.Vector3): SurfaceKind | null {
+    const tags = this.solid.geometry.getAttribute('surface');
+    if (!tags) return null;
+    _ray.origin.copy(point).addScaledVector(normal, 0.03);
+    _ray.direction.copy(normal).negate();
+    const hit = this.solid.raycastFirst(_ray, THREE.DoubleSide, 0, 0.1);
+    if (!hit?.face) return null;
+    return SURFACE_KINDS[tags.getX(hit.face.a)] ?? null;
   }
 
   /**

@@ -48,7 +48,7 @@ export async function startEnv() {
  * until the map is loaded and the Play button is enabled. `page.errors`
  * collects page exceptions and console errors.
  */
-export async function openGame(env, { map = 'warehouse', quality = 'low', width = 640, height = 360, mode = 'training', objective = null, seed = null, lobby = false, init = null, pacedLock = true } = {}) {
+export async function openGame(env, { map = 'warehouse', quality = 'low', width = 640, height = 360, mode = 'training', objective = null, seed = null, lobby = false, init = null, pacedLock = true, dressing = null } = {}) {
   const context = await env.browser.newContext({ viewport: { width, height } });
   // init: a script run in the page before the game (counters, stubs).
   if (init) await context.addInitScript(init);
@@ -68,7 +68,8 @@ export async function openGame(env, { map = 'warehouse', quality = 'low', width 
   // 'deathmatch' (bots), or null for the game's own default.
   // seed: bots' random choices from a fixed seed (reproducible runs).
   // objective: team match 'bomb' (the game's default) or 'elimination' (suites written for the elimination rules).
-  await page.goto(`${env.url}/?map=${map}` + (quality ? `&quality=${quality}` : '') + (mode ? `&mode=${mode}` : '') + (objective ? `&objective=${objective}` : '') + (seed !== null ? `&seed=${seed}` : ''));
+  // dressing: 'none' loads the map files as they are (no MapDressing), e.g. for recordings made before it.
+  await page.goto(`${env.url}/?map=${map}` + (quality ? `&quality=${quality}` : '') + (mode ? `&mode=${mode}` : '') + (objective ? `&objective=${objective}` : '') + (seed !== null ? `&seed=${seed}` : '') + (dressing ? `&dressing=${dressing}` : ''));
   await waitReady(page, { lobby });
   return page;
 }

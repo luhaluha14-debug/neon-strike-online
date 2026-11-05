@@ -16,6 +16,7 @@ import { AudioEngine } from '../audio/AudioEngine';
 import { WeaponAudio } from '../audio/WeaponAudio';
 import { BloodEffects } from '../fx/BloodEffects';
 import { CombatEffects } from '../fx/CombatEffects';
+import { ShellCasings } from '../fx/ShellCasings';
 import { ImpactEffects } from '../fx/ImpactEffects';
 import { createInputState } from '../input/InputState';
 import { loadControls, saveControls } from '../input/Controls';
@@ -36,7 +37,7 @@ import { loadGltfScene } from '../weapons/view/GltfWeaponView';
 import { createWeaponView, loadWeaponView, preloadWeaponViews } from '../weapons/view/WeaponView';
 import type { MenuWeapon } from '../ui/MainMenu';
 import { renderWeaponThumbnails } from '../ui/weaponThumbnails';
-import type { WeaponDefinition, WeaponViewSpec } from '../weapons/WeaponDefinition';
+import type { WeaponCategory, WeaponDefinition, WeaponViewSpec } from '../weapons/WeaponDefinition';
 import { ViewModelLayer } from '../weapons/view/ViewModelLayer';
 import type { Weapon } from '../weapons/Weapon';
 import { AR_01, DEFAULT_LOADOUT, SR_01, WEAPONS } from '../weapons/weapons';
@@ -46,7 +47,8 @@ import { findMap, MAPS, type MapDefinition } from '../maps';
 import { disposeMap, loadMap, type LoadedMap, type SpawnPoint } from '../world/MapLoader';
 import { Pigeons, preloadPigeons } from '../world/Pigeons';
 import { createSkyEnvironment, HORIZON_COLOR, SkyDome } from '../world/Sky';
-import { enhanceMapMaterials } from '../world/SurfaceMaterials';
+import { enhanceMapMaterials, setSkyOcclusion } from '../world/SurfaceMaterials';
+import { bakeSkyOcclusion, skyVisibilityAt, type SkyOcclusionGrid } from '../world/SkyOcclusion';
 import { FRAME_LIMIT_OPTIONS, FrameLoop, type FrameLimit } from './FrameLoop';
 import { AutoQualityMonitor, saveAutoState, type AutoState } from './AutoQuality';
 import { SwitchableEconomyBackend } from '../economy/AccountClient';
@@ -57,6 +59,7 @@ import { MultiplayerPanel } from '../ui/MultiplayerPanel';
 import { Lobby } from '../ui/Lobby';
 import { LobbyBackdrop } from './LobbyBackdrop';
 import { KillConfirm } from '../game/KillConfirm';
+import { CameraMotion } from '../player/CameraMotion';
 import { HitFeedback } from '../game/HitFeedback';
 import { LoadoutService } from '../economy/LoadoutService';
 import { findSkin, PLAYER_TARGET } from '../economy/SkinCatalog';
@@ -72,6 +75,33 @@ import { NetHost, type HostGame } from '../net/NetHost';
 import { NetClient, type ClientGame } from '../net/NetClient';
 import type { ToClient } from '../net/GameMessages';
 import { applyBomb, applyMatch, applyTeamMatch, type BombStateMsg, type MatchState, type TeamMatchState } from '../net/Mirror';
+
+/** When the case leaves after a round (s): at once, or when the pump (shotgun) / bolt (sniper) is worked. */
+const EJECT_DELAY: Record<Exclude<WeaponCategory, 'melee'>, number> = { rifle: 0, smg: 0, pistol: 0, shotgun: 0.22, sniper: 0.62 };
+/** Case throw (m/s): out of the port's side, up, back toward the shooter. */
+const EJECT: Record<Exclude<WeaponCategory, 'melee'>, { side: number; up: number; back: number }> = {
+  rifle: { side: 1.8, up: 1.5, back: 0.3 },
+  smg: { side: 1.6, up: 1.3, back: 0.25 },
+  pistol: { side: 1.1, up: 2.0, back: 0.3 },
+  shotgun: { side: 1.5, up: 1.1, back: 0.2 },
+  sniper: { side: 1.2, up: 1.1, back: 0.3 },
+};
+/** Peak of the world muzzle light per weapon (high quality). */
+const MUZZLE_LIGHT: Record<Exclude<WeaponCategory, 'melee'>, number> = { rifle: 6, smg: 4.5, pistol: 3.5, shotgun: 9, sniper: 9 };
+const DOWN = new THREE.Vector3(0, -1, 0);
+/** Rays that judge whether the player stands indoors (for the reverb): up, and four ways around. */
+const SPACE_RAYS = [new THREE.Vector3(0, 1, 0), new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1)];
+const _spaceFrom = new THREE.Vector3();
+const _camRight = new THREE.Vector3();
+const _motionEvents = { steps: 0, landing: 0 };
+const UP = new THREE.Vector3(0, 1, 0);
+/** World muzzle flash size of someone else's shot, per kind of weapon (CombatEffects.flash). */
+const WORLD_FLASH: Record<Exclude<WeaponCategory, 'melee'>, number> = { rifle: 1, smg: 0.75, pistol: 0.65, shotgun: 1.5, sniper: 1.6 };
+const _casePort = new THREE.Vector3();
+const _caseVel = new THREE.Vector3();
+const _caseRight = new THREE.Vector3();
+const _caseUp = new THREE.Vector3();
+const _caseBack = new THREE.Vector3();
 
 /**
  * Switching weapons: how long the one in hand takes to go down before the new one is drawn (s). Part
@@ -227,6 +257,30 @@ export class Game implements HostGame, ClientGame {
   readonly blood = new BloodEffects();
   /** Tracers and world muzzle flashes (cosmetic). */
   readonly fx = new CombatEffects();
+  /** Spent cases from the ejection ports (cosmetic, local only: never sent, never part of ammo or hits). */
+  readonly casings = new ShellCasings((from) => {
+    const d = this.map?.collision.raycast(from, DOWN, 4);
+    return d === null || d === undefined ? null : from.y - d;
+  });
+  /** The eye's own motion (steps, landings, breathing): camera position and roll only, never the aim. */
+  readonly cameraMotion = new CameraMotion();
+  private spaceTimer = 0;
+  /** Time the last map took to download and build (ms; diagnostics). */
+  mapLoadMs = 0;
+  /** Baked sky visibility of the loaded map (null at low quality). */
+  skyGrid: SkyOcclusionGrid | null = null;
+  private lastCaseSound = 0;
+  /** Cases of the player's own rounds waiting for their moment (pump / bolt), oldest first. */
+  private readonly pendingCases: { at: number; def: WeaponDefinition }[] = [];
+  private fxClock = 0;
+  /**
+   * The player's muzzle flash lighting the surroundings for a moment (high quality only). Made once
+   * with the scene and kept in it (no shader rebuild per shot); dark between shots, so no lasting light.
+   */
+  readonly muzzleLight = new THREE.PointLight(0xffc68a, 0, 7, 2);
+  private muzzleLightPeak = 0;
+  /** Last case / flash per other shooter (a shotgun round arrives as one message per pellet). */
+  private readonly lastShotFx = new Map<string, number>();
   readonly viewModel: ViewModelLayer;
   /** Local player's legs and waist, visible when looking down. */
   readonly body = new FirstPersonBody();
@@ -321,6 +375,9 @@ export class Game implements HostGame, ClientGame {
     this.scene.add(this.impacts.group);
     this.scene.add(this.blood.group);
     this.scene.add(this.fx.group);
+    this.scene.add(this.casings.mesh);
+    this.muzzleLight.name = 'MuzzleLight';
+    this.scene.add(this.muzzleLight);
     this.scene.add(this.grenadeFx.group);
     this.scene.add(this.bombFx.group);
     this.scene.add(this.body.object);
@@ -334,6 +391,12 @@ export class Game implements HostGame, ClientGame {
     // Sounds are synthesised in the background while the map downloads.
     this.audio = new AudioEngine(settings.volume, { srFireInterval: 60 / SR_01.fireRate });
     this.weaponAudio = new WeaponAudio(this.audio);
+    // Spent cases ring on the floor (one at a time: a burst's cases don't pile up into noise).
+    this.casings.onFloor = (kind, at) => {
+      if (this.fxClock - this.lastCaseSound < 0.045) return;
+      this.lastCaseSound = this.fxClock;
+      this.weaponAudio.caseDrop(kind === 'shotgun', at, this.camera);
+    };
 
     // Overcast late-afternoon look: gradient sky, sky reflections / ambient
     // from an environment map, a weaker sky fill and one warm key light.
@@ -567,11 +630,19 @@ export class Game implements HostGame, ClientGame {
     this.hud.setLoading('다운로드 중', def.name, null);
     let map: LoadedMap;
     try {
+      const t0 = performance.now();
+      // Map dressing: full, or without the visual-only layer at low quality (?dressing=none: the bare
+      // map file, for comparisons). Collision is the same at every quality.
+      const param = new URLSearchParams(location.search).get('dressing');
+      const dressing = param === 'none' ? 'none' : this.quality === 'low' ? 'low' : 'full';
       map = await loadMap(
         def,
         (r) => this.hud.setLoading('다운로드 중', def.name, r),
         () => this.hud.setLoading('맵 데이터 준비 중 (충돌 · 조명)', def.name, null),
+        { dressing },
       );
+      this.mapLoadMs = performance.now() - t0;
+      console.info(`[map:${def.id}] loaded in ${this.mapLoadMs.toFixed(0)} ms`, map.stats);
     } catch (err) {
       console.error(err);
       this.hud.setError(`맵을 불러오지 못했습니다: ${def.url}`);
@@ -582,6 +653,18 @@ export class Game implements HostGame, ClientGame {
     this.map = map;
     const surfaces = enhanceMapMaterials(map.root, this.quality, this.skyEnv);
     console.info(`[map:${def.id}] surfaces`, surfaces);
+    // Sky light under cover (medium / high: low keeps every surface fully lit and skips the bake).
+    if (this.quality !== 'low') {
+      const b = map.playBounds.clone();
+      b.min.y -= 1;
+      b.max.y += 4;
+      this.skyGrid = bakeSkyOcclusion((from, dir, max) => map.collision.raycast(from, dir, max), b);
+      setSkyOcclusion(this.skyGrid, def.environment.skyFloor ?? 0.6, def.environment.reflectFloor ?? 0.45);
+      console.info(`[map:${def.id}] sky occlusion ${this.skyGrid.cells} cells, ${this.skyGrid.ms.toFixed(0)} ms`);
+    } else {
+      this.skyGrid = null;
+      setSkyOcclusion(null);
+    }
     this.scene.add(map.root);
     const env = def.environment;
     const fog = this.scene.fog as THREE.Fog;
@@ -624,12 +707,18 @@ export class Game implements HostGame, ClientGame {
         if (!pellet) {
           this.weaponAudio.onShot(weapon, result, delay, this.camera, false);
           this.viewModel.onShot(weapon.def.category);
+          // The spent case: out of the port now, or when the pump / bolt is worked.
+          if (weapon.def.category !== 'melee') this.pendingCases.push({ at: this.fxClock + EJECT_DELAY[weapon.def.category], def: weapon.def });
         }
         if (weapon.def.category !== 'melee' && this.viewModel.muzzleInWorld(this.camera, _muzzleWorld)) {
           this.fx.tracer(_muzzleWorld, result.kind === 'miss' ? result.end : result.point);
+          if (!pellet) {
+            this.muzzleLight.position.copy(_muzzleWorld);
+            this.muzzleLightPeak = MUZZLE_LIGHT[weapon.def.category];
+          }
         }
         // Holes and dust only on the map: a decal would float in the air once a dummy falls.
-        if (result.kind === 'world') this.impacts.spawn(result.point, result.normal);
+        if (result.kind === 'world') this.worldImpact(result.point, result.normal);
         if (result.kind === 'target') {
           const kill = !result.target.alive;
           this.blood.spawn(result.point, dir, result.zone === 'head');
@@ -692,6 +781,8 @@ export class Game implements HostGame, ClientGame {
     this.impacts.clear();
     this.blood.clear();
     this.fx.clear();
+    this.casings.clear();
+    this.pendingCases.length = 0;
     this.prevPos.copy(this.player.position);
     this.prevEyeHeight = this.player.eyeHeight;
   }
@@ -731,10 +822,7 @@ export class Game implements HostGame, ClientGame {
         onShot: (bot, result, origin, dir, weapon, muzzle) => {
           this.netHost?.broadcastShot(bot.id, weapon.def.id, origin, result);
           this.weaponAudio.onRemoteShot(weapon, origin, result, this.camera);
-          this.fx.flash(muzzle, dir);
-          this.fx.tracer(muzzle, result.kind === 'miss' ? result.end : result.point);
-          if (result.kind === 'world') this.impacts.spawn(result.point, result.normal);
-          else if (result.kind === 'target') this.blood.spawn(result.point, dir, result.zone === 'head');
+          this.otherShotFx(bot.id, weapon.def, muzzle, dir, result);
         },
         onDamage: (bot, e) => {
           this.netHost?.onBotDamaged(bot, e);
@@ -1153,7 +1241,10 @@ export class Game implements HostGame, ClientGame {
     this.hud.showHitMarker(head, kill);
     if (sound) this.weaponAudio.hitConfirm(head, delay);
   }
-  readonly killConfirm = new KillConfirm(() => this.audio.play('kill.confirm', { group: 'confirm', gain: 0.6, delay: 0.05 }));
+  readonly killConfirm = new KillConfirm(() => {
+    this.audio.play('kill.confirm', { group: 'confirm', gain: 0.6, delay: 0.05 });
+    this.hud.showKillNotice();
+  });
 
   /** The match credited `killer` with killing `victim`: the player's kill confirm, or a room member's (sent by the host). */
   private onCreditedKill(killer: string, victim: string): void {
@@ -1500,14 +1591,46 @@ export class Game implements HostGame, ClientGame {
     }
     this.camera.position.lerpVectors(this.prevPos, player.position, alpha);
     this.camera.position.y += eye;
+    if (dead || !this.input.active) {
+      this.cameraMotion.reset();
+    } else {
+      // Steps, landings, breathing: position and roll only (pitch and yaw stay the aim).
+      const m = this.cameraMotion;
+      m.update(frameTime, {
+        speed: Math.hypot(player.velocity.x, player.velocity.z),
+        runSpeed: PLAYER_CONFIG.runSpeed,
+        vy: player.velocity.y,
+        grounded: player.grounded,
+        crouching: player.crouching,
+        aim: this.scoped ? 1 : 0,
+      });
+      _camRight.set(Math.cos(player.yaw), 0, -Math.sin(player.yaw));
+      this.camera.position.addScaledVector(_camRight, m.x);
+      this.camera.position.y += m.y;
+      roll += m.roll;
+      m.takeEvents(_motionEvents);
+      if (_motionEvents.steps > 0) {
+        // Own footsteps: a run is heard, a walk barely, crouching almost not at all.
+        const speed01 = Math.hypot(player.velocity.x, player.velocity.z) / PLAYER_CONFIG.runSpeed;
+        this.weaponAudio.footstep(player.crouching ? 0.05 : speed01 > 0.8 ? 0.2 : 0.08);
+      }
+      if (_motionEvents.landing > 0) this.weaponAudio.landing(_motionEvents.landing);
+    }
     this.camera.rotation.set(player.pitch, player.yaw, roll);
+    this.updateSpace(frameTime);
+    // Hands and weapon in the light of where the player stands (the map's own sky visibility).
+    this.viewModel.setAmbient(this.skyGrid ? skyVisibilityAt(this.skyGrid, this.camera.position) : 1);
     if (dead && this.teamMatch) this.spectate(combat!.deadTime);
     this.body.object.visible = !dead;
-    this.updateBody(frameTime, eye);
+    // Feet stay on the ground: the body is placed from the eye without the eye's own motion.
+    this.updateBody(frameTime, eye + (dead ? 0 : this.cameraMotion.y));
 
     const w = this.weapons?.weapon;
     this.weaponAudio.update(w);
-    this.impacts.update(frameTime);
+    // Effects detail follows the graphics level in use (automatic quality may lower it in play).
+    this.impacts.detail = this.quality;
+    this.viewModel.setEffectsDetail(this.quality);
+    this.impacts.update(frameTime, this.camera);
     this.blood.update(frameTime, this.camera);
     this.squad?.updateVisuals(frameTime);
     this.fx.update(frameTime, this.camera);
@@ -1525,9 +1648,16 @@ export class Game implements HostGame, ClientGame {
         speed01: Math.hypot(player.velocity.x, player.velocity.z) / PLAYER_CONFIG.runSpeed,
         grounded: player.grounded,
         crouching: player.crouching,
+        vy: player.velocity.y,
+        aim: this.scoped ? 1 : 0,
+        stepPhase: this.cameraMotion.phase,
       },
       this.animState(w),
     );
+    this.updateCasings(frameTime, dead);
+    // Lit only while the first-person flash shows; off entirely below high quality.
+    this.muzzleLight.visible = this.quality === 'high';
+    this.muzzleLight.intensity = this.muzzleLight.visible ? this.muzzleLightPeak * this.viewModel.flash.brightness : 0;
 
     this.sky.follow(this.camera);
     // The lobby shows its own still picture (own camera, drawn only when it changed); the game camera is untouched.
@@ -1745,6 +1875,50 @@ export class Game implements HostGame, ClientGame {
       equipSlot = (this.weapons.slot + i.equipCycle + n) % n;
     }
     return { fire: i.fire, reload: i.reload, equipSlot, equipLast: i.equipLast, inspect: i.inspect };
+  }
+
+  /** Indoors or out, for the reverb: a few rays from the eye, four times a second. */
+  private updateSpace(dt: number): void {
+    this.spaceTimer -= dt;
+    if (this.spaceTimer > 0 || !this.map) return;
+    this.spaceTimer = 0.25;
+    _spaceFrom.copy(this.camera.position);
+    const roof = this.map.collision.raycast(_spaceFrom, SPACE_RAYS[0], 12) !== null;
+    let walls = 0;
+    for (let i = 1; i < SPACE_RAYS.length; i++) if (this.map.collision.raycast(_spaceFrom, SPACE_RAYS[i], 9) !== null) walls++;
+    // A roof overhead is what makes a room; walls around without one (an alley) only a little.
+    this.audio.setSpace(roof ? 0.55 + walls * 0.1125 : walls * 0.08);
+  }
+
+  /** A round that hit the map: hole, dust, sparks or chips by what the surface is made of. */
+  private worldImpact(point: THREE.Vector3, normal: THREE.Vector3): void {
+    this.impacts.spawn(point, normal, this.map?.collision.surfaceAt(point, normal) ?? null);
+  }
+
+  /** Throws the player's spent cases that are due (from the port where it is now) and moves every case. */
+  private updateCasings(dt: number, dead: boolean): void {
+    this.fxClock += dt;
+    this.casings.enabled = this.quality !== 'low';
+    const p = this.player;
+    while (this.pendingCases.length && this.pendingCases[0].at <= this.fxClock) {
+      const c = this.pendingCases.shift()!;
+      // Only from the weapon still in hand (switched away or down: that round's case is gone with it).
+      if (dead || !p || this.shownDef !== c.def || this.heldGrenade) continue;
+      const side = this.viewModel.ejectInWorld(this.camera, _casePort);
+      if (side === null) continue;
+      const kind = c.def.category as Exclude<WeaponCategory, 'melee'>;
+      const e = EJECT[kind];
+      _caseRight.set(1, 0, 0).applyQuaternion(this.camera.quaternion);
+      _caseUp.set(0, 1, 0).applyQuaternion(this.camera.quaternion);
+      _caseBack.set(0, 0, 1).applyQuaternion(this.camera.quaternion);
+      _caseVel
+        .copy(p.velocity)
+        .addScaledVector(_caseRight, side * (e.side + Math.random() * 0.5))
+        .addScaledVector(_caseUp, e.up + Math.random() * 0.4)
+        .addScaledVector(_caseBack, e.back);
+      this.casings.eject(kind, _casePort, _caseVel);
+    }
+    this.casings.update(dt);
   }
 
   private animState(w: Weapon | undefined): WeaponAnimState {
@@ -2308,6 +2482,8 @@ export class Game implements HostGame, ClientGame {
       this.impacts.clear();
       this.blood.clear();
       this.fx.clear();
+    this.casings.clear();
+    this.pendingCases.length = 0;
       this.spectateIndex = 0;
       this.hud.setDeathNote(null);
     }
@@ -2351,13 +2527,9 @@ export class Game implements HostGame, ClientGame {
       }
       const result = (m.kind === 'miss' ? { kind: 'miss', end } : { kind: m.kind, point: end, normal, distance: origin.distanceTo(end) }) as HitscanResult;
       this.weaponAudio.onRemoteShot(w, origin, result, this.camera);
-      if (def.category !== 'melee') {
-        const from = muzzle ?? origin;
-        this.fx.flash(from, dir);
-        this.fx.tracer(from, end);
-      }
-    }
-    if (m.kind === 'world') this.impacts.spawn(end, normal);
+      // (The blood of a target hit is already out, above, for every round.)
+      this.otherShotFx(m.by, def, muzzle ?? origin, dir, result, false);
+    } else if (m.kind === 'world') this.worldImpact(end, normal);
   }
 
   netHit(m: Extract<ToClient, { k: 'hit' }>): void {
@@ -2398,6 +2570,8 @@ export class Game implements HostGame, ClientGame {
     this.impacts.clear();
     this.blood.clear();
     this.fx.clear();
+    this.casings.clear();
+    this.pendingCases.length = 0;
     this.buyLoadout.reset();
     this.beginMatchRecord();
   }
@@ -2424,12 +2598,34 @@ export class Game implements HostGame, ClientGame {
       this.netWeapons.set(weapon.id, w);
     }
     this.weaponAudio.onRemoteShot(w, origin, result, this.camera);
-    if (weapon.category !== 'melee') {
-      this.fx.flash(muzzle, dir);
-      this.fx.tracer(muzzle, result.kind === 'miss' ? result.end : result.point);
+    this.otherShotFx(bot.id, weapon, muzzle, dir, result);
+  }
+
+  /**
+   * Someone else's round (a bot, a room member, the host as a member sees it): muzzle flash, tracer and
+   * spent case at its weapon, the impact where it hit. A shotgun round comes as one message per pellet:
+   * its flash and case are shown once (per shooter within 60 ms), every pellet keeps its tracer and impact.
+   */
+  private otherShotFx(shooter: string, def: WeaponDefinition, muzzle: THREE.Vector3, dir: THREE.Vector3, result: HitscanResult, blood = true): void {
+    const end = result.kind === 'miss' ? result.end : result.point;
+    if (def.category !== 'melee') {
+      const last = this.lastShotFx.get(shooter) ?? -Infinity;
+      if (this.fxClock - last > 0.06 || this.fxClock < last) {
+        this.lastShotFx.set(shooter, this.fxClock);
+        this.fx.flash(muzzle, dir, WORLD_FLASH[def.category]);
+        // A case from a shooter close enough to see it (medium quality and up).
+        if (this.quality !== 'low' && muzzle.distanceToSquared(this.camera.position) < 25 * 25) {
+          _caseRight.crossVectors(dir, UP).normalize();
+          _casePort.copy(muzzle).addScaledVector(dir, -0.35).addScaledVector(_caseRight, 0.04);
+          const e = EJECT[def.category];
+          _caseVel.copy(_caseRight).multiplyScalar(e.side + Math.random() * 0.5).addScaledVector(UP, e.up + Math.random() * 0.4).addScaledVector(dir, -e.back);
+          this.casings.eject(def.category, _casePort, _caseVel);
+        }
+      }
+      this.fx.tracer(muzzle, end);
     }
-    if (result.kind === 'world') this.impacts.spawn(result.point, result.normal);
-    else if (result.kind === 'target') this.blood.spawn(result.point, dir, result.zone === 'head');
+    if (result.kind === 'world') this.worldImpact(result.point, result.normal);
+    else if (result.kind === 'target' && blood) this.blood.spawn(result.point, dir, result.zone === 'head');
   }
 
   private hasStarted = false;

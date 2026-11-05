@@ -13,6 +13,10 @@ export class Hud {
   readonly menu: MainMenu;
   private readonly healthValue: HTMLSpanElement;
   private readonly healthBar: HTMLDivElement;
+  /** Trails the health bar after damage (shows what was just lost), then catches up. */
+  private readonly healthLag: HTMLDivElement;
+  private readonly magBar: HTMLDivElement;
+  private lastWeaponName = '';
   private readonly stats: HTMLDivElement;
   private readonly weaponName: HTMLDivElement;
   private readonly ammoMag: HTMLSpanElement;
@@ -21,6 +25,8 @@ export class Hud {
   private readonly reloadBar: HTMLDivElement;
   private readonly hitMarker: HTMLDivElement;
   private hitMarkerAnim: Animation | null = null;
+  private hitRingAnim: Animation | null = null;
+  private killNoticeAnim: Animation | null = null;
   private readonly vignette: HTMLDivElement;
   private readonly damageDir: HTMLDivElement;
   private readonly vitals: HTMLDivElement;
@@ -42,7 +48,8 @@ export class Hud {
       <div class="crosshair" aria-hidden="true">
         <span class="ch-line ch-top"></span><span class="ch-line ch-bottom"></span>
         <span class="ch-line ch-left"></span><span class="ch-line ch-right"></span>
-        <div class="hitmarker"><span class="hm hm-tl"></span><span class="hm hm-tr"></span><span class="hm hm-bl"></span><span class="hm hm-br"></span></div>
+        <div class="hitmarker"><span class="hm hm-tl"></span><span class="hm hm-tr"></span><span class="hm hm-bl"></span><span class="hm hm-br"></span><span class="hm-ring"></span></div>
+        <div class="kill-notice" aria-hidden="true"><span class="kn-mark"></span><span class="kn-text">처치</span></div>
       </div>
       <div class="scope" aria-hidden="true"><span class="scope-h"></span><span class="scope-v"></span></div>
       <div class="smoke-veil" aria-hidden="true"></div>
@@ -51,7 +58,7 @@ export class Hud {
         <div class="vitals-label">HP</div>
         <div class="vitals-main">
           <span class="health-value">100</span>
-          <div class="health-track"><div class="health-bar"></div></div>
+          <div class="health-track"><div class="health-lag"></div><div class="health-bar"></div></div>
         </div>
         <div class="armor" hidden>
           <div class="vitals-label">AP</div>
@@ -66,6 +73,7 @@ export class Hud {
         <div class="utility" hidden><span class="ut ut-flash"></span><span class="ut ut-smoke"></span></div>
         <div class="weapon-name">AR-01</div>
         <div class="ammo"><span class="ammo-mag">30</span><span class="ammo-sep">/</span><span class="ammo-reserve">90</span></div>
+        <div class="mag-track"><div class="mag-bar"></div></div>
         <div class="weapon-status"></div>
         <div class="reload-track"><div class="reload-bar"></div></div>
       </div>
@@ -80,6 +88,8 @@ export class Hud {
 
     this.healthValue = this.root.querySelector('.health-value')!;
     this.healthBar = this.root.querySelector('.health-bar')!;
+    this.healthLag = this.root.querySelector('.health-lag')!;
+    this.magBar = this.root.querySelector('.mag-bar')!;
     this.stats = this.root.querySelector('.stats')!;
     this.menu = new MainMenu(this.root);
     this.weaponName = this.root.querySelector('.weapon-name')!;
@@ -200,9 +210,36 @@ export class Hud {
     m.classList.toggle('kill', kill);
     this.hitMarkerAnim?.cancel();
     this.hitMarkerAnim = m.animate([{ opacity: 1 }, { opacity: 1, offset: 0.5 }, { opacity: 0 }], {
-      duration: kill ? 300 : 120,
+      duration: kill ? 420 : head ? 200 : 120,
       easing: 'linear',
     });
+    // Head hits and kills: a thin ring opening out from the crosshair (a body hit stays a plain X).
+    this.hitRingAnim?.cancel();
+    if (head || kill) {
+      const ring = m.querySelector<HTMLElement>('.hm-ring')!;
+      this.hitRingAnim = ring.animate(
+        [
+          { transform: 'translate(-50%, -50%) scale(0.5)', opacity: 0.95 },
+          { transform: `translate(-50%, -50%) scale(${kill ? 2.1 : 1.6})`, opacity: 0 },
+        ],
+        { duration: kill ? 380 : 220, easing: 'cubic-bezier(0.2, 0.7, 0.3, 1)' },
+      );
+    }
+  }
+
+  /** A kill the match confirmed (with the kill confirm sound): a short "처치" under the crosshair. */
+  showKillNotice(): void {
+    const n = this.root.querySelector<HTMLElement>('.kill-notice')!;
+    this.killNoticeAnim?.cancel();
+    this.killNoticeAnim = n.animate(
+      [
+        { opacity: 0, transform: 'translate(-50%, 4px)' },
+        { opacity: 1, transform: 'translate(-50%, 0)', offset: 0.12 },
+        { opacity: 1, transform: 'translate(-50%, 0)', offset: 0.7 },
+        { opacity: 0, transform: 'translate(-50%, -2px)' },
+      ],
+      { duration: 900, easing: 'ease-out' },
+    );
   }
 
   setMapOptions(maps: readonly MenuMap[], currentId: string, onChange: (id: string) => void): void {
@@ -263,9 +300,15 @@ export class Hud {
   setHealth(value: number): void {
     const hp = Math.max(0, Math.round(value));
     if (hp === this.lastHealth) return;
+    const lost = hp < this.lastHealth;
     this.lastHealth = hp;
     this.healthValue.textContent = String(hp);
-    this.healthBar.style.transform = `scaleX(${hp / PLAYER_CONFIG.maxHealth})`;
+    const k = `scaleX(${hp / PLAYER_CONFIG.maxHealth})`;
+    this.healthBar.style.transform = k;
+    // Damage: the lost part stays shown a moment, then drains; healing/respawn: at once.
+    this.healthLag.style.transition = lost ? '' : 'none';
+    this.healthLag.style.transform = k;
+    if (lost) this.healthValue.animate([{ transform: 'translateY(-2px)', color: 'var(--hud-danger)' }, { transform: 'none' }], { duration: 260, easing: 'ease-out' });
     this.root.classList.toggle('low-health', hp <= 25);
   }
 
@@ -296,6 +339,12 @@ export class Hud {
     if (key !== this.lastAmmoKey) {
       this.lastAmmoKey = key;
       this.weaponName.textContent = name;
+      if (name !== this.lastWeaponName) {
+        // Weapon switched: the name and the slot strip light up briefly.
+        if (this.lastWeaponName) this.weaponName.parentElement!.animate([{ borderRightColor: 'var(--c-accent)' }, { borderRightColor: 'var(--c-border-strong)' }], { duration: 700, easing: 'ease-out' });
+        this.lastWeaponName = name;
+      }
+      this.magBar.style.transform = `scaleX(${magazine === null || magazineSize <= 0 ? 0 : Math.min(magazine / magazineSize, 1)})`;
       this.root.classList.toggle('no-ammo', magazine === null);
       if (magazine === null) {
         this.ammoMag.textContent = '—';

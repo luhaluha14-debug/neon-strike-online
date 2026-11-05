@@ -277,6 +277,8 @@ export const SMG_01: WeaponDefinition = {
       muzzle: [0, 0.11, -0.335],
       // The curved magazine rakes forward: it drops out along its own angle.
       magazineDrop: [0, -0.906, -0.423],
+      // Right side of the receiver tube, above the magazine well.
+      ejectPort: [0.018, 0.12, 0.08],
     },
     pose: { position: [0.17, -0.22, -0.52], rotation: [0.02, 0.12, -0.04], scale: 1 },
   },
@@ -354,6 +356,8 @@ export const SG_01: WeaponDefinition = {
       muzzle: [0, -0.322, -0.42],
       // Reload: the support hand leaves the pump for the loading port under the receiver (shells go in there).
       magwell: [0, -0.4, 0.1],
+      // The bolt window on the receiver's left (where PumpBolt shows): hulls leave to that side.
+      ejectPort: [-0.02, -0.34, 0.13],
       // Elbows are in weapon space: 0.4 m lower than the default to follow the file's offset, the right one further back (long stock).
       armPose: { rightElbow: [0.17, -0.73, 0.6], leftElbow: [-0.3, -0.78, 0.05] },
     },
@@ -428,6 +432,8 @@ export const PIS_01: WeaponDefinition = {
       muzzle: [0, 0.055, -0.1],
       // The magazine leaves down the raked grip.
       magazineDrop: [0, -0.95, 0.31],
+      // Top right of the slide.
+      ejectPort: [0.012, 0.062, 0.01],
     },
     pose: { position: [0.15, -0.21, -0.44], rotation: [0.02, 0.06, -0.02], scale: 1 },
   },

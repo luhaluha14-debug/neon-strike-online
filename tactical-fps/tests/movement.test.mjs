@@ -22,10 +22,14 @@ after(async () => {
 });
 
 const results = {};
+/** The same on the maps as shipped (with MapDressing): its own recording, movement-dressed.json. */
+const dressedResults = {};
 
-for (const map of ['seoul', 'warehouse']) {
-  test(`${map}: movement, collision and hitscan are deterministic and unchanged`, async () => {
-    const page = await openGame(env, { map });
+// The recording in movement.json was made on the map files alone; it keeps checking them (and the
+// movement / collision / hitscan code) exactly. The dressed maps have a recording of their own.
+for (const [map, dressing] of [['seoul', 'none'], ['warehouse', 'none'], ['seoul', null], ['warehouse', null]]) {
+  test(`${map}${dressing ? ' (map file only)' : ' (dressed)'}: movement, collision and hitscan are deterministic and unchanged`, async () => {
+    const page = await openGame(env, { map, dressing });
     const r = await page.evaluate(() => {
       const g = window.game;
       const p = g.player;
@@ -92,7 +96,15 @@ for (const map of ['seoul', 'warehouse']) {
     assert.equal(r.first.belowKillPlane, 0, 'fell below the kill plane');
     assert.ok(r.spawns >= 2, 'map has spawn points');
 
-    results[map] = { stats: r.stats, walk: r.first };
+    // Map stats gained a `dressing` entry (null for the bare file); the recorded fields are compared as before.
+    const { dressing: dressed, ...stats } = r.stats;
+    if (dressing) {
+      assert.equal(dressed, null);
+      results[map] = { stats, walk: r.first };
+    } else {
+      assert.ok(dressed && dressed.parts > 0);
+      dressedResults[map] = { stats, walk: r.first };
+    }
     assert.deepEqual(page.errors, []);
     await page.context().close();
   });
@@ -102,4 +114,10 @@ test('results match the recorded golden values', async () => {
   assert.ok(results.seoul && results.warehouse, 'map tests did not run');
   const expected = await golden('movement', results);
   assert.deepEqual(asJson(results), expected);
+});
+
+test('dressed maps: results match their recorded golden values', async () => {
+  assert.ok(dressedResults.seoul && dressedResults.warehouse, 'map tests did not run');
+  const expected = await golden('movement-dressed', dressedResults);
+  assert.deepEqual(asJson(dressedResults), expected);
 });

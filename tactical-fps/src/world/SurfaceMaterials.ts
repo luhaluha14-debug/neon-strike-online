@@ -163,6 +163,46 @@ const RULES: readonly [RegExp, SurfaceKind][] = [
   [/concrete|conc|plinth|coping|cornice|pilaster|plaster|tile|panel|plaza|platform|barrier|bldg_|parapet|joint|spandrel|deck|weep|stain|grime|tie|broken|white|ridge|walkway/i, 'concrete'],
 ];
 
+/** Every surface kind, in a fixed order: the collision geometry stores a kind as its index here (`surface` attribute). */
+export const SURFACE_KINDS: readonly SurfaceKind[] = [
+  'default', 'asphalt', 'concrete', 'stone', 'paver', 'brick', 'metal', 'paintedMetal', 'rust', 'glass',
+  'roadPaint', 'paint', 'carPaint', 'wood', 'dirt', 'grass', 'foliage', 'rubber', 'water', 'light',
+];
+
+// Sky visibility (SkyOcclusion.ts), shared by every patched map material: the same uniform
+// objects everywhere, so one call to setSkyOcclusion updates the whole map. A floor of 1 = off.
+const _noSky = new THREE.Data3DTexture(new Uint8Array([255]), 1, 1, 1);
+_noSky.format = THREE.RedFormat;
+_noSky.needsUpdate = true;
+const SKY_OCC_UNIFORMS = {
+  skyOccTex: { value: _noSky as THREE.Data3DTexture },
+  skyOccOrigin: { value: new THREE.Vector3() },
+  skyOccInvSize: { value: new THREE.Vector3(1, 1, 1) },
+  /** x: what's left of the sky fill fully indoors, y: of sky reflections. */
+  skyOccFloor: { value: new THREE.Vector2(1, 1) },
+};
+
+/**
+ * Uses a baked sky-visibility grid for the map's sky light: under cover the hemisphere fill drops
+ * to `diffuseFloor` and sky reflections to `specularFloor` (null grid = off, everything lit as before).
+ */
+export function setSkyOcclusion(
+  grid: { texture: THREE.Data3DTexture; origin: THREE.Vector3; size: THREE.Vector3 } | null,
+  diffuseFloor = 0.6,
+  specularFloor = 0.45,
+): void {
+  const u = SKY_OCC_UNIFORMS;
+  if (u.skyOccTex.value !== _noSky && u.skyOccTex.value !== grid?.texture) u.skyOccTex.value.dispose();
+  u.skyOccTex.value = grid?.texture ?? _noSky;
+  if (grid) {
+    u.skyOccOrigin.value.copy(grid.origin);
+    u.skyOccInvSize.value.set(1 / Math.max(grid.size.x, 1e-3), 1 / Math.max(grid.size.y, 1e-3), 1 / Math.max(grid.size.z, 1e-3));
+    u.skyOccFloor.value.set(diffuseFloor, specularFloor);
+  } else {
+    u.skyOccFloor.value.set(1, 1);
+  }
+}
+
 export function classifySurface(materialName: string): SurfaceKind {
   for (const [re, kind] of RULES) if (re.test(materialName)) return kind;
   return 'default';
@@ -229,7 +269,7 @@ function applySurface(mat: THREE.MeshStandardMaterial, kind: SurfaceKind, qualit
   // Medium skips the separate fine-grain fetch (2 fetches instead of 3).
   const qualityDefine = quality === 'high' ? '' : '#define SURF_MEDIUM\n';
   mat.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, uniforms);
+    Object.assign(shader.uniforms, uniforms, SKY_OCC_UNIFORMS);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vSurfPos;\nvarying vec3 vSurfN;')
       .replace(
@@ -240,14 +280,19 @@ function applySurface(mat: THREE.MeshStandardMaterial, kind: SurfaceKind, qualit
       .replace('#include <common>', '#include <common>\n' + qualityDefine + SURF_PARS)
       .replace('#include <color_fragment>', '#include <color_fragment>\n' + SURF_COLOR)
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n' + SURF_ROUGHNESS)
-      .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n' + SURF_NORMAL);
+      .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n' + SURF_NORMAL)
+      .replace('#include <lights_fragment_end>', SURF_SKY + '#include <lights_fragment_end>');
   };
   // Same GLSL for every patched material: one program per light/fog setup, not per material.
-  mat.customProgramCacheKey = () => 'surface-v3' + quality;
+  mat.customProgramCacheKey = () => 'surface-v4' + quality;
   mat.needsUpdate = true;
 }
 
 const SURF_PARS = /* glsl */ `
+uniform highp sampler3D skyOccTex;
+uniform vec3 skyOccOrigin;
+uniform vec3 skyOccInvSize;
+uniform vec2 skyOccFloor;
 uniform sampler2D surfNoise;
 uniform vec4 surfA; // colorVar, roughVar, bump, scale
 uniform vec4 surfB; // streaks, topDirt, wear, -
@@ -421,3 +466,20 @@ function lattice(x: number, y: number, seed: number): number {
   h = Math.imul(h ^ (h >>> 13), 1274126177);
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
+
+// Sky light under cover: read the baked sky visibility a little off the surface (out of the wall
+// the point belongs to) and scale the indirect light by it. Direct sun is the shadow map's job.
+const SURF_SKY = /* glsl */ `
+{
+  vec3 skyUVW = (vSurfPos + surfN * 0.6 - skyOccOrigin) * skyOccInvSize;
+  float skyVis = texture(skyOccTex, clamp(skyUVW, 0.0, 1.0)).r;
+  #if defined( RE_IndirectDiffuse )
+  float skyDiffuse = mix(skyOccFloor.x, 1.0, skyVis);
+  irradiance *= skyDiffuse;
+  iblIrradiance *= skyDiffuse;
+  #endif
+  #if defined( RE_IndirectSpecular )
+  radiance *= mix(skyOccFloor.y, 1.0, skyVis);
+  #endif
+}
+`;

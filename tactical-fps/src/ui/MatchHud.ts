@@ -19,6 +19,8 @@ export class MatchHud {
   private readonly results: HTMLElement;
   private last = '';
   private feedCount = -1;
+  /** Time of the newest kill already shown (later ones slide in). */
+  private feedNewest = -Infinity;
   private boardKey = '';
 
   constructor(parent: HTMLElement, onRestart: () => void, onMenu: () => void, onLobby: () => void = onMenu) {
@@ -87,7 +89,16 @@ export class MatchHud {
     const feedKey = recent.length * 100000 + (recent.at(-1)?.at ?? 0);
     if (feedKey !== this.feedCount) {
       this.feedCount = feedKey;
-      this.feed.replaceChildren(...recent.map((k) => this.feedItem(m, k)));
+      // Only entries that weren't shown before slide in (the list is rebuilt, the old ones stay put).
+      const shownUpTo = this.feedNewest;
+      this.feedNewest = recent.at(-1)?.at ?? this.feedNewest;
+      this.feed.replaceChildren(
+        ...recent.map((k) => {
+          const li = this.feedItem(m, k);
+          if (k.at > shownUpTo) li.classList.add('kf-new');
+          return li;
+        }),
+      );
     }
     this.board.hidden = !showBoard || m.over;
     if (!this.board.hidden) this.fillTable(this.board.querySelector('table')!, m);
@@ -135,7 +146,7 @@ export class MatchHud {
     li.innerHTML =
       k.killer === k.victim || !killer
         ? `${name(victimName, victimMe)} <span class="kf-w">사망</span>`
-        : `${name(feedName(m.scores, k.killer, k.kg, k.kn), killerMe)} <span class="kf-w">${WEAPON_SHORT[k.weaponId] ?? k.weaponId}${k.head ? ' · HS' : ''}</span> ${name(victimName, victimMe)}`;
+        : `${name(feedName(m.scores, k.killer, k.kg, k.kn), killerMe)} <span class="kf-w">${WEAPON_SHORT[k.weaponId] ?? k.weaponId}${k.head ? '<span class="kf-hs"> · HS</span>' : ''}</span> ${name(victimName, victimMe)}`;
     return li;
   }
 
