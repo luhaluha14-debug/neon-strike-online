@@ -5,6 +5,7 @@ import { FirstPersonArms } from './FirstPersonArms';
 import type { ViewmodelPose, WeaponCategory } from '../WeaponDefinition';
 import type { WeaponAnimState, WeaponView } from './WeaponView';
 import { pumpTravel } from './GltfWeaponView';
+import { FLASH, MuzzleFlash, type FlashDetail } from './MuzzleFlash';
 
 export interface ViewModelMotion {
   /** Look delta this frame (radians) — drives sway. */
@@ -14,7 +15,27 @@ export interface ViewModelMotion {
   speed01: number;
   grounded: boolean;
   crouching: boolean;
+  /** Vertical velocity (m/s, + up): the weapon floats a little in the air. */
+  vy?: number;
+  /** 0 = hip, 1 = aimed: sway and bob steadied. */
+  aim?: number;
+  /** The camera's stride phase (rad, CameraMotion.phase): the weapon bobs in step with the eye. */
+  stepPhase?: number;
 }
+
+/**
+ * How heavy each kind of weapon feels in the hands (motion only; handling and balance untouched):
+ * how far it sways and bobs, how quickly it follows the view (`follow`, 1/s: lower lags more), how
+ * deep a landing pushes it down, how much it floats in the air.
+ */
+export const WEAPON_WEIGHT: Record<WeaponCategory, { sway: number; bob: number; follow: number; land: number; air: number }> = {
+  rifle: { sway: 1, bob: 1, follow: 10, land: 1, air: 1 },
+  smg: { sway: 0.8, bob: 0.85, follow: 14, land: 0.8, air: 0.85 },
+  pistol: { sway: 0.6, bob: 0.65, follow: 16, land: 0.6, air: 0.7 },
+  shotgun: { sway: 1.25, bob: 1.15, follow: 7.5, land: 1.3, air: 1.15 },
+  sniper: { sway: 1.4, bob: 1.2, follow: 6.5, land: 1.45, air: 1.25 },
+  melee: { sway: 0.7, bob: 0.8, follow: 15, land: 0.7, air: 0.8 },
+};
 
 /** Duration of the placeholder melee slash (s). */
 const SLASH_TIME = 0.32;
@@ -27,7 +48,7 @@ interface ShotFeel {
   back: number;
   /** Random sideways roll impulse per shot (± rad/s): the weapon twists a little, never the same way twice. */
   roll: number;
-  flash: number;
+  /** Peak of the muzzle light on the hands (the flash itself: MuzzleFlash FLASH). */
   light: number;
 }
 
@@ -37,15 +58,15 @@ interface ShotFeel {
  */
 const SHOT_FEEL: Record<Exclude<WeaponCategory, 'melee'>, ShotFeel> = {
   // Peak of one shot: rise ~0.9°, push 6 mm, twist ~0.4°; a full-auto spray holds ~1.5° / 1 cm.
-  rifle: { kick: 1.0, rise: 0.64, back: 0.25, roll: 0.29, flash: 1.1, light: 1.6 },
+  rifle: { kick: 1.0, rise: 0.64, back: 0.25, roll: 0.29, light: 1.6 },
   // ~2° / 13 mm, then the bolt.
-  sniper: { kick: 1.9, rise: 0.75, back: 0.28, roll: 0.43, flash: 1.9, light: 2.6 },
+  sniper: { kick: 1.9, rise: 0.75, back: 0.28, roll: 0.43, light: 2.6 },
   // ~0.6° / 4 mm per shot, more twist: a buzz rather than a shove.
-  smg: { kick: 0.75, rise: 0.57, back: 0.22, roll: 0.36, flash: 0.9, light: 1.3 },
+  smg: { kick: 0.75, rise: 0.57, back: 0.22, roll: 0.36, light: 1.3 },
   // ~2.2° / 15 mm, then the pump.
-  shotgun: { kick: 2.2, rise: 0.72, back: 0.28, roll: 0.57, flash: 2.0, light: 2.8 },
+  shotgun: { kick: 2.2, rise: 0.72, back: 0.28, roll: 0.57, light: 2.8 },
   // Snaps up ~2°, hardly pushes back (3 mm).
-  pistol: { kick: 1.1, rise: 1.3, back: 0.11, roll: 0.43, flash: 0.8, light: 1.2 },
+  pistol: { kick: 1.1, rise: 1.3, back: 0.11, roll: 0.43, light: 1.2 },
 };
 const RIFLE_FEEL = SHOT_FEEL.rifle;
 
@@ -76,8 +97,8 @@ export class ViewModelLayer {
   private armsLook: ArmsAppearance | null = null;
   /** Motion pivot: position/rotation offsets are applied here. */
   private readonly pivot = new THREE.Group();
-  private readonly flash: THREE.Mesh;
-  private flashTime = 0;
+  /** Muzzle flash at the current weapon's muzzle (star, flame prongs, brake jets, smoke). */
+  readonly flash = new MuzzleFlash();
   /** Muzzle flash light on the hands and weapon; always in the scene (only its intensity changes, so no shader recompiles). */
   private readonly flashLight = new THREE.PointLight(0xffb468, 0, 1.4, 2);
   private flashPeak = 0;
@@ -94,6 +115,9 @@ export class ViewModelLayer {
   private land = 0;
   private landVel = 0;
   private wasGrounded = true;
+  private airVy = 0;
+  private air = 0;
+  private aimS = 0;
   private breathPhase = 0;
   /** Category of the model in hand (the anim state already describes the next weapon during a holster). */
   private shownCategory: WeaponCategory = 'rifle';
@@ -112,28 +136,33 @@ export class ViewModelLayer {
   private bobPhase = 0;
   private bobAmount = 0;
   private readonly magRest = new THREE.Vector3();
+  private readonly fill = new THREE.HemisphereLight(0xc9d4de, 0x4a4238, 1.6);
+  private readonly key = new THREE.DirectionalLight(0xfff1dc, 2.2);
+  private ambient = 1;
 
   constructor(aspect: number) {
     this.camera = new THREE.PerspectiveCamera(62, aspect, 0.01, 10);
     this.scene.add(this.pivot);
-    this.scene.add(new THREE.HemisphereLight(0xc9d4de, 0x4a4238, 1.6));
-    const key = new THREE.DirectionalLight(0xfff1dc, 2.2);
-    key.position.set(0.6, 1, 0.4);
-    this.scene.add(key);
+    this.scene.add(this.fill);
+    this.key.position.set(0.6, 1, 0.4);
+    this.scene.add(this.key);
     this.scene.add(this.flashLight);
+  }
 
-    this.flash = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.14, 0.14),
-      new THREE.MeshBasicMaterial({
-        map: makeFlashTexture(),
-        color: 0xffd9a0,
-        transparent: true,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        toneMapped: false,
-      }),
-    );
-    this.flash.visible = false;
+  /**
+   * How much sky the player stands under (0 indoors .. 1 outside): the hands and weapon dim a little
+   * indoors so they sit in the room like the walls around them (never below 75 %; 1 = as before).
+   */
+  setAmbient(sky: number): void {
+    const k = 0.75 + 0.25 * Math.min(Math.max(sky, 0), 1);
+    this.ambient += (k - this.ambient) * 0.08;
+    this.fill.intensity = 1.6 * this.ambient;
+    this.key.intensity = 2.2 * (0.6 + 0.4 * this.ambient * this.ambient);
+  }
+
+  /** Effects detail (graphics quality): low leaves out the smoke. */
+  setEffectsDetail(detail: FlashDetail): void {
+    this.flash.detail = detail;
   }
 
   /** World-space position of the muzzle as seen through `worldCamera` (for tracers); null for melee. */
@@ -141,9 +170,40 @@ export class ViewModelLayer {
     const m = this.view?.muzzle;
     if (!m) return null;
     this.scene.updateMatrixWorld();
+    // The world camera as placed now (its matrix is otherwise only refreshed when a frame is drawn).
+    worldCamera.updateMatrixWorld();
     // View-model space is camera space of its own camera (at the origin); map it onto the world camera.
     m.getWorldPosition(out).applyMatrix4(this.camera.matrixWorldInverse).applyMatrix4(worldCamera.matrixWorld);
     return out;
+  }
+
+  /**
+   * World-space position of the ejection port as seen through `worldCamera` (spent cases leave there), or null.
+   * Returns the side the port is on: 1 right, -1 left (of the weapon, in view).
+   */
+  ejectInWorld(worldCamera: THREE.Camera, out: THREE.Vector3): number | null {
+    const port = this.view?.ejectPort;
+    if (!port || this.incoming) return null;
+    this.scene.updateMatrixWorld();
+    worldCamera.updateMatrixWorld();
+    port.getWorldPosition(out);
+    // Side of the weapon, in the model's own space (its pose in view does not matter): forward runs
+    // from the grip to the muzzle, right is forward × up; a file modelled facing the other way still
+    // gets its true side. Without a muzzle: the port's X.
+    const obj = this.view!.object;
+    const local = obj.worldToLocal(_side.copy(out));
+    let side = local.x >= 0 ? 1 : -1;
+    const muzzle = this.view!.muzzle;
+    if (muzzle) {
+      const m = obj.worldToLocal(muzzle.getWorldPosition(_side2));
+      // Forward: grip to muzzle (horizontal); right = forward × up = (-fz, 0, fx).
+      const g = this.view!.gripAnchor.position;
+      const fx = m.x - g.x;
+      const fz = m.z - g.z;
+      side = (local.x - m.x) * -fz + (local.z - m.z) * fx >= 0 ? 1 : -1;
+    }
+    out.applyMatrix4(this.camera.matrixWorldInverse).applyMatrix4(worldCamera.matrixWorld);
+    return side;
   }
 
   /** The selected weapon's model: during a switch, the one about to be drawn (debug / tests). */
@@ -182,7 +242,7 @@ export class ViewModelLayer {
 
   private install(view: WeaponView, pose?: ViewmodelPose, category?: WeaponCategory): void {
     if (category) this.shownCategory = category;
-    this.flash.removeFromParent();
+    this.flash.object.removeFromParent();
     if (this.view) {
       this.pivot.remove(this.view.object);
       this.view.dispose();
@@ -198,8 +258,8 @@ export class ViewModelLayer {
     this.arms = new FirstPersonArms(view.gripAnchor, view.supportAnchor, view.magazine ?? view.reloadGrab ?? undefined, view.rightHand, view.armPose);
     this.arms.applyLook(this.armsLook);
     this.pivot.add(this.arms.object);
-    view.muzzle?.add(this.flash);
-    this.flashTime = 0;
+    view.muzzle?.add(this.flash.object);
+    this.flash.reset();
     this.kick = this.kickVel = 0;
     this.roll = this.rollVel = 0;
     if (view.magazine) this.magRest.copy(view.magazine.position);
@@ -224,7 +284,7 @@ export class ViewModelLayer {
     this.kick = this.kickVel = this.roll = this.rollVel = this.land = this.landVel = 0;
     this.lastReload = null;
     this.sinceReloadEnd = Infinity;
-    this.flashTime = 0;
+    this.flash.reset();
   }
 
   /** A switch is putting the old model away (tests / debug). */
@@ -262,9 +322,7 @@ export class ViewModelLayer {
     this.kickVel += k.kick;
     this.rollVel += (Math.random() < 0.5 ? -1 : 1) * k.roll * (0.6 + Math.random() * 0.4);
     if (this.view?.muzzle) {
-      this.flashTime = 0.05;
-      this.flash.rotation.z = Math.random() * Math.PI;
-      this.flash.scale.setScalar(k.flash + Math.random() * 0.6);
+      this.flash.fire(FLASH[category]);
       this.view.muzzle.getWorldPosition(this.flashLight.position);
       this.flashPeak = k.light;
     }
@@ -277,9 +335,19 @@ export class ViewModelLayer {
     const damping = 26;
     const steps = Math.ceil(dt / (1 / 240));
     const h = dt / steps;
-    // Landing after a jump or fall: a short dip of the weapon.
-    if (m.grounded && !this.wasGrounded) this.landVel -= 0.7;
+    const wt = WEAPON_WEIGHT[this.shownCategory];
+    // Landing after a jump or fall: a short dip of the weapon, deeper for a harder landing and a heavier weapon.
+    if (m.grounded && !this.wasGrounded) {
+      const impact = m.vy === undefined ? 5 : Math.max(-this.airVy, 0);
+      this.landVel -= 0.7 * Math.min(Math.max(impact / 5, 0.35), 1.6) * wt.land;
+    }
+    if (!m.grounded && m.vy !== undefined) this.airVy = m.vy;
     this.wasGrounded = m.grounded;
+    this.aimS += ((m.aim ?? 0) - this.aimS) * (1 - Math.exp(-12 * dt));
+    const steady = 1 - 0.65 * this.aimS;
+    // In the air the weapon floats against the motion: down a touch going up, up a touch falling.
+    const airTarget = m.grounded || m.vy === undefined ? 0 : THREE.MathUtils.clamp(-m.vy * 0.0016, -0.008, 0.009) * wt.air;
+    this.air += (airTarget - this.air) * (1 - Math.exp(-6 * dt));
     for (let i = 0; i < steps; i++) {
       this.kickVel += (-stiffness * this.kick - damping * this.kickVel) * h;
       this.kick += this.kickVel * h;
@@ -290,18 +358,22 @@ export class ViewModelLayer {
     }
 
     // Sway lags behind look input.
-    const swayTargetX = THREE.MathUtils.clamp(-m.lookYaw * 1.2, -0.03, 0.03);
-    const swayTargetY = THREE.MathUtils.clamp(m.lookPitch * 1.2, -0.03, 0.03);
-    const s = 1 - Math.exp(-10 * dt);
+    const swayK = 1.2 * wt.sway * steady;
+    const swayTargetX = THREE.MathUtils.clamp(-m.lookYaw * swayK, -0.03 * wt.sway, 0.03 * wt.sway);
+    const swayTargetY = THREE.MathUtils.clamp(m.lookPitch * swayK, -0.03 * wt.sway, 0.03 * wt.sway);
+    const s = 1 - Math.exp(-wt.follow * dt);
     this.swayX += (swayTargetX - this.swayX) * s;
     this.swayY += (swayTargetY - this.swayY) * s;
 
     // Walk bob.
     const moving = m.grounded ? Math.min(m.speed01, 1.2) : 0;
     this.bobAmount += (moving - this.bobAmount) * (1 - Math.exp(-8 * dt));
-    this.bobPhase += dt * (6 + 5 * m.speed01);
-    const bobX = Math.sin(this.bobPhase) * 0.008 * this.bobAmount;
-    const bobY = -Math.abs(Math.cos(this.bobPhase)) * 0.008 * this.bobAmount;
+    // In step with the eye when the camera's stride is given (the weapon dips as each foot lands).
+    if (m.stepPhase !== undefined) this.bobPhase = m.stepPhase + Math.PI / 2;
+    else this.bobPhase += dt * (6 + 5 * m.speed01);
+    const bobK = 0.008 * wt.bob * steady * this.bobAmount;
+    const bobX = Math.sin(this.bobPhase) * bobK;
+    const bobY = -Math.abs(Math.cos(this.bobPhase)) * bobK;
     // Breathing while standing still: a slow, barely visible rise and fall.
     this.breathPhase += dt * 1.7;
     const still = Math.max(0, 1 - this.bobAmount * 2);
@@ -311,7 +383,7 @@ export class ViewModelLayer {
     // Moving: the weapon rolls a touch with each step; a landing dips it.
     off.rz += Math.sin(this.bobPhase) * 0.012 * this.bobAmount;
     // (A landing peaks at ~7 mm down and ~0.6° muzzle down, back up within half a second.)
-    off.y += this.land * 0.3 + Math.sin(this.breathPhase) * 0.0012 * still;
+    off.y += this.land * 0.3 + Math.sin(this.breathPhase) * 0.0012 * still + this.air;
     off.rx += this.land * 0.4 + Math.sin(this.breathPhase) * 0.002 * still;
 
     // Switching: the model in hand goes down first; the new one is drawn once it is out of view.
@@ -424,14 +496,8 @@ export class ViewModelLayer {
     );
     this.pivot.scale.setScalar(this.restScale);
 
-    if (this.flashTime > 0) {
-      this.flashTime -= dt;
-      this.flash.visible = true;
-      this.flashLight.intensity = this.flashPeak * Math.max(this.flashTime / 0.05, 0);
-    } else {
-      this.flash.visible = false;
-      this.flashLight.intensity = 0;
-    }
+    this.flash.update(dt);
+    this.flashLight.intensity = this.flashPeak * this.flash.brightness;
   }
 
   render(renderer: THREE.WebGLRenderer): void {
@@ -452,6 +518,8 @@ function easeIn(t: number): number {
 
 /** Scratch animation state handed to the model (sinceShot / equip remapped); no per-frame garbage. */
 const DOWN = new THREE.Vector3(0, -1, 0);
+const _side = new THREE.Vector3();
+const _side2 = new THREE.Vector3();
 const _anim: WeaponAnimState = { category: 'rifle', equip: 1, reload: null, sinceShot: Infinity, fireInterval: 1, inspect: null };
 
 /**
@@ -537,25 +605,3 @@ function reloadOffset(category: WeaponCategory, t: number): void {
   }
 }
 
-function makeFlashTexture(): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = c.height = 64;
-  const g = c.getContext('2d')!;
-  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 30);
-  grad.addColorStop(0, 'rgba(255,250,235,1)');
-  grad.addColorStop(0.25, 'rgba(255,200,120,0.8)');
-  grad.addColorStop(1, 'rgba(255,150,60,0)');
-  g.fillStyle = grad;
-  g.beginPath();
-  // Four-point star shape.
-  for (let i = 0; i < 8; i++) {
-    const r = i % 2 === 0 ? 31 : 9;
-    const a = (i / 8) * Math.PI * 2;
-    g.lineTo(32 + Math.cos(a) * r, 32 + Math.sin(a) * r);
-  }
-  g.closePath();
-  g.fill();
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}

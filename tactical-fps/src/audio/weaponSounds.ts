@@ -34,7 +34,11 @@ export type SoundId =
   | 'c4.beep'
   | 'c4.press'
   | 'c4.explode'
-  | 'c4.defused';
+  | 'c4.defused'
+  | 'case.brass'
+  | 'case.shell'
+  | 'step'
+  | 'land';
 
 /** Number of pre-rendered variants per sound. */
 export const VARIANTS: Record<SoundId, number> = {
@@ -67,6 +71,10 @@ export const VARIANTS: Record<SoundId, number> = {
   'c4.press': 2,
   'c4.explode': 2,
   'c4.defused': 1,
+  'case.brass': 4,
+  'case.shell': 2,
+  'step': 4,
+  'land': 2,
 };
 
 interface GunshotRecipe {
@@ -593,7 +601,72 @@ export function renderSound(id: SoundId, variant: number, opts: { srFireInterval
       return c4Explode(seed);
     case 'c4.defused':
       return c4Defused();
+    case 'case.brass':
+      return caseBrass(seed);
+    case 'case.shell':
+      return caseShell(seed);
+    case 'step':
+      return footstep(seed);
+    case 'land':
+      return landing(seed);
   }
+}
+
+/** A spent brass case on a hard floor: a bright tink, a second smaller bounce, a short roll. */
+function caseBrass(seed: number): Float32Array {
+  const rand = rng(seed);
+  const out = buffer(0.35);
+  const f = 5200 + rand() * 1600;
+  mix(out, ring(0.2, [[f, 0.3, 0.035], [f * 1.48, 0.16, 0.025], [f * 2.3, 0.08, 0.015]]), 1, 0);
+  const t2 = 0.07 + rand() * 0.05;
+  mix(out, ring(0.15, [[f * 1.03, 0.16, 0.025], [f * 1.5, 0.08, 0.018]]), 1, t2);
+  for (let k = 0; k < 3; k++) mix(out, click(rand, f * (0.8 + rand() * 0.4), 0.002, 0.08, 0.02), 1, t2 + 0.05 + k * 0.03 + rand() * 0.02);
+  biquad(out, 'highpass', 1800);
+  return finish(out, 0.5, 1);
+}
+
+/** A plastic shotgun hull: a hollow, dull tap. */
+function caseShell(seed: number): Float32Array {
+  const rand = rng(seed);
+  const out = buffer(0.25);
+  const tap = biquad(noise(0.05, rand), 'bandpass', 1300 + rand() * 300, 2);
+  shape(tap, expEnv(0.0003, 0.008));
+  mix(out, tap, 1, 0);
+  mix(out, ring(0.12, [[900 + rand() * 120, 0.2, 0.02]]), 1, 0);
+  const tap2 = biquad(noise(0.04, rand), 'bandpass', 1500, 2);
+  shape(tap2, expEnv(0.0003, 0.006));
+  mix(out, tap2, 0.45, 0.09 + rand() * 0.04);
+  return finish(out, 0.45, 1);
+}
+
+/** A boot on hard ground: a soft heel thud and the scuff of the sole. */
+function footstep(seed: number): Float32Array {
+  const rand = rng(seed);
+  const out = buffer(0.22);
+  const heel = biquad(noise(0.06, rand), 'lowpass', 520 + rand() * 120);
+  shape(heel, expEnv(0.002, 0.016));
+  mix(out, heel, 1.1, 0);
+  const scuff = biquad(noise(0.12, rand), 'bandpass', 2200 + rand() * 900, 0.9);
+  shape(scuff, (t) => Math.sin(Math.PI * Math.min(t / 0.09, 1)) * 0.35);
+  mix(out, scuff, 0.5, 0.025);
+  biquad(out, 'highpass', 70);
+  return finish(out, 0.4, 1);
+}
+
+/** Landing from a jump or a fall: both boots at once, a heavier thud with gear rattling. */
+function landing(seed: number): Float32Array {
+  const rand = rng(seed);
+  const out = buffer(0.35);
+  const thud = biquad(noise(0.09, rand), 'lowpass', 380);
+  shape(thud, expEnv(0.002, 0.03));
+  mix(out, thud, 1.4, 0);
+  mix(out, glideSine(0.12, 95, 60, 0.08), 0.35, 0);
+  const scuff = biquad(noise(0.14, rand), 'bandpass', 1900, 0.8);
+  shape(scuff, expEnv(0.004, 0.035));
+  mix(out, scuff, 0.4, 0.012);
+  mix(out, rustle(rand, 0.18, 0.25), 1, 0.03);
+  biquad(out, 'highpass', 50);
+  return finish(out, 0.55, 1.1);
 }
 
 function hash(s: string): number {

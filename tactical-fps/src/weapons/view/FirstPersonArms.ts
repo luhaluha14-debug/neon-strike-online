@@ -146,8 +146,11 @@ export class FirstPersonArms {
     // Back of the hand on the right side of the grip, palm heel behind it.
     this.box(h, 0.024, 0.078, 0.07 + dz, this.glove, R(0.03), 0.004, 0.016, 0, 0, -0.08);
     this.box(h, 0.042 + dx * 2, 0.06, 0.024, this.glove, 0.006, -0.008, B(0.034));
-    // Knuckle protection and a wrist strap.
-    this.box(h, 0.008, 0.064, 0.026, this.pad, R(0.044), 0.008, F(-0.006));
+    // Knuckle protection (moulded in three segments, one per finger pair, so it reads as a glove
+    // armour plate rather than a slab) and a wrist strap.
+    for (const [y, hgt] of [[0.029, 0.019], [0.008, 0.019], [-0.013, 0.019]] as const) {
+      this.box(h, 0.008, hgt, 0.026, this.pad, R(0.044), y, F(-0.006));
+    }
     this.box(h, 0.05 + dx * 2, 0.014, 0.034, this.pad, 0.018, W(-0.046), B(0.056), 0.3, 0, 0);
 
     // Middle, ring and little finger wrap around the front of the grip.
@@ -210,8 +213,9 @@ export class FirstPersonArms {
     h.add(thumbTip);
     this.leftThumbTip = thumbTip;
     this.capsule(thumbTip, 0.0084, this.glove, [0, 0, 0], [0.007, 0.0115, -0.028]);
-    // Glove cuff.
+    // Glove cuff, closed by a strap.
     this.capsule(h, 0.029, this.cuff, [-0.006, -0.03, 0.045], [-0.01, -0.044, 0.07]);
+    this.capsule(h, 0.0302, this.pad, [-0.0072, -0.034, 0.052], [-0.0082, -0.0375, 0.058]);
   }
 
   /** Debug names like "R.seg7" so clipping reports can point at a finger part. */

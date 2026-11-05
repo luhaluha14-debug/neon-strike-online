@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { WeaponView } from '../weapons/view/WeaponView';
+import { addWeaponGrain } from '../weapons/view/WeaponSurface';
 import { lookOf, WEAPON_MATERIAL_ROLES, type ArmsLook, type Finish, type OutfitLook } from './SkinLooks';
 
 /**
@@ -54,6 +55,11 @@ export class SkinRenderer {
       if (f.metalness !== undefined && 'metalness' in copy) copy.metalness = f.metalness;
       if (f.roughness !== undefined && 'roughness' in copy) copy.roughness = f.roughness;
       copy.name = `${original.name}@${assetId}`;
+      // A copy does not carry the original's shader patch: give it the same surface grain.
+      if (original.userData.grain) {
+        copy.userData.grain = undefined;
+        addWeaponGrain(copy);
+      }
       this.cache.set(key, copy);
       m = copy;
     }

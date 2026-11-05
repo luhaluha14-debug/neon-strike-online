@@ -3,6 +3,8 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { MapDefinition } from '../maps';
 import { CollisionWorld } from './CollisionWorld';
+import { classifySurface, SURFACE_KINDS } from './SurfaceMaterials';
+import { dressMap } from './dressing/MapDressing';
 
 export interface SpawnPoint {
   position: THREE.Vector3;
@@ -30,7 +32,21 @@ export interface LoadedMap {
   defenseSpawns: SpawnPoint[];
   /** Bomb sites (MapDefinition.bombSitePattern), sorted by letter. */
   bombSites: BombSite[];
-  stats: { sourceMeshes: number; drawCalls: number; triangles: number; colliderTriangles: number };
+  stats: {
+    sourceMeshes: number;
+    drawCalls: number;
+    triangles: number;
+    colliderTriangles: number;
+    /** Map dressing (MapDressing): parts placed, ground props that collide, build time (ms). */
+    dressing: { parts: number; floorProps: number; ms: number } | null;
+  };
+  /** Ground props of the dressing that collide (checks: never on spawns / sites / paths). */
+  dressingProps: THREE.Box3[];
+}
+
+export interface LoadMapOptions {
+  /** 'none' leaves the map as in its file; 'low' the dressing without its visual-only layer. Default 'full'. */
+  dressing?: 'full' | 'low' | 'none';
 }
 
 const startsWithAny = (name: string, prefixes: readonly string[]) => prefixes.some((p) => name.startsWith(p));
@@ -59,6 +75,7 @@ export async function loadMap(
   def: MapDefinition,
   onProgress?: (ratio: number) => void,
   onBuild?: () => void,
+  options: LoadMapOptions = {},
 ): Promise<LoadedMap> {
   const gltf = await new GLTFLoader().loadAsync(def.url, (e) => {
     if (onProgress && e.total > 0) onProgress(e.loaded / e.total);
@@ -68,6 +85,12 @@ export async function loadMap(
     await yieldToPaint();
   }
   const scene = gltf.scene;
+  scene.updateMatrixWorld(true);
+  // Detail built from the map's own layout (the file is left as it is); joins the same pipeline below.
+  const t0 = performance.now();
+  const dressing = options.dressing === 'none' ? null : dressMap(def.id, scene, options.dressing === 'low');
+  if (dressing) for (const m of dressing.meshes) scene.add(m);
+  const dressingMs = performance.now() - t0;
   scene.updateMatrixWorld(true);
 
   const attackSpawns: SpawnPoint[] = [];
@@ -120,7 +143,7 @@ export async function loadMap(
     // GLTFLoader emits one single-material mesh per glTF primitive.
     addToBatch(renderBatches, mesh.material as THREE.Material, worldGeom.clone());
 
-    if (!startsWithAny(name, def.nonCollidingPrefixes)) colliderGeometries.push(positionsOnly(worldGeom));
+    if (!startsWithAny(name, def.nonCollidingPrefixes) && !name.startsWith('DressDeco_')) colliderGeometries.push(withSurface(positionsOnly(worldGeom), mesh.material as THREE.Material));
     worldGeom.dispose();
   });
 
@@ -173,7 +196,14 @@ export async function loadMap(
     attackSpawns,
     defenseSpawns,
     bombSites,
-    stats: { sourceMeshes, drawCalls: root.children.length - 1, triangles, colliderTriangles: collision.triangleCount },
+    stats: {
+      sourceMeshes,
+      drawCalls: root.children.length - 1,
+      triangles,
+      colliderTriangles: collision.triangleCount,
+      dressing: dressing ? { parts: dressing.parts, floorProps: dressing.floorProps.length, ms: dressingMs } : null,
+    },
+    dressingProps: dressing?.floorProps ?? [],
   };
 }
 
@@ -205,6 +235,17 @@ function positionsOnly(g: THREE.BufferGeometry): THREE.BufferGeometry {
   out.setAttribute('position', g.getAttribute('position'));
   if (g.index) out.setIndex(g.index);
   return out.index ? out.toNonIndexed() : out;
+}
+
+/**
+ * Tags every vertex of a collision piece with its surface kind (index into SURFACE_KINDS, from the
+ * material name), so a bullet impact can tell concrete from metal (CollisionWorld.surfaceAt).
+ */
+function withSurface(g: THREE.BufferGeometry, material: THREE.Material): THREE.BufferGeometry {
+  const code = Math.max(0, SURFACE_KINDS.indexOf(classifySurface(material?.name ?? '')));
+  const n = g.getAttribute('position').count;
+  g.setAttribute('surface', new THREE.BufferAttribute(new Uint8Array(n).fill(code), 1));
+  return g;
 }
 
 function addToBatch(

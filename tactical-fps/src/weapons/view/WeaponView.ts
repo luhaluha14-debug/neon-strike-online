@@ -47,6 +47,8 @@ export interface WeaponView {
   readonly reloadGrab?: THREE.Object3D;
   /** Direction the magazine drops out along (in its parent's space; default straight down). */
   readonly magazineDrop?: THREE.Vector3;
+  /** Where spent cases leave the weapon (optional; none = no cases, e.g. melee). */
+  readonly ejectPort?: THREE.Object3D;
   /** Firing-hand pose (+Y along the grip, +Z toward the shooter). */
   readonly gripAnchor: THREE.Object3D;
   readonly rightHand: HandGripProfile;

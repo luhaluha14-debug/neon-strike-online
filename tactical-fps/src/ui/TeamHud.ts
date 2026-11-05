@@ -48,6 +48,8 @@ export class TeamHud {
   private bombKey = '';
   private bannerKey = '';
   private feedKey = -1;
+  /** Time of the newest kill already shown (later ones slide in). */
+  private feedNewest = -Infinity;
   private boardKey = '';
 
   constructor(parent: HTMLElement, onRestart: () => void, onMenu: () => void, onLobby: () => void = onMenu) {
@@ -138,7 +140,16 @@ export class TeamHud {
     const feedKey = recent.length * 100000 + (recent.at(-1)?.at ?? 0);
     if (feedKey !== this.feedKey) {
       this.feedKey = feedKey;
-      this.feed.replaceChildren(...recent.map((k) => this.feedItem(m, k)));
+      // Only entries that weren't shown before slide in (the list is rebuilt, the old ones stay put).
+      const shownUpTo = this.feedNewest;
+      this.feedNewest = recent.at(-1)?.at ?? this.feedNewest;
+      this.feed.replaceChildren(
+        ...recent.map((k) => {
+          const li = this.feedItem(m, k);
+          if (k.at > shownUpTo) li.classList.add('kf-new');
+          return li;
+        }),
+      );
     }
     this.board.hidden = !showBoard || m.over;
     if (!this.board.hidden) {
@@ -264,7 +275,7 @@ export class TeamHud {
     li.innerHTML =
       k.killer === k.victim || !killer
         ? `${name(victim, k.victim, victimMe, k.vg, k.vn)} <span class="kf-w">사망</span>`
-        : `${name(killer, k.killer, killerMe, k.kg, k.kn)} <span class="kf-w">${WEAPON_SHORT[k.weaponId] ?? k.weaponId}${k.head ? ' · HS' : ''}</span> ${name(victim, k.victim, victimMe, k.vg, k.vn)}`;
+        : `${name(killer, k.killer, killerMe, k.kg, k.kn)} <span class="kf-w">${WEAPON_SHORT[k.weaponId] ?? k.weaponId}${k.head ? '<span class="kf-hs"> · HS</span>' : ''}</span> ${name(victim, k.victim, victimMe, k.vg, k.vn)}`;
     return li;
   }
 }

@@ -26,10 +26,14 @@ after(async () => {
 });
 
 const results = {};
+/** The same on the maps as shipped (with MapDressing): movement-ground-dressed.json. */
+const dressedResults = {};
 
-for (const map of ['seoul', 'warehouse']) {
-  test(`${map}: ground movement (no jumps) is deterministic`, async () => {
-    const page = await openGame(env, { map });
+// movement-ground.json was recorded on the map files alone and keeps checking exactly that; the
+// dressed maps have their own recording.
+for (const [map, dressing] of [['seoul', 'none'], ['warehouse', 'none'], ['seoul', null], ['warehouse', null]]) {
+  test(`${map}${dressing ? ' (map file only)' : ' (dressed)'}: ground movement (no jumps) is deterministic`, async () => {
+    const page = await openGame(env, { map, dressing });
     const r = await page.evaluate(() => {
       const g = window.game;
       const p = g.player;
@@ -75,7 +79,7 @@ for (const map of ['seoul', 'warehouse']) {
       return { first, second };
     });
     assert.deepEqual(r.second, r.first, 'same inputs must give identical results');
-    results[map] = r.first;
+    (dressing ? results : dressedResults)[map] = r.first;
     assert.deepEqual(page.errors, []);
     await page.context().close();
   });
@@ -85,4 +89,10 @@ test('ground movement matches the recording made before the air-movement changes
   assert.ok(results.seoul && results.warehouse, 'map tests did not run');
   const expected = await golden('movement-ground', results);
   assert.deepEqual(asJson(results), expected);
+});
+
+test('dressed maps: ground movement matches its recording', async () => {
+  assert.ok(dressedResults.seoul && dressedResults.warehouse, 'map tests did not run');
+  const expected = await golden('movement-ground-dressed', dressedResults);
+  assert.deepEqual(asJson(dressedResults), expected);
 });

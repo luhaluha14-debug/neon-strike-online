@@ -102,6 +102,8 @@ export interface GltfFit {
   magwell?: Vec3;
   /** Direction (model space) the magazine drops out along, e.g. down a raked grip (default straight down). */
   magazineDrop?: Vec3;
+  /** Ejection port (model space) where spent cases leave, when the file has no `Ejection_Port` / `Dust_Cover` node. */
+  ejectPort?: Vec3;
   /** File nodes gathered into the bolt (cycled after each shot), pivoting on the bore axis at `pivot`. */
   bolt?: { nodes: readonly string[]; pivot: Vec3 };
   /** Glove shape around the grip (defaults to a rifle pistol grip). */

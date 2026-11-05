@@ -4,6 +4,7 @@ import type { GltfFit } from '../WeaponDefinition';
 import { PISTOL_GRIP, type ArmPose, type HandGripProfile } from './HandGrip';
 import { animateBolt } from './SniperRifleView';
 import type { WeaponAnimState, WeaponView } from './WeaponView';
+import { prepareWeaponScene } from './WeaponSurface';
 
 /**
  * A first-person weapon loaded from a Blender GLB.
@@ -46,6 +47,7 @@ export class GltfWeaponView implements WeaponView {
   private readonly boltRest = new THREE.Vector3();
   private readonly supportRest = new THREE.Vector3();
   readonly magazineDrop?: THREE.Vector3;
+  readonly ejectPort?: THREE.Object3D;
   /** Moving parts found in the file, each with its rest position and the model's "back" (+Z) / "up" in its parent's space. */
   private readonly parts: Partial<Record<'slide' | 'trigger' | 'pump' | 'pumpBolt' | 'handle' | 'shell', MovingPart>> = {};
 
@@ -107,6 +109,27 @@ export class GltfWeaponView implements WeaponView {
     this.parts.pumpBolt = part('PumpBolt');
     this.parts.handle = part('ChargingHandle') ?? part('Charging_Handle');
     this.parts.shell = part('Shell');
+    // Ejection port: the file's own node, else the fit's point (model space).
+    const portNode = find('Ejection_Port') ?? find('Dust_Cover');
+    if (portNode) {
+      // A modelled part (its origin may sit anywhere, e.g. at the model origin): the port is the middle
+      // of its geometry, kept on the part so it follows it.
+      const box = new THREE.Box3().setFromObject(portNode);
+      if (box.isEmpty()) this.ejectPort = portNode;
+      else {
+        const anchor = new THREE.Object3D();
+        anchor.name = 'EjectPort';
+        portNode.add(anchor);
+        anchor.position.copy(portNode.worldToLocal(box.getCenter(new THREE.Vector3())));
+        this.ejectPort = anchor;
+      }
+    }
+    if (!this.ejectPort && fit?.ejectPort) {
+      this.ejectPort = new THREE.Object3D();
+      this.ejectPort.name = 'EjectPort';
+      this.ejectPort.position.set(fit.ejectPort[0], fit.ejectPort[1], fit.ejectPort[2]);
+      root.add(this.ejectPort);
+    }
     if (this.parts.shell) this.parts.shell.o.visible = false;
     this.bolt = find('Bolt') ?? undefined;
     if (fit?.bolt) this.bolt = gather(root, 'Bolt', fit.bolt.nodes, fit.bolt.pivot);
@@ -244,6 +267,8 @@ export function loadGltfScene(url: string): Promise<THREE.Object3D> {
   let scene = cache.get(url);
   if (!scene) {
     scene = new GLTFLoader().loadAsync(url).then((g) => {
+      // Weapon files (not the characters): cutter leftovers darkened, surface grain on the materials.
+      if (url.startsWith('/weapons/')) prepareWeaponScene(g.scene);
       loaded.set(url, g.scene);
       return g.scene;
     });

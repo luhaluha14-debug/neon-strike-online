@@ -68,6 +68,20 @@
   text-overflow: ellipsis;
   max-width: 100%;
 }
+/* A new kill slides in from the right; earlier entries stay where they are. */
+.killfeed li.kf-new {
+  animation: kf-in 0.18s ease-out;
+}
+@keyframes kf-in {
+  from {
+    transform: translateX(14px);
+    opacity: 0;
+  }
+}
+.kf-hs {
+  color: var(--hud-danger);
+  font-weight: 600;
+}
 .killfeed li.mine {
   border-left: 2px solid var(--hud-accent);
 }
