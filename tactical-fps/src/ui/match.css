@@ -257,6 +257,31 @@
 .ta.red b {
   color: var(--team-red);
 }
+.ta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ta-pips {
+  display: inline-flex;
+  gap: 3px;
+}
+.ta-pips i {
+  width: 7px;
+  height: 11px;
+  background: currentColor;
+  transform: skewX(-12deg);
+}
+.ta.blue .ta-pips i {
+  color: var(--team-blue);
+}
+.ta.red .ta-pips i {
+  color: var(--team-red);
+}
+.ta-pips i.down {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
+}
 .round-banner {
   position: absolute;
   top: 26%;

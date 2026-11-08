@@ -172,9 +172,25 @@ export class ViewModelLayer {
     this.scene.updateMatrixWorld();
     // The world camera as placed now (its matrix is otherwise only refreshed when a frame is drawn).
     worldCamera.updateMatrixWorld();
-    // View-model space is camera space of its own camera (at the origin); map it onto the world camera.
-    m.getWorldPosition(out).applyMatrix4(this.camera.matrixWorldInverse).applyMatrix4(worldCamera.matrixWorld);
-    return out;
+    m.getWorldPosition(out);
+    return this.toWorld(out, worldCamera);
+  }
+
+  /**
+   * A point of the view-model scene into the world, where the world camera shows it on the same pixel.
+   * View-model space is camera space of its own camera; the two cameras differ in field of view
+   * (62° vs the world's), so across the view the point is spread by the ratio of their tangents at
+   * its own depth: a case or a tracer then starts exactly at the port / muzzle drawn on screen.
+   */
+  private toWorld(out: THREE.Vector3, worldCamera: THREE.Camera): THREE.Vector3 {
+    out.applyMatrix4(this.camera.matrixWorldInverse);
+    const wc = worldCamera as THREE.PerspectiveCamera;
+    if (wc.isPerspectiveCamera) {
+      const k = Math.tan(THREE.MathUtils.degToRad(wc.fov / 2)) / Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
+      out.x *= k;
+      out.y *= k;
+    }
+    return out.applyMatrix4(worldCamera.matrixWorld);
   }
 
   /**
@@ -202,7 +218,7 @@ export class ViewModelLayer {
       const fz = m.z - g.z;
       side = (local.x - m.x) * -fz + (local.z - m.z) * fx >= 0 ? 1 : -1;
     }
-    out.applyMatrix4(this.camera.matrixWorldInverse).applyMatrix4(worldCamera.matrixWorld);
+    this.toWorld(out, worldCamera);
     return side;
   }
 

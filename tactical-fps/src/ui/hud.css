@@ -154,6 +154,31 @@ body {
   white-space: nowrap;
   pointer-events: none;
 }
+.kn-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--hud-fg);
+  opacity: 0.85;
+}
+.kn-count:empty {
+  display: none;
+}
+/* Empty magazine: a small prompt under the crosshair (below the kill notice's place). */
+.reload-prompt {
+  position: absolute;
+  left: 0;
+  top: 58px;
+  transform: translateX(-50%);
+  padding: 2px 8px;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+  color: var(--hud-danger);
+  background: rgba(0, 0, 0, 0.45);
+  visibility: hidden;
+}
+.hud.reload-needed .reload-prompt {
+  visibility: visible;
+}
 .kn-mark {
   width: 7px;
   height: 7px;

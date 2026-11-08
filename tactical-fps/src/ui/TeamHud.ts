@@ -38,6 +38,8 @@ export class TeamHud {
   private readonly time: HTMLElement;
   private readonly aliveBlue: HTMLElement;
   private readonly aliveRed: HTMLElement;
+  private readonly pipsBlue: HTMLElement;
+  private readonly pipsRed: HTMLElement;
   private readonly banner: HTMLElement;
   private readonly moneyBox: HTMLElement;
   private readonly money: HTMLElement;
@@ -63,8 +65,8 @@ export class TeamHud {
         <span class="tb-side red"><b class="tb-wins tb-wins-red">0</b><span class="tb-name">RED</span></span>
       </div>
       <div class="team-alive" aria-label="생존 인원">
-        <span class="ta blue">생존 <b class="ta-blue">5</b></span>
-        <span class="ta red">생존 <b class="ta-red">5</b></span>
+        <span class="ta blue">생존 <b class="ta-blue">5</b><span class="ta-pips ta-pips-blue" aria-hidden="true"></span></span>
+        <span class="ta red"><span class="ta-pips ta-pips-red" aria-hidden="true"></span>생존 <b class="ta-red">5</b></span>
         <span class="ta money" hidden>자금 <b class="ta-money">$0</b></span>
         <span class="ta side" hidden></span>
       </div>
@@ -98,6 +100,8 @@ export class TeamHud {
     this.time = q('.tb-time');
     this.aliveBlue = q('.ta-blue');
     this.aliveRed = q('.ta-red');
+    this.pipsBlue = q('.ta-pips-blue');
+    this.pipsRed = q('.ta-pips-red');
     this.banner = q('.round-banner');
     this.moneyBox = q('.ta.money');
     this.money = q('.ta-money');
@@ -111,6 +115,12 @@ export class TeamHud {
 
   setVisible(on: boolean): void {
     this.root.hidden = !on;
+  }
+
+  private pips(el: HTMLElement, alive: number, size: number): void {
+    const n = Math.max(size, alive);
+    if (el.childElementCount !== n) el.replaceChildren(...Array.from({ length: n }, () => document.createElement('i')));
+    for (let i = 0; i < n; i++) el.children[i].classList.toggle('down', i >= alive);
   }
 
   get resultsShown(): boolean {
@@ -132,6 +142,9 @@ export class TeamHud {
       this.time.classList.toggle('low', m.phase === 'live' && t <= 15);
       this.aliveBlue.textContent = String(alive.blue);
       this.aliveRed.textContent = String(alive.red);
+      // One pip per seat: lit while alive, hollow once down (who is left reads at a glance).
+      this.pips(this.pipsBlue, alive.blue, m.config.teamSize);
+      this.pips(this.pipsRed, alive.red, m.config.teamSize);
       this.moneyBox.hidden = money === null;
       if (money !== null) this.money.textContent = formatMoney(money);
     }
