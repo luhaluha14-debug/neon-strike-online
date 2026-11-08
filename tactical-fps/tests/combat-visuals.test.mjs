@@ -329,3 +329,29 @@ test('cases and impact effects never go over the network', () => {
     assert.ok(!/ShellCasings|ImpactEffects|MuzzleFlash|casings/.test(src), `${f} does not touch cosmetic effects`);
   }
 });
+
+test('cases and tracers start on the exact pixel of the port / muzzle drawn on screen (view-model and world FOV differ)', async () => {
+  const r = await page.evaluate(async () => {
+    const g = window.game;
+    const V = g.camera.position.constructor;
+    const out = {};
+    for (const id of ['ar01', 'smg01', 'pis01', 'sg01', 'sr01']) {
+      await window.T.equip(id);
+      const vm = g.viewModel;
+      vm.scene.updateMatrixWorld();
+      const port = vm.inHand.ejectPort.getWorldPosition(new V()).project(vm.camera);
+      const muzzle = vm.inHand.muzzle.getWorldPosition(new V()).project(vm.camera);
+      const c = new V();
+      const t = new V();
+      vm.ejectInWorld(g.camera, c);
+      vm.muzzleInWorld(g.camera, t);
+      g.camera.updateMatrixWorld();
+      c.project(g.camera);
+      t.project(g.camera);
+      out[id] = Math.max(Math.abs(c.x - port.x), Math.abs(c.y - port.y), Math.abs(t.x - muzzle.x), Math.abs(t.y - muzzle.y));
+    }
+    return { out, fovs: [g.camera.fov, g.viewModel.camera.fov] };
+  });
+  assert.notEqual(r.fovs[0], r.fovs[1], 'the two cameras really differ in field of view');
+  for (const [id, err] of Object.entries(r.out)) assert.ok(err < 0.002, `${id}: off by ${err} (NDC)`);
+});

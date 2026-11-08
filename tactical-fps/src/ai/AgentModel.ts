@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { loadGltfScene, loadedGltfScene } from '../weapons/view/GltfWeaponView';
 import { PLAYER_CONFIG } from '../config';
-import { buildBotRifle, RIFLE_MUZZLE_Z, type BotBody, type BotKit, type BotPose } from './BotModel';
+import { buildBotRifle, liftCharacterMaterial, RIFLE_MUZZLE_Z, type BotBody, type BotKit, type BotPose } from './BotModel';
 
 // Blender character models for the bots ("봇 외형: 요원 모델"):
 // BLUE wears the operator, RED (and free-for-all bots) the opposing force.
@@ -81,6 +81,10 @@ export class AgentModel implements BotBody {
       // The map's shadow map is baked once (static); bodies only receive it.
       m.castShadow = false;
       m.receiveShadow = true;
+      // Same small light floor as the built-in bodies (never pitch black in a dark doorway).
+      for (const mat of Array.isArray(m.material) ? m.material : [m.material]) {
+        if ((mat as THREE.MeshStandardMaterial).isMeshStandardMaterial) liftCharacterMaterial(mat as THREE.MeshStandardMaterial);
+      }
     });
   }
 

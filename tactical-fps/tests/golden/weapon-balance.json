@@ -1,0 +1,236 @@
+{
+  "ar01": {
+    "damage": {
+      "base": 24,
+      "headMultiplier": 4.25,
+      "limbMultiplier": 0.8,
+      "falloffStart": 30,
+      "falloffEnd": 80,
+      "falloffMinMultiplier": 0.8,
+      "maxRange": 250
+    },
+    "fireRate": 600,
+    "fireMode": "auto",
+    "magazineSize": 30,
+    "reserveAmmo": 90,
+    "reloadTime": 2.2,
+    "equipTime": 0.6,
+    "pellets": 1,
+    "spread": {
+      "standing": 0,
+      "moving": 0.027925268031909273,
+      "airborne": 0.10471975511965977,
+      "crouchMultiplier": 0.7
+    },
+    "recoil": {
+      "pitchPerShot": 0.007853981633974483,
+      "pitchGrowthPerShot": 0.0006981317007977319,
+      "growthShots": 8,
+      "maxPitch": 0.10471975511965977,
+      "yawJitter": 0.0015707963267948967,
+      "yawDrift": 0.005235987755982988,
+      "yawDriftAfterShots": 9,
+      "yawDriftSign": -1,
+      "yawSwayShots": 9,
+      "kickResponse": 28,
+      "recoveryDelay": 0.14,
+      "recoverySpeed": 0.3839724354387525,
+      "yawRecovery": true,
+      "sprayResetTime": 0.35
+    }
+  },
+  "sr01": {
+    "damage": {
+      "base": 115,
+      "headMultiplier": 4,
+      "limbMultiplier": 0.85,
+      "falloffStart": 120,
+      "falloffEnd": 250,
+      "falloffMinMultiplier": 0.9,
+      "maxRange": 400
+    },
+    "fireRate": 41,
+    "fireMode": "semi",
+    "magazineSize": 5,
+    "reserveAmmo": 30,
+    "reloadTime": 3.6,
+    "equipTime": 1,
+    "pellets": 1,
+    "spread": {
+      "standing": 0,
+      "moving": 0.10471975511965977,
+      "airborne": 0.20943951023931953,
+      "crouchMultiplier": 0.8
+    },
+    "recoil": {
+      "pitchPerShot": 0.041887902047863905,
+      "pitchGrowthPerShot": 0,
+      "growthShots": 0,
+      "maxPitch": 0.06981317007977318,
+      "yawJitter": 0.008726646259971648,
+      "yawDrift": 0,
+      "yawDriftAfterShots": 99,
+      "kickResponse": 34,
+      "recoveryDelay": 0.25,
+      "recoverySpeed": 0.15707963267948966,
+      "yawRecovery": true,
+      "sprayResetTime": 1.2
+    }
+  },
+  "karambit": {
+    "damage": {
+      "base": 40,
+      "headMultiplier": 1.5,
+      "limbMultiplier": 1,
+      "falloffStart": 2,
+      "falloffEnd": 3,
+      "falloffMinMultiplier": 1,
+      "maxRange": 1.9
+    },
+    "fireRate": 120,
+    "fireMode": "auto",
+    "magazineSize": 0,
+    "reserveAmmo": 0,
+    "reloadTime": 0,
+    "equipTime": 0.35,
+    "pellets": 1,
+    "spread": {
+      "standing": 0,
+      "moving": 0,
+      "airborne": 0,
+      "crouchMultiplier": 1
+    },
+    "recoil": {
+      "pitchPerShot": 0,
+      "pitchGrowthPerShot": 0,
+      "growthShots": 0,
+      "maxPitch": 0,
+      "yawJitter": 0,
+      "yawDrift": 0,
+      "yawDriftAfterShots": 99,
+      "kickResponse": 30,
+      "recoveryDelay": 0.1,
+      "recoverySpeed": 1,
+      "sprayResetTime": 0.5
+    }
+  },
+  "smg01": {
+    "damage": {
+      "base": 19,
+      "headMultiplier": 3.5,
+      "limbMultiplier": 0.8,
+      "falloffStart": 12,
+      "falloffEnd": 40,
+      "falloffMinMultiplier": 0.65,
+      "maxRange": 150
+    },
+    "fireRate": 800,
+    "fireMode": "auto",
+    "magazineSize": 30,
+    "reserveAmmo": 120,
+    "reloadTime": 2.1,
+    "equipTime": 0.5,
+    "pellets": 1,
+    "spread": {
+      "standing": 0,
+      "moving": 0.015707963267948967,
+      "airborne": 0.06981317007977318,
+      "crouchMultiplier": 0.75
+    },
+    "recoil": {
+      "pitchPerShot": 0.005235987755982988,
+      "pitchGrowthPerShot": 0.0004363323129985824,
+      "growthShots": 8,
+      "maxPitch": 0.07853981633974483,
+      "yawJitter": 0.0013962634015954637,
+      "yawDrift": 0.0038397243543875246,
+      "yawDriftAfterShots": 10,
+      "yawDriftSign": 1,
+      "yawSwayShots": 7,
+      "kickResponse": 30,
+      "recoveryDelay": 0.12,
+      "recoverySpeed": 0.41887902047863906,
+      "yawRecovery": true,
+      "sprayResetTime": 0.3
+    }
+  },
+  "sg01": {
+    "damage": {
+      "base": 15,
+      "headMultiplier": 2,
+      "limbMultiplier": 0.75,
+      "falloffStart": 6,
+      "falloffEnd": 22,
+      "falloffMinMultiplier": 0.3,
+      "maxRange": 60
+    },
+    "fireRate": 68,
+    "fireMode": "semi",
+    "magazineSize": 8,
+    "reserveAmmo": 32,
+    "reloadTime": 3.2,
+    "equipTime": 0.7,
+    "pellets": {
+      "count": 8,
+      "spread": 0.05585053606381855
+    },
+    "spread": {
+      "standing": 0,
+      "moving": 0.02617993877991494,
+      "airborne": 0.08726646259971647,
+      "crouchMultiplier": 0.85
+    },
+    "recoil": {
+      "pitchPerShot": 0.048869219055841226,
+      "pitchGrowthPerShot": 0,
+      "growthShots": 0,
+      "maxPitch": 0.08726646259971647,
+      "yawJitter": 0.010471975511965976,
+      "yawDrift": 0,
+      "yawDriftAfterShots": 99,
+      "kickResponse": 32,
+      "recoveryDelay": 0.2,
+      "recoverySpeed": 0.20943951023931953,
+      "yawRecovery": true,
+      "sprayResetTime": 1
+    }
+  },
+  "pis01": {
+    "damage": {
+      "base": 26,
+      "headMultiplier": 3.9,
+      "limbMultiplier": 0.8,
+      "falloffStart": 15,
+      "falloffEnd": 45,
+      "falloffMinMultiplier": 0.7,
+      "maxRange": 120
+    },
+    "fireRate": 360,
+    "fireMode": "semi",
+    "magazineSize": 12,
+    "reserveAmmo": 36,
+    "reloadTime": 1.8,
+    "equipTime": 0.35,
+    "pellets": 1,
+    "spread": {
+      "standing": 0,
+      "moving": 0.020943951023931952,
+      "airborne": 0.08726646259971647,
+      "crouchMultiplier": 0.8
+    },
+    "recoil": {
+      "pitchPerShot": 0.017453292519943295,
+      "pitchGrowthPerShot": 0.0017453292519943296,
+      "growthShots": 5,
+      "maxPitch": 0.08726646259971647,
+      "yawJitter": 0.003490658503988659,
+      "yawDrift": 0,
+      "yawDriftAfterShots": 99,
+      "kickResponse": 34,
+      "recoveryDelay": 0.12,
+      "recoverySpeed": 0.3141592653589793,
+      "yawRecovery": true,
+      "sprayResetTime": 0.45
+    }
+  }
+}

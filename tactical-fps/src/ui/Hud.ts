@@ -8,6 +8,9 @@ import './hud.css';
  * HUD costs nothing per frame. The start/pause menu and loading screen live
  * in MainMenu; the methods below keep the game's existing calls working.
  */
+/** Kills closer together than this count as one streak on the kill notice (ms). */
+const KILL_STREAK_MS = 4000;
+
 export class Hud {
   readonly root: HTMLDivElement;
   readonly menu: MainMenu;
@@ -38,6 +41,8 @@ export class Hud {
   private lastDeathTenths = -1;
   private lastHealth = -1;
   private lastAmmoKey = '';
+  private killStreak = 0;
+  private lastKillAt = -Infinity;
   private lastReload = -1;
 
   constructor(parent: HTMLElement) {
@@ -49,7 +54,8 @@ export class Hud {
         <span class="ch-line ch-top"></span><span class="ch-line ch-bottom"></span>
         <span class="ch-line ch-left"></span><span class="ch-line ch-right"></span>
         <div class="hitmarker"><span class="hm hm-tl"></span><span class="hm hm-tr"></span><span class="hm hm-bl"></span><span class="hm hm-br"></span><span class="hm-ring"></span></div>
-        <div class="kill-notice" aria-hidden="true"><span class="kn-mark"></span><span class="kn-text">처치</span></div>
+        <div class="kill-notice" aria-hidden="true"><span class="kn-mark"></span><span class="kn-text">처치</span><span class="kn-count"></span></div>
+        <div class="reload-prompt" aria-hidden="true">R 재장전</div>
       </div>
       <div class="scope" aria-hidden="true"><span class="scope-h"></span><span class="scope-v"></span></div>
       <div class="smoke-veil" aria-hidden="true"></div>
@@ -228,8 +234,13 @@ export class Hud {
   }
 
   /** A kill the match confirmed (with the kill confirm sound): a short "처치" under the crosshair. */
-  showKillNotice(): void {
+  showKillNotice(now = performance.now()): void {
     const n = this.root.querySelector<HTMLElement>('.kill-notice')!;
+    // Kills in quick succession (each within 4 s of the last) count up on the one notice: "처치 ×2".
+    // It is restarted, never stacked, so a burst of kills cannot pile notices on the crosshair.
+    this.killStreak = now - this.lastKillAt <= KILL_STREAK_MS ? this.killStreak + 1 : 1;
+    this.lastKillAt = now;
+    n.querySelector('.kn-count')!.textContent = this.killStreak > 1 ? `×${this.killStreak}` : '';
     this.killNoticeAnim?.cancel();
     this.killNoticeAnim = n.animate(
       [
@@ -349,7 +360,7 @@ export class Hud {
       if (magazine === null) {
         this.ammoMag.textContent = '—';
         this.ammoReserve.textContent = '';
-        this.root.classList.remove('ammo-low', 'ammo-empty', 'reloading');
+        this.root.classList.remove('ammo-low', 'ammo-empty', 'reloading', 'reload-needed');
         this.weaponStatus.textContent = '';
         return;
       }
@@ -361,6 +372,8 @@ export class Hud {
       this.root.classList.toggle('ammo-low', low && !reloading);
       this.root.classList.toggle('ammo-empty', empty && !reloading);
       this.root.classList.toggle('reloading', reloading);
+      // Magazine empty with rounds in reserve: a small prompt under the crosshair, where the eyes are.
+      this.root.classList.toggle('reload-needed', empty && !reloading && reserve > 0);
       this.weaponStatus.textContent = reloading
         ? '재장전 중'
         : empty

@@ -60,6 +60,8 @@ import { Lobby } from '../ui/Lobby';
 import { LobbyBackdrop } from './LobbyBackdrop';
 import { KillConfirm } from '../game/KillConfirm';
 import { CameraMotion } from '../player/CameraMotion';
+import { FrameStats, isSoftwareRenderer, webglRenderer } from './FrameStats';
+import { AllyMarkers } from '../fx/AllyMarkers';
 import { HitFeedback } from '../game/HitFeedback';
 import { LoadoutService } from '../economy/LoadoutService';
 import { findSkin, PLAYER_TARGET } from '../economy/SkinCatalog';
@@ -89,6 +91,9 @@ const EJECT: Record<Exclude<WeaponCategory, 'melee'>, { side: number; up: number
 /** Peak of the world muzzle light per weapon (high quality). */
 const MUZZLE_LIGHT: Record<Exclude<WeaponCategory, 'melee'>, number> = { rifle: 6, smg: 4.5, pistol: 3.5, shotgun: 9, sniper: 9 };
 const DOWN = new THREE.Vector3(0, -1, 0);
+/** Ally chevron colour per team (the team colours of the HUD, a touch lighter to read on dark walls). */
+const TEAM_MARKER_COLOR: Record<'blue' | 'red', number> = { blue: 0x6aa2ff, red: 0xff7a6a };
+const team = (t: string): 'blue' | 'red' => (t === 'red' ? 'red' : 'blue');
 /** Rays that judge whether the player stands indoors (for the reverb): up, and four ways around. */
 const SPACE_RAYS = [new THREE.Vector3(0, 1, 0), new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1)];
 const _spaceFrom = new THREE.Vector3();
@@ -262,6 +267,9 @@ export class Game implements HostGame, ClientGame {
     const d = this.map?.collision.raycast(from, DOWN, 4);
     return d === null || d === undefined ? null : from.y - d;
   });
+  /** Chevrons over teammates (team match; depth tested, allies only). */
+  readonly allyMarkers = new AllyMarkers();
+  private readonly allyFeet: THREE.Vector3[] = [];
   /** The eye's own motion (steps, landings, breathing): camera position and roll only, never the aim. */
   readonly cameraMotion = new CameraMotion();
   private spaceTimer = 0;
@@ -314,6 +322,9 @@ export class Game implements HostGame, ClientGame {
   private fpsFrames = 0;
   private fpsTime = 0;
   private fps = 0;
+  /** Frame times for the F3 overlay's 1 % low / p99 (measuring the game on the player's own GPU). */
+  readonly frameStats = new FrameStats();
+  private gpuName: string | null = null;
 
   /** `auto`: what automatic quality remembered (null: a level chosen by hand or in the link, no measuring). */
   constructor(container: HTMLElement, quality: QualityLevel, settings: Settings, auto: AutoState | null = null) {
@@ -376,6 +387,7 @@ export class Game implements HostGame, ClientGame {
     this.scene.add(this.blood.group);
     this.scene.add(this.fx.group);
     this.scene.add(this.casings.mesh);
+    this.scene.add(this.allyMarkers.mesh);
     this.muzzleLight.name = 'MuzzleLight';
     this.scene.add(this.muzzleLight);
     this.scene.add(this.grenadeFx.group);
@@ -1618,6 +1630,7 @@ export class Game implements HostGame, ClientGame {
     }
     this.camera.rotation.set(player.pitch, player.yaw, roll);
     this.updateSpace(frameTime);
+    this.updateAllyMarkers();
     // Hands and weapon in the light of where the player stands (the map's own sky visibility).
     this.viewModel.setAmbient(this.skyGrid ? skyVisibilityAt(this.skyGrid, this.camera.position) : 1);
     if (dead && this.teamMatch) this.spectate(combat!.deadTime);
@@ -1685,6 +1698,9 @@ export class Game implements HostGame, ClientGame {
     else this.hud.setDeath(dead ? combat!.respawnIn : null, RESPAWN_DELAY);
     this.updateWeaponHud();
     this.hitFeedback.flush(timestamp / 1000);
+    // Frame statistics from the real (unclamped) frame time, drawn frames only: a stall longer than the
+    // simulation's clamp still shows in full as "max".
+    if (hiddenDelta === undefined && !document.hidden) this.frameStats.add(rawFrameTime);
     this.updateStats(frameTime);
   }
 
@@ -1875,6 +1891,21 @@ export class Game implements HostGame, ClientGame {
       equipSlot = (this.weapons.slot + i.equipCycle + n) % n;
     }
     return { fire: i.fire, reload: i.reload, equipSlot, equipLast: i.equipLast, inspect: i.inspect };
+  }
+
+  /** Teammates' feet (alive, not the player) for their markers; nothing outside team matches. */
+  private updateAllyMarkers(): void {
+    const feet = this.allyFeet;
+    feet.length = 0;
+    if (this.teamMatch && this.mode === 'team') {
+      const team = this.localTeam;
+      if (this.netClient) {
+        for (const p of this.netClient.puppets.all.values()) if (p.alive && p.team === team) feet.push(p.position);
+      } else if (this.squad) {
+        for (const b of this.squad.bots) if (b.alive && b.team === team) feet.push(b.controller.position);
+      }
+    }
+    this.allyMarkers.update(this.camera, feet, TEAM_MARKER_COLOR[team(this.localTeam)]);
   }
 
   /** Indoors or out, for the reverb: a few rays from the eye, four times a second. */
@@ -2111,8 +2142,15 @@ export class Game implements HostGame, ClientGame {
     if (!this.hud.statsVisible || !this.player) return;
     const p = this.player;
     const info = this.renderer.info.render;
+    this.gpuName ??= webglRenderer(this.renderer.getContext());
+    const fs = this.frameStats.summary();
+    const timing = fs
+      ? `1% low ${fs.low1Fps.toFixed(0)} fps  ·  frame ${fs.avgMs.toFixed(1)} ms avg / ${fs.p99Ms.toFixed(1)} p99 / ${fs.maxMs.toFixed(1)} max (${fs.frames} frames)\n`
+      : '';
     this.hud.setStats(
       `${this.fps.toFixed(0)} fps (limit ${this.loop.frameLimit})  ·  ${info.calls} draws  ·  ${(info.triangles / 1000).toFixed(0)}k tris  ·  ${this.quality}${this.autoQuality ? ' (auto)' : ''}  ·  ${this.mapDef.id}\n` +
+        timing +
+        `GPU ${this.gpuName}${isSoftwareRenderer(this.gpuName) ? '  (SOFTWARE — not a real GPU)' : ''}  ·  ${this.renderer.domElement.width}×${this.renderer.domElement.height}\n` +
         `pos ${p.position.x.toFixed(2)} ${p.position.y.toFixed(2)} ${p.position.z.toFixed(2)}  ` +
         `spd ${Math.hypot(p.velocity.x, p.velocity.z).toFixed(2)}  ${p.grounded ? 'ground' : 'air'}${p.crouching ? ' crouch' : ''}` +
         (this.lastHit ? `\nlast hit ${this.lastHit}` : ''),

@@ -35,10 +35,29 @@ export interface BotBody {
 }
 
 /** Uniform colours per team (team match); free-for-all bots keep the default olive kit. */
-const TEAM_KIT: Record<string, { fabric: number; gear: number; helmet: number; marker: number }> = {
-  blue: { fabric: 0x4f5b69, gear: 0x343d48, helmet: 0x3c4754, marker: 0x2f7bff },
-  red: { fabric: 0x76604a, gear: 0x56473a, helmet: 0x5f5040, marker: 0xd8392b },
+/**
+ * Team uniforms. The two sides differ first in tone, as real opposing forces do (and as reads at any
+ * distance and in any light, before colour does): BLUE in dark navy / charcoal, RED in light desert
+ * tan. The team colour itself is only on small marks: helmet band, armbands and the vest ID panels.
+ */
+export const TEAM_KIT: Record<string, { fabric: number; gear: number; helmet: number; pants: number; marker: number }> = {
+  blue: { fabric: 0x3d4858, gear: 0x262d37, helmet: 0x2c3540, pants: 0x2b313a, marker: 0x2f7bff },
+  // RED's plate carrier and helmet in darker coyote (as real kit is): a dark mass inside the light tan
+  // silhouette, so the figure still parts from mid-tone concrete and brick, which plain tan blends into.
+  red: { fabric: 0x9c8462, gear: 0x5b4934, helmet: 0x66553d, pants: 0x8c7757, marker: 0xd8392b },
 };
+
+/**
+ * Characters never go pitch black: a small constant light on the body's own colour (both teams
+ * alike), so a figure in a dark doorway still has a readable shape against the wall behind it.
+ * Not a glow and not an outline; it shows only where the body itself is in view (depth tested).
+ */
+export const CHARACTER_LIFT = 0.11;
+export function liftCharacterMaterial(m: THREE.MeshStandardMaterial, k = CHARACTER_LIFT): void {
+  if (m.userData.lifted || m.emissive.getHex() !== 0) return;
+  m.emissive.copy(m.color).multiplyScalar(k);
+  m.userData.lifted = true;
+}
 
 /** Shared materials / geometry of every bot body in a squad (built once per kit). */
 export class BotKit {
@@ -73,7 +92,12 @@ export class BotKit {
       this.marker = m(tk.marker, 0.6);
       this.marker.emissive.setHex(tk.marker).multiplyScalar(0.35);
     }
+    this.pants = tk?.pants ?? null;
+    for (const mat of [this.fabric, this.gear, this.helmet, this.skin, this.glove]) liftCharacterMaterial(mat);
   }
+
+  /** Team trousers (null: the default). */
+  readonly pants: number | null;
 
   dispose(): void {
     this.materials.forEach((mat) => mat.dispose());
@@ -183,6 +207,11 @@ export class BotModel implements BotBody {
     for (const x of [-0.105, 0.105]) this.add(sp, new THREE.CylinderGeometry(0.035, 0.035, 0.03, 10), k.dark, [x, 0.635, 0.005], [1, 1, 1], [0, 0, Math.PI / 2]);
     // Team band round the helmet.
     if (k.marker) this.add(sp, new THREE.CylinderGeometry(0.124, 0.128, 0.03, 16, 1, true), k.marker, [0, 0.685, 0.01], [1, 1, 1.06]);
+    // ID panels on the plate carrier, front (above the pouches) and back, as teams wear them.
+    if (k.marker) {
+      this.add(sp, new THREE.BoxGeometry(0.17, 0.055, 0.012), k.marker, [0, 0.355, -0.128]);
+      this.add(sp, new THREE.BoxGeometry(0.22, 0.075, 0.012), k.marker, [0, 0.33, 0.128]);
+    }
     // Shoulders.
     for (const x of [-0.2, 0.2]) this.add(sp, new THREE.SphereGeometry(0.075, 10, 8), k.fabric, [x, 0.42, 0]);
 
@@ -203,14 +232,20 @@ export class BotModel implements BotBody {
     this.limb(a, [-0.2, 0, 0.02], [-0.19, -0.2, -0.24], 0.05, k.fabric);
     this.limb(a, [-0.19, -0.2, -0.24], [0.08, -0.03, -0.42], 0.042, k.fabric);
     this.add(a, new THREE.SphereGeometry(0.043, 10, 8), k.glove, [0.09, -0.04, -0.43]);
-    // Team armbands on both upper arms.
+    // Team armbands on both upper arms (8 cm wide, as a real band is).
     if (k.marker) {
-      this.limb(a, [0.208, -0.07, 0.006], [0.218, -0.12, -0.01], 0.057, k.marker);
-      this.limb(a, [-0.2, -0.065, -0.05], [-0.197, -0.11, -0.1], 0.057, k.marker);
+      this.limb(a, [0.207, -0.055, 0.009], [0.22, -0.135, -0.015], 0.057, k.marker);
+      this.limb(a, [-0.2, -0.05, -0.04], [-0.196, -0.125, -0.115], 0.057, k.marker);
     }
 
     this.mergeParts(sp);
     this.mergeParts(a);
+    // Legs in the team's trousers; lifted like the rest of the body.
+    if (k.pants !== null) this.lower.applyLook({ pants: { color: k.pants, roughness: 0.92 }, jacket: null, gear: null, boot: null });
+    this.object.traverse((o) => {
+      const mat = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
+      if (mat?.isMeshStandardMaterial && mat !== k.marker) liftCharacterMaterial(mat);
+    });
     this.object.traverse((o) => {
       const m = o as THREE.Mesh;
       if (!m.isMesh) return;
