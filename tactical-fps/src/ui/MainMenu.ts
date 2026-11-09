@@ -2,6 +2,7 @@ import type { WeaponCategory } from '../weapons/WeaponDefinition';
 import './menu.css';
 
 import { ACTIONS, bindKey, defaultControls, keyLabel, RESERVED_KEYS, SENSITIVITY_MAX, SENSITIVITY_MIN, type ActionId, type ControlSettings } from '../input/Controls';
+import { defaultTouchSettings, sanitizeTouchSettings, TOUCH_LIMITS, type TouchSettings } from '../input/TouchSettings';
 
 export type MenuPage = 'play' | 'loadout' | 'settings' | 'controls' | 'inventory' | 'shop' | 'missions' | 'multi';
 
@@ -163,6 +164,11 @@ export class MainMenu {
               <span class="field-label">프레임 제한</span>
               <select class="select" data-setting="frame-limit"></select>
               <span class="field-hint">"최대"는 모니터 주사율까지 그립니다.</span>
+            </label>
+            <label class="field">
+              <span class="field-label">해상도 배율</span>
+              <select class="select" data-setting="render-scale"></select>
+              <span class="field-hint">낮추면 그리는 픽셀이 줄어 느린 기기(휴대폰)에서 빨라집니다. 화면만 바뀌고 판정은 같습니다.</span>
             </label>
             <h2 class="section-title">사운드</h2>
             <label class="field">
@@ -415,6 +421,32 @@ export class MainMenu {
     this.renderControls();
   }
 
+  /** Touch controls (phones / tablets): every slider applied at once; `onChange` gets the whole record. */
+  setTouchControls(t: TouchSettings, onChange: (t: TouchSettings) => void): void {
+    const inputs = [...this.root.querySelectorAll<HTMLInputElement>('input[data-touch]')];
+    const show = () => {
+      for (const el of inputs) {
+        const k = el.dataset.touch as keyof TouchSettings;
+        el.value = String(t[k]);
+        const out = this.root.querySelector<HTMLOutputElement>(`output[data-touch-out="${k}"]`);
+        if (out) out.textContent = k === 'opacity' || k.startsWith('stick') || k.startsWith('buttons') ? `${Math.round(t[k] * 100)}%` : t[k].toFixed(2);
+      }
+    };
+    for (const el of inputs)
+      el.oninput = () => {
+        const k = el.dataset.touch as keyof TouchSettings;
+        Object.assign(t, sanitizeTouchSettings({ ...t, [k]: Number(el.value) }));
+        show();
+        onChange(t);
+      };
+    this.root.querySelector<HTMLButtonElement>('.touch-reset')!.onclick = () => {
+      Object.assign(t, defaultTouchSettings());
+      show();
+      onChange(t);
+    };
+    show();
+  }
+
   /** While a key button waits for input, the next key press becomes that action's key (Esc cancels). */
   private handleBindKey = (e: KeyboardEvent): void => {
     const c = this.controls;
@@ -589,7 +621,7 @@ export class MainMenu {
 
   // --- Settings ---------------------------------------------------------------
 
-  bindSelect<T extends string | number>(setting: 'quality' | 'frame-limit' | 'volume' | 'mode' | 'bots' | 'time-limit' | 'kill-target' | 'rounds-to-win' | 'round-time' | 'objective' | 'bot-look', options: readonly MenuOption<T>[], current: T, onChange: (value: T) => void): void {
+  bindSelect<T extends string | number>(setting: 'quality' | 'frame-limit' | 'volume' | 'mode' | 'bots' | 'time-limit' | 'kill-target' | 'rounds-to-win' | 'round-time' | 'objective' | 'bot-look' | 'render-scale', options: readonly MenuOption<T>[], current: T, onChange: (value: T) => void): void {
     const select = this.root.querySelector<HTMLSelectElement>(`select[data-setting="${setting}"]`)!;
     select.replaceChildren(
       ...options.map((o) => {
@@ -726,7 +758,29 @@ function controlsHtml(): string {
     ['F4', '스폰으로 복귀'],
     ['F3', '성능 정보'],
   ];
+  const touchRange = (k: keyof typeof TOUCH_LIMITS, label: string, step: number, hint = '') => `
+      <label class="field">
+        <span class="field-label">${label}</span>
+        <span class="range-row">
+          <input class="range" type="range" data-touch="${k}" min="${TOUCH_LIMITS[k][0]}" max="${TOUCH_LIMITS[k][1]}" step="${step}" />
+          <output class="range-value" data-touch-out="${k}"></output>
+        </span>${hint ? `<span class="field-hint">${hint}</span>` : ''}
+      </label>`;
   return `
+    <div class="touch-settings">
+      <h2 class="section-title">터치 조작</h2>
+      ${touchRange('lookSensitivity', '카메라 감도', 0.05, '화면 오른쪽을 끌어 시점을 돌립니다. 발사 버튼을 누른 채 끌어도 조준됩니다.')}
+      ${touchRange('adsSensitivity', '조준(ADS·스코프) 감도', 0.05, '조준 중 시점 속도 배율')}
+      ${touchRange('buttonScale', '버튼 크기', 0.05)}
+      ${touchRange('opacity', '버튼 투명도', 0.05)}
+      <h2 class="section-title">배치</h2>
+      ${touchRange('stickX', '조이스틱 위치 (가로)', 0.01, '왼쪽 화면 어디를 눌러도 그 자리에 스틱이 생깁니다. 이 위치는 손을 뗐을 때 스틱이 돌아가는 자리입니다.')}
+      ${touchRange('stickY', '조이스틱 위치 (세로)', 0.01)}
+      ${touchRange('buttonsX', '버튼 묶음 위치 (오른쪽 여백)', 0.01)}
+      ${touchRange('buttonsY', '버튼 묶음 위치 (아래 여백)', 0.01)}
+      <button type="button" class="btn touch-reset">터치 조작 초기화</button>
+    </div>
+    <div class="pc-controls">
       <h2 class="section-title">마우스</h2>
       <label class="field">
         <span class="field-label">감도</span>
@@ -745,5 +799,6 @@ function controlsHtml(): string {
       <h2 class="section-title">고정 키</h2>
       <dl class="keys">
         ${fixed.map(([k, v]) => `<dt><span class="kbd">${k}</span></dt><dd>${v}</dd>`).join('')}
-      </dl>`;
+      </dl>
+    </div>`;
 }

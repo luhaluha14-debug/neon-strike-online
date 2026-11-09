@@ -60,7 +60,7 @@ test('hand-over: the bot’s per-weapon kills are kept aside and come back with 
   assert.deepEqual(tm.scores.get('bot-5').weaponKills, { ar01: 1 });
   const ai = tm.reassign('bot-5', 'Charlie');
   assert.deepEqual(tm.scores.get('bot-5').weaponKills, {});
-  assert.deepEqual(ai, { kills: 1, deaths: 0, weaponKills: { ar01: 1 } });
+  assert.deepEqual(ai, { kills: 1, deaths: 0, weaponKills: { ar01: 1 }, headshots: 1, damage: 0 });
   tm.reassign('bot-5', 'R5', ai);
   assert.deepEqual([tm.scores.get('bot-5').kills, tm.scores.get('bot-5').weaponKills], [1, { ar01: 1 }]);
 });

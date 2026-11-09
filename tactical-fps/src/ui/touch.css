@@ -1,0 +1,263 @@
+/* Touch controls and the phone HUD layout (html.touch: a phone / tablet without a mouse).
+   Nothing here applies on a PC. Sizes follow --tc-scale (settings), positions the safe area. */
+
+.touch-ui {
+  --u: calc(56px * var(--tc-scale, 1));
+  position: fixed;
+  inset: 0;
+  z-index: 12;
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.touch-ui[hidden] {
+  display: none;
+}
+
+/* Move stick: home position from the settings; drawn under the thumb while held. */
+.tc-stick {
+  position: absolute;
+  left: var(--tc-stick-x);
+  bottom: var(--tc-stick-y);
+  width: calc(var(--u) * 2);
+  height: calc(var(--u) * 2);
+  margin: calc(var(--u) * -1) 0 calc(var(--u) * -1) calc(var(--u) * -1);
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  background: rgba(17, 19, 21, 0.28);
+  opacity: var(--tc-opacity, 0.7);
+  pointer-events: none;
+}
+.tc-stick.live {
+  margin: calc(var(--u) * -1) 0 0 calc(var(--u) * -1);
+  opacity: min(1, calc(var(--tc-opacity, 0.7) + 0.2));
+}
+.tc-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(var(--u) * 0.9);
+  height: calc(var(--u) * 0.9);
+  margin: calc(var(--u) * -0.45) 0 0 calc(var(--u) * -0.45);
+  border-radius: 50%;
+  background: rgba(242, 242, 240, 0.55);
+}
+
+.tc-btn {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: var(--s, var(--u));
+  height: var(--s, var(--u));
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  background: rgba(17, 19, 21, 0.45);
+  color: var(--hud-fg, #f2f2f0);
+  font: 600 calc(12px * var(--tc-scale, 1)) / 1 var(--font, sans-serif);
+  letter-spacing: 0.02em;
+  opacity: var(--tc-opacity, 0.7);
+  touch-action: none;
+}
+.tc-btn[hidden] {
+  display: none;
+}
+.tc-btn.down {
+  background: rgba(232, 160, 68, 0.45);
+  border-color: var(--c-accent, #e8a044);
+}
+.tc-btn.on {
+  border-color: var(--c-accent, #e8a044);
+  color: var(--c-accent, #e8a044);
+}
+
+/* Right-hand cluster, positions in button units from its bottom-right corner. */
+.tc-cluster {
+  position: absolute;
+  right: calc(var(--tc-buttons-x, 3vw) + env(safe-area-inset-right));
+  bottom: calc(var(--tc-buttons-y, 6vh) + env(safe-area-inset-bottom));
+  width: 0;
+  height: 0;
+}
+.tc-cluster .tc-btn {
+  right: calc(var(--r) * var(--u));
+  bottom: calc(var(--b) * var(--u));
+}
+.tc-fire {
+  --s: calc(var(--u) * 1.55);
+  --r: 0.15;
+  --b: 1.25;
+  font-size: calc(14px * var(--tc-scale, 1));
+  border-color: rgba(229, 72, 77, 0.75);
+}
+.tc-jump {
+  --r: 0;
+  --b: 0;
+  --s: calc(var(--u) * 1.05);
+}
+.tc-crouch {
+  --r: 1.25;
+  --b: 0;
+  --s: calc(var(--u) * 1.05);
+}
+.tc-aim {
+  --r: 1.95;
+  --b: 1.4;
+}
+.tc-reload {
+  --r: 0.25;
+  --b: 3.05;
+  --s: calc(var(--u) * 0.95);
+}
+.tc-weapon {
+  --r: 1.5;
+  --b: 2.95;
+  --s: calc(var(--u) * 0.95);
+}
+.tc-use {
+  --r: 2.55;
+  --b: 0.1;
+  --s: calc(var(--u) * 0.95);
+}
+.tc-utility {
+  --r: 2.6;
+  --b: 2.55;
+  --s: calc(var(--u) * 0.85);
+}
+
+/* Top-left: pause, scoreboard, buy (small, out of the way of the view). */
+.tc-top {
+  position: absolute;
+  top: max(8px, env(safe-area-inset-top));
+  left: max(8px, env(safe-area-inset-left));
+  display: flex;
+  gap: 8px;
+}
+.tc-top .tc-btn {
+  position: static;
+  width: 44px;
+  height: 36px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+/* Portrait: turn the phone (covers the menus too; nothing below takes input). */
+.tc-rotate {
+  display: none;
+}
+@media (orientation: portrait) {
+  html.touch .tc-rotate {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 24px;
+    background: var(--c-bg, #111315);
+    color: var(--c-text, #f2f2f0);
+    font: 600 18px/1.4 var(--font, sans-serif);
+    text-align: center;
+    pointer-events: auto;
+    touch-action: none;
+  }
+}
+.tc-rotate-sub {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--c-text-2, #b5b9bc);
+}
+.tc-rotate-icon {
+  width: 34px;
+  height: 56px;
+  border: 3px solid currentColor;
+  border-radius: 6px;
+  transform: rotate(-90deg);
+  margin-bottom: 8px;
+}
+
+/* --- Phone HUD layout (html.touch) ---------------------------------------------------------- */
+/* Health and the personal record top left under the touch buttons; weapon and ammo bottom centre,
+   between the stick and the buttons; the top bar and kill feed stay where they are. */
+html.touch .vitals {
+  top: calc(max(8px, env(safe-area-inset-top)) + 44px);
+  bottom: auto;
+  left: max(8px, env(safe-area-inset-left));
+  padding: 6px 10px 8px;
+}
+html.touch .health-value {
+  font-size: 22px;
+}
+html.touch .health-track {
+  width: 96px;
+}
+html.touch .combat-stats {
+  top: calc(max(8px, env(safe-area-inset-top)) + 96px);
+  bottom: auto;
+  left: max(8px, env(safe-area-inset-left));
+  font-size: 11px;
+}
+html.touch .cs-k {
+  font-size: 9.5px;
+}
+html.touch .weapon {
+  left: 50%;
+  right: auto;
+  bottom: max(6px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  min-width: 0;
+  padding: 4px 10px 6px;
+  border-right: 0;
+  border-bottom: 2px solid var(--c-border-strong);
+  text-align: center;
+}
+html.touch .ammo-mag {
+  font-size: 20px;
+}
+html.touch .ammo-reserve {
+  font-size: 13px;
+}
+/* The strip above already names the weapon in hand. */
+html.touch .weapon-name {
+  display: none;
+}
+html.touch .mag-track,
+html.touch .reload-track {
+  width: 110px;
+  margin-left: auto;
+  margin-right: auto;
+}
+html.touch .loadout {
+  justify-content: center;
+}
+/* The weapon strip is tapped to switch: bigger targets. */
+html.touch .loadout .slot {
+  padding: 4px 6px;
+}
+/* Kill feed: the three latest (the button cluster reaches up the right side on short phones). */
+html.touch .killfeed li:nth-last-child(n + 4) {
+  display: none;
+}
+html.touch .killfeed li {
+  padding: 3px 8px;
+  font-size: 11px;
+}
+/* Key hints that mean nothing without a keyboard. */
+html.touch .kbd,
+html.touch .pc-controls {
+  display: none !important;
+}
+html:not(.touch) .touch-settings {
+  display: none;
+}
+/* Short phones in landscape: the top bar a notch smaller. */
+@media (max-height: 420px) {
+  html.touch .combat-stats {
+    top: calc(max(8px, env(safe-area-inset-top)) + 88px);
+  }
+}

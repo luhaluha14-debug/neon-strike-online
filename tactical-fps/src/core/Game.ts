@@ -20,7 +20,8 @@ import { ShellCasings } from '../fx/ShellCasings';
 import { ImpactEffects } from '../fx/ImpactEffects';
 import { createInputState } from '../input/InputState';
 import { loadControls, saveControls } from '../input/Controls';
-import { KeyboardMouseInput } from '../input/KeyboardMouseInput';
+import { GameInput } from '../input/GameInput';
+import { isTouchDevice, loadTouchSettings, saveTouchSettings } from '../input/TouchSettings';
 import { FirstPersonBody, type BodyState } from '../player/FirstPersonBody';
 import { PlayerController } from '../player/PlayerController';
 import { PlayerCombat, RESPAWN_DELAY, type PlayerDamageEvent } from '../player/PlayerCombat';
@@ -59,6 +60,7 @@ import { MultiplayerPanel } from '../ui/MultiplayerPanel';
 import { Lobby } from '../ui/Lobby';
 import { LobbyBackdrop } from './LobbyBackdrop';
 import { KillConfirm } from '../game/KillConfirm';
+import { TrainingStats, type CombatStats } from '../game/CombatStats';
 import { CameraMotion } from '../player/CameraMotion';
 import { FrameStats, isSoftwareRenderer, webglRenderer } from './FrameStats';
 import { AllyMarkers } from '../fx/AllyMarkers';
@@ -132,7 +134,7 @@ const VOLUME_OPTIONS: readonly { value: number; label: string }[] = [
   { value: 0.75, label: '75%' },
   { value: 1, label: '100%' },
 ];
-import { saveSettings, type Settings } from './Settings';
+import { loadRenderScale, RENDER_SCALE_OPTIONS, saveRenderScale, saveSettings, type Settings } from './Settings';
 
 const _muzzleWorld = new THREE.Vector3();
 const _specEye = new THREE.Vector3();
@@ -161,6 +163,8 @@ export class Game implements HostGame, ClientGame {
     return this.qualityLevel;
   }
   private qualityLevel: QualityLevel;
+  /** Render resolution scale (settings: 해상도 배율), read before the renderer is made. */
+  private renderScale = loadRenderScale();
   /** Automatic quality measuring this session (null: the level was chosen by hand or in the link). */
   readonly autoQuality: AutoQualityMonitor | null;
   mapDef: MapDefinition;
@@ -172,6 +176,8 @@ export class Game implements HostGame, ClientGame {
   weapons: WeaponSystem | null = null;
   /** Training dummies of the current map. */
   trainingRange: TrainingRange | null = null;
+  /** Training's own combat record (the dummies), apart from any match's; started again with each training session. */
+  readonly trainingStats = new TrainingStats();
   /** The local player's health, death and respawn timer (bullets reach it through the hitscan). */
   combat: PlayerCombat | null = null;
   /** Spawn point used by the last (re)spawn. */
@@ -306,7 +312,7 @@ export class Game implements HostGame, ClientGame {
   /** Tick of the first sound-producing shot in this frame (-1 = none yet). */
   private frameShotTick = -1;
 
-  private readonly input: KeyboardMouseInput;
+  private readonly input: GameInput;
   private readonly inputState = createInputState();
   /** What a dead player "presses": nothing. */
   private readonly deadInput = createInputState();
@@ -359,7 +365,7 @@ export class Game implements HostGame, ClientGame {
     const preset = QUALITY_PRESETS[quality];
 
     this.renderer = new THREE.WebGLRenderer({ antialias: preset.antialias, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, preset.pixelRatioCap));
+    this.renderer.setPixelRatio(this.pixelRatio(preset.pixelRatioCap));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -444,6 +450,12 @@ export class Game implements HostGame, ClientGame {
     // Weapons page: picking a card equips that loadout slot through the normal weapon system.
     this.hud.setWeaponOptions(DEFAULT_LOADOUT.map(menuWeapon), (slot) => this.weapons?.equipSlot(slot));
     this.hud.setWeaponOptionsEnabled(false);
+    this.hud.menu.bindSelect('render-scale', RENDER_SCALE_OPTIONS.map((v) => ({ value: v, label: v === 1 ? '100% (기본)' : `${Math.round(v * 100)}%` })), this.renderScale, (v) => {
+      this.renderScale = v;
+      saveRenderScale(v);
+      this.renderer.setPixelRatio(this.pixelRatio(QUALITY_PRESETS[this.qualityLevel].pixelRatioCap));
+      this.onResize();
+    });
     this.hud.menu.bindSelect('volume', VOLUME_OPTIONS, settings.volume, (v) => {
       this.settings.volume = v;
       saveSettings(this.settings);
@@ -456,7 +468,22 @@ export class Game implements HostGame, ClientGame {
     this.hud.menu.onPageShown((page) => {
       if (page === 'loadout') this.renderThumbnails();
     });
-    this.input = new KeyboardMouseInput(this.renderer.domElement, (locked) => this.onLockChange(locked));
+    // PC: keyboard + mouse with the pointer lock; phone / tablet: the touch controls (same input record).
+    const touchMode = isTouchDevice();
+    document.documentElement.classList.toggle('touch', touchMode);
+    this.input = new GameInput(this.renderer.domElement, this.hud.root, touchMode, (locked) => this.onLockChange(locked), {
+      onPause: () => this.input.release(),
+      onBoard: (held) => (this.scoreboardHeld = held),
+      onBuy: () => this.openBuyMenu(),
+    });
+    if (this.input.touch) {
+      const ts = loadTouchSettings();
+      this.input.touch.applySettings(ts);
+      this.hud.menu.setTouchControls(ts, (t) => {
+        this.input.touch?.applySettings(t);
+        saveTouchSettings(t);
+      });
+    }
     // Controls page: sensitivity + key bindings, applied immediately, stored apart from the settings record.
     const controls = loadControls();
     this.input.sensitivity = controls.sensitivity;
@@ -595,7 +622,7 @@ export class Game implements HostGame, ClientGame {
   async switchMap(id: string): Promise<void> {
     const def = findMap(id);
     if (this.loadingMap || def.id === this.mapDef.id) return;
-    if (document.pointerLockElement) document.exitPointerLock();
+    this.input.release();
     this.teardownMode();
     this.nav = null;
     this.tacticalMap = null;
@@ -819,6 +846,11 @@ export class Game implements HostGame, ClientGame {
     } else if (!dm && !team) {
       this.trainingRange = new TrainingRange(map, this.homeSpawn(map), hitscan);
       this.scene.add(this.trainingRange.group);
+      this.trainingStats.reset();
+      for (const t of this.trainingRange.targets)
+        t.onHit = (applied, killed, info) => {
+          if (info.sourceId === 'local') this.trainingStats.hit(applied, killed, info.zone === 'head');
+        };
     } else {
       // Built once per map and reused by every match and round.
       this.nav ??= new NavGrid(map);
@@ -838,6 +870,7 @@ export class Game implements HostGame, ClientGame {
         },
         onDamage: (bot, e) => {
           this.netHost?.onBotDamaged(bot, e);
+          this.recordDamage(e.sourceId, bot.id, e.taken);
           if (!e.killed) return;
           const credited = (this.match?.recordKill(e.sourceId, bot.id, e.weaponId, e.zone === 'head') ?? false) || (this.teamMatch?.recordKill(e.sourceId, bot.id, e.weaponId, e.zone === 'head') ?? false);
           if (credited) this.onCreditedKill(e.sourceId, bot.id);
@@ -1239,7 +1272,7 @@ export class Game implements HostGame, ClientGame {
     this.teamHud.showResults(tm);
     // 대결 포기 pays nothing (EconomyRules), but the match id is closed so it can never be paid later.
     this.settleMatch('forfeit');
-    if (document.pointerLockElement) document.exitPointerLock();
+    this.input.release();
     return true;
   }
 
@@ -1257,6 +1290,27 @@ export class Game implements HostGame, ClientGame {
     this.audio.play('kill.confirm', { group: 'confirm', gain: 0.6, delay: 0.05 });
     this.hud.showKillNotice();
   });
+
+  /**
+   * Damage just applied (`amount` = health taken, after armour, capped at what was left), credited to
+   * the attacker's personal record by the match's own rules. Only the match authority gets here: in a
+   * room, the host applies all damage (a member's game shows the host's numbers).
+   */
+  private recordDamage(attacker: string, victim: string, amount: number): void {
+    if (this.netClient) return;
+    this.match?.recordDamage(attacker, victim, amount);
+    this.teamMatch?.recordDamage(attacker, victim, amount);
+  }
+
+  /**
+   * The player's combat record for what is being played: its own score line in a match (deathmatch or
+   * team, alone or in a room), the dummies' record in training; null with no mode running.
+   */
+  combatStats(): CombatStats | null {
+    if (this.match) return this.match.scores.get('local') ?? null;
+    if (this.teamMatch) return this.teamMatch.scores.get('local') ?? null;
+    return this.trainingRange ? this.trainingStats : null;
+  }
 
   /** The match credited `killer` with killing `victim`: the player's kill confirm, or a room member's (sent by the host). */
   private onCreditedKill(killer: string, victim: string): void {
@@ -1297,7 +1351,7 @@ export class Game implements HostGame, ClientGame {
       this.matchHud.hideResults();
       this.teamHud.hideResults();
     } else this.restartMatch();
-    if (document.pointerLockElement) document.exitPointerLock();
+    this.input.release();
     this.hud.menu.showLobby();
   }
 
@@ -1444,6 +1498,7 @@ export class Game implements HostGame, ClientGame {
     const sz = -e.direction.z;
     const angle = Math.atan2(sx * -fz + sz * fx, sx * fx + sz * fz);
     this.hud.showDamage(e.amount, angle);
+    this.recordDamage(e.sourceId, 'local', e.taken);
     if (e.killed) {
       this.audio.stopGroup('foley');
       const credited = (this.match?.recordKill(e.sourceId, 'local', e.weaponId, e.zone === 'head') ?? false) || (this.teamMatch?.recordKill(e.sourceId, 'local', e.weaponId, e.zone === 'head') ?? false);
@@ -1502,6 +1557,16 @@ export class Game implements HostGame, ClientGame {
       this.camera.updateProjectionMatrix();
     }
     this.hud.setScoped(this.scoped);
+    const touch = this.input.touch;
+    if (touch) {
+      touch.zoomed = this.scoped;
+      const tm = this.teamMatch;
+      touch.setContext({
+        use: !!tm?.bombMode && !!this.bomb,
+        utility: !!tm && (this.buyLoadout.grenades.flash > 0 || this.buyLoadout.grenades.smoke > 0),
+        buy: !!tm?.buyOpen && !!this.combat?.alive,
+      });
+    }
     const lookYaw = this.inputState.lookYaw;
     const lookPitch = this.inputState.lookPitch;
     this.weapons?.onLookInput(lookPitch, lookYaw);
@@ -1576,13 +1641,13 @@ export class Game implements HostGame, ClientGame {
       this.matchHud.setRestartEnabled(!this.netClient);
       this.matchHud.showResults(this.match);
       this.settleMatch('completed');
-      if (document.pointerLockElement) document.exitPointerLock();
+      this.input.release();
     }
     if (this.teamMatch?.over && !this.teamHud.resultsShown) {
       this.teamHud.setRestartEnabled(!this.netClient);
       this.teamHud.showResults(this.teamMatch);
       this.settleMatch(this.teamMatch.forfeitedBy ? 'forfeit' : 'completed');
-      if (document.pointerLockElement) document.exitPointerLock();
+      this.input.release();
     }
     this.netHost?.update(frameTime);
     this.netClient?.update(frameTime);
@@ -1651,6 +1716,7 @@ export class Game implements HostGame, ClientGame {
     this.grenadeFx.update(frameTime, this.grenades);
     if (this.bombFx.update(frameTime, this.bomb) && this.bomb) this.weaponAudio.world('c4.beep', this.bomb.position, 0.45, this.camera, 70);
     if (this.teamMatch) this.teamHud.setBomb(this.bombHud());
+    this.hud.setCombatStats(this.hud.menu.lobbyShown ? null : this.combatStats());
     if (this.match) this.matchHud.update(this.match, this.scoreboardHeld && this.input.active);
     if (this.teamMatch) this.teamHud.update(this.teamMatch, this.teamAlive(), this.scoreboardHeld && this.input.active);
     this.viewModel.update(
@@ -2108,10 +2174,15 @@ export class Game implements HostGame, ClientGame {
    * A lower level during play, without reloading: pixel ratio, shadows and shadow map size (the
    * preset's other parts, antialiasing and surface shading, are fixed until the next load).
    */
+  /** Device pixels per CSS pixel for a quality level's cap, times the chosen render scale. */
+  private pixelRatio(cap: number): number {
+    return Math.min(window.devicePixelRatio, cap) * this.renderScale;
+  }
+
   private applyQuality(level: QualityLevel): void {
     this.qualityLevel = level;
     const preset = QUALITY_PRESETS[level];
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, preset.pixelRatioCap));
+    this.renderer.setPixelRatio(this.pixelRatio(preset.pixelRatioCap));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     const shadow = this.sun.shadow;
     if (this.renderer.shadowMap.enabled !== preset.shadows) {
@@ -2250,7 +2321,7 @@ export class Game implements HostGame, ClientGame {
     this.updateBuyMenu();
     this.buyMenu.show();
     this.scoreboardHeld = false;
-    if (this.input.active) document.exitPointerLock();
+    if (this.input.active) this.input.release();
   }
 
   /**

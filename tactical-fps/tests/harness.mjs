@@ -48,8 +48,9 @@ export async function startEnv() {
  * until the map is loaded and the Play button is enabled. `page.errors`
  * collects page exceptions and console errors.
  */
-export async function openGame(env, { map = 'warehouse', quality = 'low', width = 640, height = 360, mode = 'training', objective = null, seed = null, lobby = false, init = null, pacedLock = true, dressing = null } = {}) {
-  const context = await env.browser.newContext({ viewport: { width, height } });
+export async function openGame(env, { map = 'warehouse', quality = 'low', width = 640, height = 360, mode = 'training', objective = null, seed = null, lobby = false, init = null, pacedLock = true, dressing = null, mobile = false, extra = '' } = {}) {
+  // mobile: a phone as Playwright emulates one (touch screen, coarse pointer, no mouse, 2× pixels).
+  const context = await env.browser.newContext(mobile ? { viewport: { width, height }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 } : { viewport: { width, height } });
   // init: a script run in the page before the game (counters, stubs).
   if (init) await context.addInitScript(init);
   // Suites lock and free the mouse far faster than a player; newer Chrome refuses the 6th request
@@ -69,7 +70,7 @@ export async function openGame(env, { map = 'warehouse', quality = 'low', width 
   // seed: bots' random choices from a fixed seed (reproducible runs).
   // objective: team match 'bomb' (the game's default) or 'elimination' (suites written for the elimination rules).
   // dressing: 'none' loads the map files as they are (no MapDressing), e.g. for recordings made before it.
-  await page.goto(`${env.url}/?map=${map}` + (quality ? `&quality=${quality}` : '') + (mode ? `&mode=${mode}` : '') + (objective ? `&objective=${objective}` : '') + (seed !== null ? `&seed=${seed}` : '') + (dressing ? `&dressing=${dressing}` : ''));
+  await page.goto(`${env.url}/?map=${map}` + (quality ? `&quality=${quality}` : '') + (mode ? `&mode=${mode}` : '') + (objective ? `&objective=${objective}` : '') + (seed !== null ? `&seed=${seed}` : '') + (dressing ? `&dressing=${dressing}` : '') + extra);
   await waitReady(page, { lobby });
   return page;
 }

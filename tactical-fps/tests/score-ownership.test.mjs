@@ -36,7 +36,7 @@ test('deathmatch: the bot’s kills before the hand-over are not the member’s;
   assert.deepEqual([m.scores.get('bot-1').kills, m.scores.get('bot-1').deaths], [2, 1]);
   // A member takes the seat over.
   const ai = m.reassign('bot-1', 'Bravo');
-  assert.deepEqual(ai, { kills: 2, deaths: 1, weaponKills: { ar01: 2 } }, 'the AI record, kept aside');
+  assert.deepEqual(ai, { kills: 2, deaths: 1, weaponKills: { ar01: 2 }, headshots: 1, damage: 0 }, 'the AI record, kept aside');
   const line = m.scores.get('bot-1');
   assert.deepEqual([line.name, line.kills, line.deaths, line.gen], ['Bravo', 0, 0, 1]);
   assert.equal(mine(m, 'bot-1'), 0, 'the earlier kills in the feed are not the member’s');
@@ -71,7 +71,7 @@ test('team match: a hand-over resets only the personal line; rounds, history, mo
   assert.equal(tm.phase, 'result');
   const before = { wins: { ...tm.roundWins }, history: tm.history.length, money: tm.economy.money('bot-5'), round: tm.round };
   const ai = tm.reassign('bot-5', 'Charlie');
-  assert.deepEqual(ai, { kills: 2, deaths: 0, weaponKills: { ar01: 2 } });
+  assert.deepEqual(ai, { kills: 2, deaths: 0, weaponKills: { ar01: 2 }, headshots: 0, damage: 0 });
   assert.deepEqual([tm.scores.get('bot-5').kills, tm.scores.get('bot-5').team], [0, 'red']);
   assert.deepEqual({ wins: { ...tm.roundWins }, history: tm.history.length, money: tm.economy.money('bot-5'), round: tm.round }, before, 'team score and the seat’s money are not personal');
   assert.deepEqual([tm.scores.get('local').deaths, tm.scores.get('bot-1').deaths], [1, 1]);

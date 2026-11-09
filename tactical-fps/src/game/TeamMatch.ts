@@ -5,7 +5,7 @@
 
 import { BOMB_CONFIG } from '../config';
 import { ECONOMY, TeamEconomy, type EconomyConfig } from './Economy';
-import { creditKill, killEvent, reassignSeat, type KillEvent, type SeatRecord } from './Match';
+import { creditKill, creditedDamage, killEvent, reassignSeat, type KillEvent, type SeatRecord } from './Match';
 
 export type Team = 'blue' | 'red';
 export const TEAMS: readonly Team[] = ['blue', 'red'];
@@ -69,6 +69,39 @@ export interface RoundResult {
   attackers?: Team;
 }
 
+/**
+ * A decided round's record (라운드 기록), next to its RoundResult (same round number; written at the
+ * same moment, once): how long it was live, the C4 in a bomb round, and every seat's numbers in it.
+ */
+export interface RoundStats {
+  round: number;
+  /** Seconds the round was live (from the end of prep to the decision). */
+  duration: number;
+  /** Bomb objective only: was the C4 planted, by whom, and who defused it. */
+  bomb?: RoundBomb;
+  /** Every seat's record for this round alone, by its controller at the end of the round (the match record's rules; see ScoreLine). */
+  players: RoundPlayer[];
+}
+
+/** Bomb objective, one round: was the C4 planted, by whom (name then), and who defused it. */
+export interface RoundBomb {
+  planted: boolean;
+  plantedBy?: string;
+  defusedBy?: string;
+}
+
+/** One seat in one round: id, name then, team, controller generation, then kills, deaths, headshot kills, damage. */
+export type RoundPlayer = [id: string, name: string, team: Team, gen: number, kills: number, deaths: number, headshots: number, damage: number];
+
+/** A seat's numbers for the round being played (only the controller of generation `gen`). */
+interface RoundTally {
+  gen: number;
+  kills: number;
+  deaths: number;
+  headshots: number;
+  damage: number;
+}
+
 export interface TeamScoreLine {
   id: string;
   name: string;
@@ -80,6 +113,9 @@ export interface TeamScoreLine {
   gen: number;
   /** The current controller's credited kills per weapon id (see ScoreLine in Match.ts). */
   weaponKills: Record<string, number>;
+  /** Headshot kills and damage dealt to the other team (see ScoreLine in Match.ts). */
+  headshots: number;
+  damage: number;
 }
 
 /** What `update` did this tick (Game reacts: reset everyone, show results). */
@@ -89,6 +125,8 @@ export class TeamMatch {
   readonly scores = new Map<string, TeamScoreLine>();
   readonly feed: KillEvent[] = [];
   readonly history: RoundResult[] = [];
+  /** 라운드 기록: one per entry of `history`, same order (a room member's from an older host: none). */
+  readonly roundStats: RoundStats[] = [];
   readonly roundWins: Record<Team, number> = { blue: 0, red: 0 };
   /**
    * A room member's copy from an older host that does not send per-weapon
@@ -114,12 +152,17 @@ export class TeamMatch {
   swappedAtRound = 0;
   /** The team that gave up the match (대결 포기), null if it was played out. */
   forfeitedBy: Team | null = null;
+  /** The round being played: seconds live so far, each seat's numbers, and the C4's planter / defuser. */
+  private roundLive = 0;
+  private readonly tally = new Map<string, RoundTally>();
+  private plantedBy: string | null = null;
+  private defusedBy: string | null = null;
 
   constructor(
     readonly config: TeamMatchConfig,
     players: readonly { id: string; name: string; team: Team; isPlayer: boolean }[],
   ) {
-    for (const p of players) this.scores.set(p.id, { ...p, kills: 0, deaths: 0, gen: 0, weaponKills: {} });
+    for (const p of players) this.scores.set(p.id, { ...p, kills: 0, deaths: 0, gen: 0, weaponKills: {}, headshots: 0, damage: 0 });
     this.economy = config.economy ? new TeamEconomy(config.economy, players) : null;
     this.phaseLeft = config.prepTime;
     this.roundTimeLeft = config.roundTime;
@@ -145,6 +188,7 @@ export class TeamMatch {
   bombPlanted(id: string): boolean {
     if (this.phase !== 'live' || !this.bombMode || this.planted) return false;
     this.planted = true;
+    this.plantedBy = this.name(id);
     if (this.teamOf(id) === this.attackers) this.economy?.credit(id, BOMB_CONFIG.plantBonus);
     return true;
   }
@@ -159,6 +203,7 @@ export class TeamMatch {
   bombDefused(id: string, alive: Record<Team, number>): TeamMatchEvent {
     if (this.phase !== 'live' || !this.planted) return null;
     if (this.teamOf(id) === this.defenders) this.economy?.credit(id, BOMB_CONFIG.defuseBonus);
+    this.defusedBy = this.name(id);
     return this.endRound(this.defenders, 'defuse', alive);
   }
 
@@ -245,14 +290,33 @@ export class TeamMatch {
     const v = this.scores.get(victim);
     if (!v) return false;
     v.deaths++;
+    this.tallyOf(victim, v.gen).deaths++;
     const k = this.scores.get(killer);
     const credited = !!k && killer !== victim && k.team !== v.team;
     if (credited) {
-      creditKill(k, weaponId);
+      creditKill(k, weaponId, head);
+      const t = this.tallyOf(killer, k.gen);
+      t.kills++;
+      if (head) t.headshots++;
       this.economy?.onKill(this.round, killer, victim);
     }
     this.feed.push(killEvent(this.scores, { killer: credited ? killer : victim, victim, weaponId, head, at: this.elapsed }));
     return credited;
+  }
+
+  /**
+   * Health a hit by `attacker` just took from `victim` (as applied). Credited like kills: only while
+   * the round is live, never for self-damage, a teammate or an unknown shooter. Returns the points credited.
+   */
+  recordDamage(attacker: string, victim: string, amount: number): number {
+    if (this.phase !== 'live' || attacker === victim) return 0;
+    const v = this.scores.get(victim);
+    const a = this.scores.get(attacker);
+    if (!v || !a || a.team === v.team) return 0;
+    const n = creditedDamage(amount);
+    a.damage += n;
+    this.tallyOf(attacker, a.gen).damage += n;
+    return n;
   }
 
   /**
@@ -268,10 +332,12 @@ export class TeamMatch {
         if (this.phaseLeft <= 0) {
           this.phase = 'live';
           this.phaseLeft = 0;
+          this.startTally();
           return 'round-live';
         }
         return null;
       case 'live': {
+        this.roundLive += dt;
         if (this.bombMode) return this.updateBomb(dt, alive);
         // Elimination is checked before the clock: a team wiped out on the last tick still loses by elimination.
         if (alive.blue === 0 || alive.red === 0) {
@@ -328,8 +394,45 @@ export class TeamMatch {
     return null;
   }
 
+  /** A live round starts: nothing counted for it yet. */
+  private startTally(): void {
+    this.roundLive = 0;
+    this.tally.clear();
+    this.plantedBy = null;
+    this.defusedBy = null;
+  }
+
+  /** The round tally of seat `id` for its controller `gen` (a seat that changed hands mid-round starts again, as its match record does). */
+  private tallyOf(id: string, gen: number): RoundTally {
+    let t = this.tally.get(id);
+    if (!t || t.gen !== gen) {
+      t = { gen, kills: 0, deaths: 0, headshots: 0, damage: 0 };
+      this.tally.set(id, t);
+    }
+    return t;
+  }
+
+  /** Every seat's numbers for the round just decided (zeros for a seat that did nothing). */
+  private roundPlayers(): RoundPlayer[] {
+    return [...this.scores.values()].map((s) => {
+      const t = this.tally.get(s.id);
+      const mine = t && t.gen === s.gen ? t : null;
+      return [s.id, s.name, s.team, s.gen, mine?.kills ?? 0, mine?.deaths ?? 0, mine?.headshots ?? 0, mine?.damage ?? 0];
+    });
+  }
+
+  /** The only place a round is decided (live phase only, then the phase moves on): its record is written once. */
   private endRound(winner: Team | null, reason: RoundEnd, alive: Record<Team, number>): TeamMatchEvent {
     this.history.push({ round: this.round, winner, reason, alive: { ...alive }, ...(this.bombMode ? { attackers: this.attackers } : {}) });
+    this.roundStats.push({
+      round: this.round,
+      // Ended by the clock: exactly the round clock (the clock only runs while live and unplanted).
+      duration: Math.round((reason === 'time' ? Math.min(this.roundLive, this.config.roundTime) : this.roundLive) * 10) / 10,
+      ...(this.bombMode
+        ? { bomb: { planted: this.planted, ...(this.plantedBy ? { plantedBy: this.plantedBy } : {}), ...(this.defusedBy ? { defusedBy: this.defusedBy } : {}) } }
+        : {}),
+      players: this.roundPlayers(),
+    });
     if (winner) this.roundWins[winner]++;
     // The one place a round is decided, so its payout happens exactly once.
     this.economy?.settle({ round: this.round, winner });

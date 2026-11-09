@@ -15,6 +15,31 @@ export interface Settings {
   volume: number;
 }
 
+/**
+ * Render resolution as a fraction of the quality level's pixel ratio (1 = full). Fewer pixels for a
+ * slow phone; only the picture changes, nothing the game decides. Stored under its own key, so the
+ * settings record keeps its format.
+ */
+export const RENDER_SCALE_OPTIONS = [1, 0.85, 0.7, 0.5] as const;
+const RENDER_KEY = 'tactical-fps.render.v1';
+
+export function loadRenderScale(): number {
+  try {
+    const v = Number(localStorage.getItem(RENDER_KEY));
+    return (RENDER_SCALE_OPTIONS as readonly number[]).includes(v) ? v : 1;
+  } catch {
+    return 1;
+  }
+}
+
+export function saveRenderScale(v: number): void {
+  try {
+    localStorage.setItem(RENDER_KEY, String(v));
+  } catch {
+    // Storage blocked: the scale just won't persist.
+  }
+}
+
 const DEFAULTS: Settings = { mapId: null, frameLimit: 'max', quality: null, volume: 0.75 };
 
 export function parseQuality(value: unknown): QualityLevel | null {

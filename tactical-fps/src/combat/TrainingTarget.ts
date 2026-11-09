@@ -154,6 +154,8 @@ export class TrainingTarget implements Damageable {
   state: TargetState = 'standing';
   /** Times this target was taken down (since load / reset). */
   kills = 0;
+  /** Every hit as applied: the health it took (never more than was left), whether it took the dummy down. */
+  onHit: ((applied: number, killed: boolean, info: DamageInfo) => void) | null = null;
   /** Seconds since the last state change. */
   stateTime = 0;
 
@@ -223,6 +225,7 @@ export class TrainingTarget implements Damageable {
 
   applyDamage(info: DamageInfo): void {
     if (!this.alive) return;
+    const before = this.health;
     this.health = Math.max(0, this.health - info.amount);
     // Same hit the hitscan just resolved through raycast(): flash that part.
     this.flashPart = this.lastHit && this.lastHit.point === info.point ? this.lastHit.part : PARTS.findIndex((p) => p.zone === info.zone);
@@ -237,6 +240,7 @@ export class TrainingTarget implements Damageable {
       this.setState('falling');
       this.kills++;
     }
+    this.onHit?.(before - this.health, this.health <= 0, info);
   }
 
   /** Advances the dummy by one simulation tick. */
