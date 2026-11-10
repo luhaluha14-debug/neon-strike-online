@@ -22,9 +22,10 @@
   position: absolute;
   left: var(--tc-stick-x);
   bottom: var(--tc-stick-y);
-  width: calc(var(--u) * 2);
-  height: calc(var(--u) * 2);
-  margin: calc(var(--u) * -1) 0 calc(var(--u) * -1) calc(var(--u) * -1);
+  /* --sz: its size in the player's layout (버튼 배치 편집); 1 = default. */
+  width: calc(var(--u) * 2 * var(--sz, 1));
+  height: calc(var(--u) * 2 * var(--sz, 1));
+  margin: calc(var(--u) * -1 * var(--sz, 1)) 0 calc(var(--u) * -1 * var(--sz, 1)) calc(var(--u) * -1 * var(--sz, 1));
   border-radius: 50%;
   border: 2px solid rgba(255, 255, 255, 0.35);
   background: rgba(17, 19, 21, 0.28);
@@ -32,16 +33,16 @@
   pointer-events: none;
 }
 .tc-stick.live {
-  margin: calc(var(--u) * -1) 0 0 calc(var(--u) * -1);
+  margin: calc(var(--u) * -1 * var(--sz, 1)) 0 0 calc(var(--u) * -1 * var(--sz, 1));
   opacity: min(1, calc(var(--tc-opacity, 0.7) + 0.2));
 }
 .tc-knob {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: calc(var(--u) * 0.9);
-  height: calc(var(--u) * 0.9);
-  margin: calc(var(--u) * -0.45) 0 0 calc(var(--u) * -0.45);
+  width: calc(var(--u) * 0.9 * var(--sz, 1));
+  height: calc(var(--u) * 0.9 * var(--sz, 1));
+  margin: calc(var(--u) * -0.45 * var(--sz, 1)) 0 0 calc(var(--u) * -0.45 * var(--sz, 1));
   border-radius: 50%;
   background: rgba(242, 242, 240, 0.55);
 }
@@ -64,6 +65,18 @@
 }
 .tc-btn[hidden] {
   display: none;
+}
+/* Touch area a little larger than the drawn button (a thumb landing on the rim still presses it). */
+.tc-btn::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+}
+/* Layout editor preview: shown, takes no input (the editor's layer above handles the fingers). */
+.touch-ui.editing,
+.touch-ui.editing * {
+  pointer-events: none !important;
 }
 .tc-btn.down {
   background: rgba(232, 160, 68, 0.45);
@@ -137,7 +150,8 @@
   gap: 8px;
 }
 .tc-top .tc-btn {
-  position: static;
+  /* In the row's flow; relative so its larger touch area (::after) sits around it. */
+  position: relative;
   width: 44px;
   height: 36px;
   border-radius: 8px;
@@ -260,4 +274,18 @@ html:not(.touch) .touch-settings {
   html.touch .combat-stats {
     top: calc(max(8px, env(safe-area-inset-top)) + 88px);
   }
+}
+
+/* 탄약 표시 강조 (touch setting): a bigger count; low and empty in colour (as on the PC HUD's bar). */
+html.touch.tc-ammo-big .ammo-mag {
+  font-size: 26px;
+}
+html.touch.tc-ammo-big .ammo-reserve {
+  font-size: 15px;
+}
+html.touch.tc-ammo-big .hud.ammo-low .ammo-mag {
+  color: var(--c-accent, #e8a044);
+}
+html.touch.tc-ammo-big .hud.ammo-empty .ammo-mag {
+  color: #e5484d;
 }

@@ -21,7 +21,10 @@ import { ImpactEffects } from '../fx/ImpactEffects';
 import { createInputState } from '../input/InputState';
 import { loadControls, saveControls } from '../input/Controls';
 import { GameInput } from '../input/GameInput';
-import { isTouchDevice, loadTouchSettings, saveTouchSettings } from '../input/TouchSettings';
+import { loadTouchSettings, saveTouchSettings, type TouchSettings } from '../input/TouchSettings';
+import { loadTouchLayout, saveTouchLayout, type TouchLayout } from '../input/TouchLayout';
+import { TouchLayoutEditor } from '../ui/TouchLayoutEditor';
+import { classify, loadInputMode, readSignals, resolveTouch, saveInputMode, touchFromInput, urlTouchOverride, type DeviceInfo, type InputModeSetting } from '../input/DeviceMode';
 import { FirstPersonBody, type BodyState } from '../player/FirstPersonBody';
 import { PlayerController } from '../player/PlayerController';
 import { PlayerCombat, RESPAWN_DELAY, type PlayerDamageEvent } from '../player/PlayerCombat';
@@ -241,6 +244,16 @@ export class Game implements HostGame, ClientGame {
   buyMenuOpen = false;
   /** Team match: number key (0 = "1") of each entry of the player's loadout; null outside the team match. */
   private playerSlotKeys: number[] | null = null;
+  /** 조작 방식: auto (detected) / PC / 모바일, kept on this browser. */
+  inputModeSetting: InputModeSetting = 'auto';
+  /** What the device looks like (pointers, touch, screen). */
+  deviceInfo: DeviceInfo = { kind: 'desktop', touch: false, reason: '' };
+  /** Touch controls layout and feel (applied to the touch controls whenever they exist). */
+  touchSettings!: TouchSettings;
+  /** The player's own placement of the touch controls (버튼 배치 편집), null = default arrangement. */
+  touchLayout: TouchLayout | null = null;
+  layoutEditor!: TouchLayoutEditor;
+
   /** Looking through a weapon scope this frame (derived every frame from button, weapon and state). */
   scoped = false;
   /** Thrown utility on the current map (FLASH-01 / SMOKE-01 of the team match). */
@@ -503,22 +516,66 @@ export class Game implements HostGame, ClientGame {
     });
     this.minimap = new Minimap(this.hud.root);
     // PC: keyboard + mouse with the pointer lock; phone / tablet: the touch controls (same input record).
-    const touchMode = isTouchDevice();
+    // Which one: the player's choice (조작 방식, kept), else detected from the device's pointers, touch
+    // points, screen and orientation (DeviceMode), and in auto mode from the input actually used.
+    this.inputModeSetting = loadInputMode();
+    this.deviceInfo = classify(readSignals());
+    const touchMode = resolveTouch(this.inputModeSetting, this.deviceInfo);
     document.documentElement.classList.toggle('touch', touchMode);
-    this.input = new GameInput(this.renderer.domElement, this.hud.root, touchMode, (locked) => this.onLockChange(locked), {
-      onPause: () => this.input.release(),
-      onBoard: (held) => (this.scoreboardHeld = held),
-      onBuy: () => this.openBuyMenu(),
-      onMinimap: () => this.minimap.cycleZoom(),
+    this.touchSettings = loadTouchSettings();
+    this.input = new GameInput(
+      this.renderer.domElement,
+      this.hud.root,
+      touchMode,
+      (locked) => this.onLockChange(locked),
+      {
+        onPause: () => this.input.release(),
+        onBoard: (held) => (this.scoreboardHeld = held),
+        onBuy: () => this.openBuyMenu(),
+        onMinimap: () => this.minimap.cycleZoom(),
+      },
+      this.touchSettings,
+    );
+    this.touchLayout = loadTouchLayout();
+    if (this.input.touch) this.input.touch.layout = this.touchLayout;
+    this.input.touch?.applySettings(this.touchSettings);
+    this.applyTouchConveniences();
+    // The touch page is bound on every device (its sliders show once the touch controls are on).
+    this.hud.menu.setTouchControls(this.touchSettings, (t) => {
+      this.input.touch?.applySettings(t);
+      saveTouchSettings(t);
+      this.applyTouchConveniences();
     });
-    if (this.input.touch) {
-      const ts = loadTouchSettings();
-      this.input.touch.applySettings(ts);
-      this.hud.menu.setTouchControls(ts, (t) => {
-        this.input.touch?.applySettings(t);
-        saveTouchSettings(t);
-      });
-    }
+    // 버튼 배치 편집 (touch controls only).
+    this.layoutEditor = new TouchLayoutEditor(document.body);
+    this.hud.menu.setTouchLayoutEditor(() => this.openLayoutEditor());
+    this.hud.menu.setTouchLayoutState(!!this.touchLayout);
+    this.hud.menu.bindSelect<InputModeSetting>(
+      'input-mode',
+      [
+        { value: 'auto', label: '자동 감지' },
+        { value: 'pc', label: 'PC (키보드·마우스)' },
+        { value: 'mobile', label: '모바일 (터치)' },
+      ],
+      this.inputModeSetting,
+      (m) => {
+        this.inputModeSetting = m;
+        saveInputMode(m);
+        this.deviceInfo = classify(readSignals());
+        this.applyTouchMode(resolveTouch(m, this.deviceInfo));
+      },
+    );
+    this.showInputModeInfo();
+    // Auto mode: the kind of input actually used (outside play) switches the controls to match.
+    window.addEventListener(
+      'pointerdown',
+      (e) => {
+        if (this.inputModeSetting !== 'auto' || urlTouchOverride() !== null || this.input.active) return;
+        const t = touchFromInput(e, this.input.touchMode, readSignals());
+        if (t !== null) this.applyTouchMode(t);
+      },
+      true,
+    );
     // Controls page: sensitivity + key bindings, applied immediately, stored apart from the settings record.
     const controls = loadControls();
     this.input.sensitivity = controls.sensitivity;
@@ -786,13 +843,13 @@ export class Game implements HostGame, ClientGame {
         // (No pellet index = a single-bullet round.)
         if (!pellet) {
           this.weaponAudio.onShot(weapon, result, delay, this.camera, false);
-          this.viewModel.onShot(weapon.def.category);
+          this.viewModel.onShot(weapon.def.category, weapon.def.view.feel);
           // The spent case: out of the port now, or when the pump / bolt is worked.
           if (weapon.def.category !== 'melee') this.pendingCases.push({ at: this.fxClock + EJECT_DELAY[weapon.def.category], def: weapon.def });
         }
         if (weapon.def.category !== 'melee' && this.viewModel.muzzleInWorld(this.camera, _muzzleWorld)) {
           this.fx.tracer(_muzzleWorld, result.kind === 'miss' ? result.end : result.point);
-          if (!pellet) {
+          if (!pellet && !this.perfPriority) {
             this.muzzleLight.position.copy(_muzzleWorld);
             this.muzzleLightPeak = MUZZLE_LIGHT[weapon.def.category];
           }
@@ -1623,7 +1680,8 @@ export class Game implements HostGame, ClientGame {
     this.hud.setScoped(this.scoped);
     const touch = this.input.touch;
     if (touch) {
-      touch.zoomed = this.scoped;
+      // The ADS look speed (and aim smoothing) while scoped or aiming down sights.
+      touch.zoomed = this.scoped || this.inputState.aim;
       const tm = this.teamMatch;
       touch.setContext({
         use: !!tm?.bombMode && !!this.bomb,
@@ -1747,7 +1805,7 @@ export class Game implements HostGame, ClientGame {
         vy: player.velocity.y,
         grounded: player.grounded,
         crouching: player.crouching,
-        aim: this.scoped ? 1 : 0,
+        aim: this.aimAmount(),
       });
       _camRight.set(Math.cos(player.yaw), 0, -Math.sin(player.yaw));
       this.camera.position.addScaledVector(_camRight, m.x);
@@ -1776,7 +1834,8 @@ export class Game implements HostGame, ClientGame {
     this.weaponAudio.update(w);
     // Effects detail follows the graphics level in use (automatic quality may lower it in play).
     this.impacts.detail = this.quality;
-    this.viewModel.setEffectsDetail(this.quality);
+    // 프레임 안정 우선 (touch): the view model's flash without its smoke wisp.
+    this.viewModel.setEffectsDetail(this.perfPriority ? 'low' : this.quality);
     this.impacts.update(frameTime, this.camera);
     this.blood.update(frameTime, this.camera);
     this.squad?.updateVisuals(frameTime);
@@ -1801,7 +1860,7 @@ export class Game implements HostGame, ClientGame {
         grounded: player.grounded,
         crouching: player.crouching,
         vy: player.velocity.y,
-        aim: this.scoped ? 1 : 0,
+        aim: this.aimAmount(),
         stepPhase: this.cameraMotion.phase,
       },
       this.animState(w),
@@ -2029,7 +2088,13 @@ export class Game implements HostGame, ClientGame {
       const n = this.weapons.loadout.length;
       equipSlot = (this.weapons.slot + i.equipCycle + n) % n;
     }
-    return { fire: i.fire, reload: i.reload, equipSlot, equipLast: i.equipLast, inspect: i.inspect };
+    let fire = i.fire;
+    // 단발 무기 연속 발사 (touch setting): the trigger is let go between rounds while the weapon is not
+    // ready for the next one, so holding fires each round as soon as the weapon allows (its own rate;
+    // the host checks every round as before).
+    const w = this.weapons?.weapon;
+    if (fire && this.input.touchMode && this.touchSettings.fireRepeat === 1 && w && w.def.fireMode === 'semi' && w.timeSinceShot < w.fireInterval) fire = false;
+    return { fire, reload: i.reload, equipSlot, equipLast: i.equipLast, inspect: i.inspect };
   }
 
   /**
@@ -2177,7 +2242,7 @@ export class Game implements HostGame, ClientGame {
   /** Throws the player's spent cases that are due (from the port where it is now) and moves every case. */
   private updateCasings(dt: number, dead: boolean): void {
     this.fxClock += dt;
-    this.casings.enabled = this.quality !== 'low';
+    this.casings.enabled = this.quality !== 'low' && !this.perfPriority;
     const p = this.player;
     while (this.pendingCases.length && this.pendingCases[0].at <= this.fxClock) {
       const c = this.pendingCases.shift()!;
@@ -2403,7 +2468,7 @@ export class Game implements HostGame, ClientGame {
     this.hud.setStats(
       `${this.fps.toFixed(0)} fps (limit ${this.loop.frameLimit})  ·  ${info.calls} draws  ·  ${(info.triangles / 1000).toFixed(0)}k tris  ·  ${this.quality}${this.autoQuality ? ' (auto)' : ''}  ·  ${this.mapDef.id}\n` +
         timing +
-        `GPU ${this.gpuName}${isSoftwareRenderer(this.gpuName) ? '  (SOFTWARE — not a real GPU)' : ''}  ·  ${this.renderer.domElement.width}×${this.renderer.domElement.height}\n` +
+        `GPU ${this.gpuName}${isSoftwareRenderer(this.gpuName) ? '  (SOFTWARE — not a real GPU · GPU 성능 측정 불가)' : ''}  ·  ${this.renderer.domElement.width}×${this.renderer.domElement.height}\n` +
         `pos ${p.position.x.toFixed(2)} ${p.position.y.toFixed(2)} ${p.position.z.toFixed(2)}  ` +
         `spd ${Math.hypot(p.velocity.x, p.velocity.z).toFixed(2)}  ${p.grounded ? 'ground' : 'air'}${p.crouching ? ' crouch' : ''}` +
         (this.lastHit ? `\nlast hit ${this.lastHit}` : ''),
@@ -2428,6 +2493,82 @@ export class Game implements HostGame, ClientGame {
     cam.far = back * 2 + half;
     cam.updateProjectionMatrix();
     this.sun.target.updateMatrixWorld();
+  }
+
+  /**
+   * PC ↔ touch controls, now (조작 방식 changed, or auto mode saw the other kind of input). Playing
+   * stops and everything held is let go; the HUD follows the `touch` class.
+   */
+  applyTouchMode(on: boolean): void {
+    if (on === this.input.touchMode) {
+      this.showInputModeInfo();
+      return;
+    }
+    if (this.layoutEditor?.open) this.layoutEditor.close(false);
+    this.input.setTouchMode(on, this.touchSettings);
+    if (this.input.touch) this.input.touch.layout = this.touchLayout;
+    this.input.touch?.applySettings(this.touchSettings);
+    this.inputState.fire = this.inputState.aim = false;
+    document.documentElement.classList.toggle('touch', on);
+    this.showInputModeInfo();
+  }
+
+  /**
+   * 버튼 배치 편집: the menu steps aside, the touch controls show where they are (with the HUD behind,
+   * as in play) and take no input; the editor's handles move them. 저장 keeps the layout.
+   */
+  openLayoutEditor(): void {
+    const t = this.input.touch;
+    if (!t || this.layoutEditor.open) return;
+    this.input.release();
+    document.documentElement.classList.add('tl-editing');
+    const hud = this.hud.root;
+    const wasPlaying = hud.classList.contains('playing');
+    hud.classList.add('playing');
+    t.setEditing(true);
+    this.layoutEditor.show(t, this.touchLayout, this.touchSettings.opacity, {
+      onSave: (l) => {
+        this.touchLayout = l;
+        saveTouchLayout(l);
+        t.applyLayout(l);
+        this.hud.menu.setTouchLayoutState(!!l);
+      },
+      onClose: () => {
+        t.setEditing(false);
+        hud.classList.toggle('playing', wasPlaying);
+        document.documentElement.classList.remove('tl-editing');
+      },
+    });
+  }
+
+  /** Touch conveniences that show on the HUD (minimap size, ammo emphasis) follow the settings. */
+  private applyTouchConveniences(): void {
+    const t = this.touchSettings;
+    const root = document.documentElement.classList;
+    root.toggle('tc-map-large', t.minimapLarge === 1);
+    root.toggle('tc-ammo-big', t.ammoEmphasis === 1);
+  }
+
+  /**
+   * How steadied the view is: 1 through a scope; aiming down sights with any other gun (right mouse /
+   * the 조준 button) 0.6, a clear step from firing from the hip. Presentation only (sway, bob, the view
+   * model's kick): the round goes where it did.
+   */
+  private aimAmount(): number {
+    if (this.scoped) return 1;
+    const w = this.weapons?.weapon;
+    return this.inputState.aim && this.input.active && w && w.def.category !== 'melee' && !w.def.scope ? 0.6 : 0;
+  }
+
+  /** 프레임 안정 우선 (touch setting): decorative effects off while the touch controls are in use. */
+  private get perfPriority(): boolean {
+    return this.input.touchMode && this.touchSettings.perfPriority === 1;
+  }
+
+  private showInputModeInfo(): void {
+    const using = this.input.touchMode ? '터치 조작' : '키보드·마우스';
+    const forced = urlTouchOverride() !== null ? ' (링크로 고정)' : '';
+    this.hud.menu.setInputModeInfo(this.inputModeSetting === 'auto' ? `감지: ${this.deviceInfo.reason} → ${using}${forced}` : `직접 선택 → ${using}${forced} (감지: ${this.deviceInfo.reason})`);
   }
 
   private onLockChange(locked: boolean): void {

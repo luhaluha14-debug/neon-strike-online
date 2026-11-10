@@ -26,6 +26,12 @@ export class Hud {
   private readonly ammoMag: HTMLSpanElement;
   private readonly ammoReserve: HTMLSpanElement;
   private readonly weaponStatus: HTMLDivElement;
+  /** Low ammo / last magazine / reload done: its own line, over the empty status line (no layout change). */
+  private readonly ammoNote: HTMLDivElement;
+  /** "재장전 완료" shown until this time (performance.now), 0 = not. */
+  private reloadDoneUntil = 0;
+  private wasReloading = false;
+  private magBeforeReload: number | null = null;
   private readonly reloadPrompt: HTMLDivElement;
   private readonly reloadBar: HTMLDivElement;
   private readonly hitMarker: HTMLDivElement;
@@ -95,6 +101,7 @@ export class Hud {
         <div class="ammo"><span class="ammo-mag">30</span><span class="ammo-sep">/</span><span class="ammo-reserve">90</span></div>
         <div class="mag-track"><div class="mag-bar"></div></div>
         <div class="weapon-status"></div>
+        <div class="ammo-note" role="status" aria-live="polite"></div>
         <div class="reload-track"><div class="reload-bar"></div></div>
       </div>
       <div class="death" role="status" hidden>
@@ -116,6 +123,7 @@ export class Hud {
     this.ammoMag = this.root.querySelector('.ammo-mag')!;
     this.ammoReserve = this.root.querySelector('.ammo-reserve')!;
     this.weaponStatus = this.root.querySelector('.weapon-status')!;
+    this.ammoNote = this.root.querySelector('.ammo-note')!;
     this.reloadPrompt = this.root.querySelector('.reload-prompt')!;
     this.reloadBar = this.root.querySelector('.reload-bar')!;
     this.hitMarker = this.root.querySelector('.hitmarker')!;
@@ -369,7 +377,14 @@ export class Hud {
    * `reloadProgress` is 0..1 while reloading, null otherwise.
    */
   setWeapon(name: string, magazine: number | null, magazineSize: number, reserve: number, reloadProgress: number | null): void {
-    const key = `${name}|${magazine}|${reserve}|${reloadProgress === null ? 0 : 1}`;
+    // A finished reload: "재장전 완료" for a moment (same weapon, the reload ran to the end, the magazine filled).
+    const reloadingNow = reloadProgress !== null;
+    if (this.wasReloading && !reloadingNow && name === this.lastWeaponName && magazine !== null && magazine > (this.magBeforeReload ?? -1)) this.reloadDoneUntil = performance.now() + 1200;
+    if (reloadingNow && !this.wasReloading) this.magBeforeReload = magazine;
+    if (name !== this.lastWeaponName) this.reloadDoneUntil = 0;
+    this.wasReloading = reloadingNow;
+    const done = this.reloadDoneUntil > performance.now();
+    const key = `${name}|${magazine}|${reserve}|${reloadProgress === null ? 0 : 1}|${done ? 1 : 0}`;
     if (key !== this.lastAmmoKey) {
       this.lastAmmoKey = key;
       this.weaponName.textContent = name;
@@ -385,6 +400,8 @@ export class Hud {
         this.ammoReserve.textContent = '';
         this.root.classList.remove('ammo-low', 'ammo-empty', 'reloading', 'reload-needed');
         this.weaponStatus.textContent = '';
+        this.ammoNote.textContent = '';
+        this.root.classList.remove('reload-done');
         return;
       }
       this.ammoMag.textContent = String(magazine);
@@ -400,6 +417,7 @@ export class Hud {
       // A touch screen has a 장전 button, not an R key.
       const reloadHint = document.documentElement.classList.contains('touch') ? '장전 버튼' : 'R 재장전';
       this.reloadPrompt.textContent = reloadHint;
+      this.root.classList.toggle('reload-done', done && !reloading);
       this.weaponStatus.textContent = reloading
         ? '재장전 중'
         : empty
@@ -407,6 +425,7 @@ export class Hud {
             ? reloadHint
             : '탄약 없음'
           : '';
+      this.ammoNote.textContent = reloading || empty ? '' : done ? '재장전 완료' : low ? (reserve > 0 ? '탄약 부족' : '마지막 탄창') : '';
     }
     // Progress bar: quantize so the DOM is touched at most ~50 times per reload.
     const q = reloadProgress === null ? -1 : Math.round(reloadProgress * 50);

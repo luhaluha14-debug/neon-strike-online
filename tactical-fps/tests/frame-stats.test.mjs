@@ -94,4 +94,6 @@ test('the game feeds real frame times (a 300 ms stall reads 300 ms, not the 100 
   assert.match(r.text, /frame [\d.]+ ms avg \/ [\d.]+ p99 \/ [\d.]+ max \(\d+ frames\)/);
   // This headless browser renders with SwiftShader: the overlay must say so plainly.
   assert.match(r.text, /GPU .*SwiftShader.*SOFTWARE — not a real GPU/);
+  // Phase 25: and says so plainly: no GPU performance can be read from a software renderer.
+  assert.match(r.text, /GPU 성능 측정 불가/);
 });

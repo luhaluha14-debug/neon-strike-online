@@ -63,6 +63,7 @@ test('scope config: SR-01 zoom 4x and 0.4 sensitivity, DMR-01 (Phase 24) 3x and 
     dmr01: { zoom: 3, sensitivity: 0.5 },
     pis02: null,
     lmg01: null,
+    lmg02: null,
   });
 });
 

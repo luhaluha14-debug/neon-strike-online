@@ -414,7 +414,8 @@ test('9, 10: render scale and quality: applied at once and kept; a phone starts 
     });
     assert.deepEqual(
       { ...r.saved },
-      { stickX: 0.22, stickY: 0.3, buttonsX: 0.03, buttonsY: 0.12, buttonScale: 1.25, lookSensitivity: 1.6, adsSensitivity: 0.45, opacity: 0.5 },
+      // Phase 25 added the touch conveniences to the record: their defaults (all off) saved alongside.
+      { stickX: 0.22, stickY: 0.3, buttonsX: 0.03, buttonsY: 0.12, buttonScale: 1.25, lookSensitivity: 1.6, adsSensitivity: 0.45, opacity: 0.5, aimSmoothing: 0, fireToggle: 0, fireRepeat: 0, minimapLarge: 0, ammoEmphasis: 0, perfPriority: 0 },
     );
     assert.deepEqual(r.css, ['1.25', '0.5', '22%', '12vh']);
     assert.equal(r.slider, '1.6');
@@ -425,7 +426,23 @@ test('9, 10: render scale and quality: applied at once and kept; a phone starts 
     // 터치 조작 초기화.
     await page.evaluate(() => document.querySelector('.touch-reset').click());
     const reset = await page.evaluate(() => JSON.parse(localStorage.getItem('tactical-fps.touch.v1')));
-    assert.deepEqual(reset, { stickX: 0.16, stickY: 0.3, buttonsX: 0.03, buttonsY: 0.06, buttonScale: 1, lookSensitivity: 1, adsSensitivity: 0.7, opacity: 0.7 });
+    assert.deepEqual(reset, {
+      stickX: 0.16,
+      stickY: 0.3,
+      buttonsX: 0.03,
+      buttonsY: 0.06,
+      buttonScale: 1,
+      lookSensitivity: 1,
+      adsSensitivity: 0.7,
+      opacity: 0.7,
+      // Phase 25 conveniences: off by default.
+      aimSmoothing: 0,
+      fireToggle: 0,
+      fireRepeat: 0,
+      minimapLarge: 0,
+      ammoEmphasis: 0,
+      perfPriority: 0,
+    });
     // Garbage in storage: defaults within limits.
     await page.evaluate(() => localStorage.setItem('tactical-fps.touch.v1', JSON.stringify({ buttonScale: 99, opacity: 'x', lookSensitivity: -3 })));
     await page.reload();

@@ -92,7 +92,7 @@ test('buy menu: pictures rendered from the models (SMG-01 / SG-01 / PIS-01 inclu
   await page.waitForFunction(() => window.game.buyMenuOpen && !document.querySelector('.buy-menu').hidden);
   // Rendering is slow on the headless software renderer: allow time.
   await page.waitForFunction(
-    () => ['AR-01', 'SR-01', 'Knife', 'SMG-01', 'SG-01', 'PIS-01', 'AR-02', 'SMG-02', 'DMR-01', 'LMG-01', 'PIS-02'].every((id) => document.querySelector(`.buy-card[data-id="${id}"] .buy-art.has-image`)),
+    () => ['AR-01', 'SR-01', 'Knife', 'SMG-01', 'SG-01', 'PIS-01', 'AR-02', 'SMG-02', 'DMR-01', 'LMG-01', 'LMG-02', 'PIS-02'].every((id) => document.querySelector(`.buy-card[data-id="${id}"] .buy-art.has-image`)),
     null,
     { timeout: 120000 },
   );
@@ -103,8 +103,7 @@ test('buy menu: pictures rendered from the models (SMG-01 / SG-01 / PIS-01 inclu
     weapons: window.game.weapons.loadout.map((w) => w.def.id),
     model: window.game.viewModel.currentView?.object.name,
   }));
-  // LMG-02 (MG5) has no model yet: it keeps its icon like the equipment.
-  assert.deepEqual(r.noImage, ['ARMOR-01', 'FLASH-01', 'LMG-02', 'SMOKE-01'], 'equipment without a model keeps its icon');
+  assert.deepEqual(r.noImage, ['ARMOR-01', 'FLASH-01', 'SMOKE-01'], 'equipment without a model keeps its icon');
   assert.deepEqual(r.states, { 'SMG-01': 'buyable', 'SG-01': 'buyable', 'PIS-01': 'buyable' });
   assert.equal(r.buy, true);
   assert.deepEqual(r.weapons, ['smg01', 'karambit']);

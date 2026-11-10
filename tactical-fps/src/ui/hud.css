@@ -598,3 +598,20 @@ body {
   color: var(--hud-fg);
   font-weight: 700;
 }
+
+/* Reload finished (shown for a moment). */
+/* Low-ammo / reload-done notice: drawn over the (then empty) status line, taking no space of its own. */
+.ammo-note {
+  height: 0;
+  overflow: visible;
+  transform: translateY(-14px);
+  line-height: 14px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  color: var(--c-warn);
+  pointer-events: none;
+}
+.hud.reload-done .ammo-note {
+  color: var(--c-text, #f2f2f0);
+}

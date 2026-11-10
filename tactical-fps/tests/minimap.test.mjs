@@ -98,7 +98,10 @@ for (const map of ['warehouse', 'seoul']) {
         const centreOf = (v, min) => min + Math.floor(v - min) + 0.5;
         const solid = (x, z, kind) => [-1, 0, 1].every((dx) => [-1, 0, 1].every((dz) => layoutAt(l, x + dx, z + dz) === kind));
         const sites = l.sites;
-        const nearSite = (x, z) => sites.some((st) => Math.abs(x - st.x) < st.hx + 2 && Math.abs(z - st.z) < st.hz + 2);
+        // A site's outline and its letter (drawn at a fixed share of the canvas, W / 9 px, whatever the zoom:
+        // at the default zoom it reaches beyond the site itself) are not terrain: kept out of the samples.
+        const labelM = mm.size / 9 / mm.scale;
+        const nearSite = (x, z) => sites.some((st) => Math.abs(x - st.x) < Math.max(st.hx, labelM) + 2 && Math.abs(z - st.z) < Math.max(st.hz, labelM) + 2);
         // Every cell in the drawn area, in a fixed order: the solid floor cells and the solid wall cells.
         const floors = [];
         const walls = [];
@@ -222,11 +225,22 @@ test('enemies: only while the player sees them (not behind a wall, not behind th
         if (!behind) continue;
         const toBehind = behind.clone().setY(behind.y + 1.4).sub(eye);
         if (col.raycast(eye, toBehind.clone().normalize(), toBehind.length()) === null) continue;
+        // The spot in the open really is in the open: walkable, on the player's floor, nothing low (a crate, a
+        // rail) between the eye and the bot standing there.
+        const on = g.nav.cellAt(open.x, open.z);
+        if (on < 0 || Number.isNaN(g.nav.floor[on]) || Math.abs(g.nav.floor[on] - p.y) > 0.3) continue;
+        let clear = true;
+        for (const k of [0.75, 0.95]) {
+          const to = open.clone().setY(p.y + 1.8 * k).sub(eye);
+          if (col.raycast(eye, to.clone().normalize(), to.length()) !== null) clear = false;
+        }
+        if (!clear) continue;
         setup = { p, yaw: a, behind, open, back: p.clone().addScaledVector(dir, -4) };
       }
       if (!setup) return { none: true };
       const seen = () => {
-        window.T.run(8);
+        // 0.2 s: at least one sight check (every 0.1 s) and one minimap draw after it (15 a second).
+        window.T.run(12);
         const v = g.enemySeen.get(bot.id);
         return { n: g.minimap.drawn.enemies, at: v ? [[v.x, v.z]] : [] };
       };
