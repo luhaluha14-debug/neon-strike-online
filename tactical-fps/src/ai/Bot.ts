@@ -19,10 +19,29 @@ export interface Combatant {
   readonly team?: string;
 }
 
-/** Skill knobs: how fast a bot reacts and how well it aims. */
+/**
+ * Skill knobs: how fast a bot reacts and how well it aims. A bot aims the way a person does:
+ * it reacts after a while that varies (longer when it must first turn to the target, a little
+ * longer far away), its aim trails a moving target, it misses more at range, and a long burst
+ * wanders. It never sees more than before (field of view, range and walls are as they were),
+ * and its weapons are the players' (damage, recoil, spread untouched).
+ */
 export interface BotSkill {
-  /** Seconds from first sight to the first shot. */
+  /** Seconds from first sight to the first shot (the middle of a spread; see reactionSpread). */
   reaction: number;
+  /** Reaction varies by this fraction either way (0.3: 0.7× … 1.3×). */
+  reactionSpread: number;
+  /** Extra reaction when the target first appears off to the side (more than ~15° off the view): the turn. */
+  reactionTurn: number;
+  /** Extra reaction per metre of distance (a far figure takes longer to make out). */
+  reactionPerMetre: number;
+  /** How fast the aim follows the target (1/s): lower trails a moving target more. */
+  trackRate: number;
+  /** Aim error grows by this fraction per metre beyond 15 m. */
+  rangeFalloff: number;
+  /** Aim error added per round fired in one burst (rad), at most burstDriftMax. */
+  burstDrift: number;
+  burstDriftMax: number;
   /** Aim error (rad) when a target is acquired, shrinking toward `aimBest` while tracking it. */
   aimStart: number;
   aimBest: number;
@@ -32,7 +51,15 @@ export interface BotSkill {
   sightRange: number;
 }
 
-export const DEFAULT_SKILL: BotSkill = { reaction: 0.6, aimStart: 0.16, aimBest: 0.075, turnSpeed: 5.5, sightRange: 70 };
+export type BotDifficulty = 'easy' | 'normal' | 'hard';
+
+/** Bot skill per difficulty. Turn speed and sight range are the same at every level (looking around and seeing are not handicapped). */
+export const BOT_DIFFICULTY: Record<BotDifficulty, BotSkill> = {
+  easy: { reaction: 0.75, reactionSpread: 0.35, reactionTurn: 0.28, reactionPerMetre: 0.005, aimStart: 0.24, aimBest: 0.13, turnSpeed: 5.5, sightRange: 70, trackRate: 5, rangeFalloff: 0.02, burstDrift: 0.011, burstDriftMax: 0.06 },
+  normal: { reaction: 0.55, reactionSpread: 0.3, reactionTurn: 0.2, reactionPerMetre: 0.004, aimStart: 0.17, aimBest: 0.08, turnSpeed: 5.5, sightRange: 70, trackRate: 9, rangeFalloff: 0.012, burstDrift: 0.008, burstDriftMax: 0.045 },
+  hard: { reaction: 0.42, reactionSpread: 0.25, reactionTurn: 0.14, reactionPerMetre: 0.003, aimStart: 0.15, aimBest: 0.068, turnSpeed: 5.5, sightRange: 70, trackRate: 14, rangeFalloff: 0.008, burstDrift: 0.005, burstDriftMax: 0.03 },
+};
+export const DEFAULT_SKILL: BotSkill = BOT_DIFFICULTY.normal;
 
 type Mode = 'wander' | 'engage' | 'search';
 
@@ -158,6 +185,12 @@ export class Bot {
   private lostFor = 0;
   private aimError = new THREE.Vector2();
   private aimErrorSize = 0;
+  /** Where the aim is now (it trails the target: see BotSkill.trackRate). */
+  private readonly aimPoint = new THREE.Vector3();
+  /** Reaction this engagement needs (seconds of sight before the first round). */
+  private reactionNeed = 0;
+  /** Rounds fired in the current burst (the aim wanders as a burst goes on). */
+  private burstShots = 0;
   private burstLeft = 0;
   private burstPause = 0;
   private strafeDir = 1;
@@ -175,7 +208,7 @@ export class Bot {
     hitscan: HitscanSystem,
     loadout: readonly WeaponDefinition[],
     private readonly nav: NavGrid,
-    readonly skill: BotSkill = DEFAULT_SKILL,
+    public skill: BotSkill = DEFAULT_SKILL,
     private readonly rand: () => number = Math.random,
   ) {
     this.controller = new PlayerController(world);
@@ -303,10 +336,17 @@ export class Bot {
     if (this.mode === 'engage' && t && t.alive) {
       this.seenFor += dt;
       // Aim error shrinks while tracking (about 1 s from acquire to steady aim).
-      this.aimErrorSize = Math.max(this.skill.aimBest, this.aimErrorSize - dt * (this.skill.aimStart - this.skill.aimBest));
-      _aim.set(t.position.x, t.position.y + t.height * 0.72, t.position.z).sub(_eye);
-      wantYaw = Math.atan2(-_aim.x, -_aim.z) + this.aimError.x * this.aimErrorSize;
-      wantPitch = Math.atan2(_aim.y, Math.hypot(_aim.x, _aim.z)) + this.aimError.y * this.aimErrorSize;
+      const sk = this.skill;
+      this.aimErrorSize = Math.max(sk.aimBest, this.aimErrorSize - dt * (sk.aimStart - sk.aimBest));
+      // The aim follows the target with a lag (a moving target is led by nobody: the aim trails it).
+      _aim.set(t.position.x, t.position.y + t.height * 0.72, t.position.z);
+      this.aimPoint.lerp(_aim, 1 - Math.exp(-sk.trackRate * dt));
+      _aim.copy(this.aimPoint).sub(_eye);
+      const dist = _aim.length();
+      // Further away, a wider miss; a long burst wanders more.
+      const err = this.aimErrorSize * (1 + Math.max(0, dist - 15) * sk.rangeFalloff) + Math.min(sk.burstDriftMax, this.burstShots * sk.burstDrift);
+      wantYaw = Math.atan2(-_aim.x, -_aim.z) + this.aimError.x * err;
+      wantPitch = Math.atan2(_aim.y, Math.hypot(_aim.x, _aim.z)) + this.aimError.y * err;
     } else {
       const next = this.nextWaypoint();
       if (next) wantYaw = Math.atan2(-(next.x - c.position.x), -(next.z - c.position.z));
@@ -395,7 +435,7 @@ export class Bot {
     const w = this.weapons.weapon;
     this.command.reload = false;
     this.command.fire = false;
-    if (this.mode === 'engage' && t && t.alive && this.blindTime <= 0 && this.seenFor >= this.skill.reaction && w.status === 'ready' && w.magazine > 0) {
+    if (this.mode === 'engage' && t && t.alive && this.blindTime <= 0 && this.seenFor >= this.reactionNeed && w.status === 'ready' && w.magazine > 0) {
       const err = Math.abs(wrap(wantYaw - c.yaw)) + Math.abs(wantPitch - c.pitch);
       const steady = this.peekTimer <= 0 && c.grounded && Math.hypot(c.velocity.x, c.velocity.z) < FIRE_MAX_SPEED;
       if (this.burstPause > 0) this.burstPause -= dt;
@@ -403,7 +443,8 @@ export class Bot {
         this.command.fire = true;
         this.burstLeft -= dt;
         if (this.burstLeft <= 0) {
-          // Short bursts with pauses (recoil grows over a long spray).
+          // Short bursts with pauses (recoil grows over a long spray); the next one starts steady again.
+          this.burstShots = 0;
           this.burstLeft = 0.2 + this.rand() * 0.3;
           this.burstPause = 0.18 + this.rand() * 0.35;
           this.rollAimError();
@@ -419,7 +460,10 @@ export class Bot {
     const fired = this.weapons.shotsFired;
     this.weapons.step(this.command, dt);
     // A fresh aim error for every round, so a burst scatters around the target instead of stacking on one spot.
-    if (this.weapons.shotsFired !== fired) this.rollAimError();
+    if (this.weapons.shotsFired !== fired) {
+      this.burstShots++;
+      this.rollAimError();
+    }
   }
 
   /** Perception + decisions, a few times a second. */
@@ -452,6 +496,7 @@ export class Bot {
         this.seenFor = 0;
         this.aimErrorSize = this.skill.aimStart;
         this.rollAimError();
+        this.acquire(best, bestD);
       }
       this.target = best;
       this.mode = 'engage';
@@ -561,6 +606,21 @@ export class Bot {
       this.pathIndex++;
     }
     return null;
+  }
+
+  /** A new target: how long this reaction takes (varies; longer to turn to it, a bit longer far away); the aim starts where it is. */
+  private acquire(e: Combatant, dist: number): void {
+    const sk = this.skill;
+    const c = this.controller;
+    const off = Math.abs(wrap(Math.atan2(-(e.position.x - c.position.x), -(e.position.z - c.position.z)) - c.yaw));
+    this.reactionNeed = sk.reaction * (1 + (this.rand() * 2 - 1) * sk.reactionSpread) + dist * sk.reactionPerMetre + (off > 0.26 ? sk.reactionTurn : 0);
+    this.aimPoint.set(e.position.x, e.position.y + e.height * 0.72, e.position.z);
+    this.burstShots = 0;
+  }
+
+  /** Difficulty from the match settings (easy / normal / hard). */
+  setDifficulty(d: BotDifficulty): void {
+    this.skill = BOT_DIFFICULTY[d] ?? DEFAULT_SKILL;
   }
 
   private rollAimError(): void {

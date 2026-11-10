@@ -38,7 +38,15 @@ export type SoundId =
   | 'case.brass'
   | 'case.shell'
   | 'step'
-  | 'land';
+  | 'land'
+  | 'ar02.shot'
+  | 'smg02.shot'
+  | 'smg02.charge'
+  | 'dmr01.shot'
+  | 'pis02.shot'
+  | 'lmg01.shot'
+  | 'lmg.cover'
+  | 'lmg.belt';
 
 /** Number of pre-rendered variants per sound. */
 export const VARIANTS: Record<SoundId, number> = {
@@ -75,6 +83,14 @@ export const VARIANTS: Record<SoundId, number> = {
   'case.shell': 2,
   'step': 4,
   'land': 2,
+  'ar02.shot': 4,
+  'smg02.shot': 4,
+  'smg02.charge': 1,
+  'dmr01.shot': 3,
+  'pis02.shot': 3,
+  'lmg01.shot': 4,
+  'lmg.cover': 2,
+  'lmg.belt': 1,
 };
 
 interface GunshotRecipe {
@@ -161,6 +177,114 @@ const PIS01_SHOT: GunshotRecipe = {
     [0.12, 0.04],
   ],
 };
+
+// ---- Phase 24 arsenal: each its own voice, built from the same parts. -------------------------------
+
+/** HK416-type 5.56: like AR-01, a little brighter and tighter (short-stroke piston: a crisper action). */
+const AR02_SHOT: GunshotRecipe = {
+  length: 0.9,
+  crack: { highpass: 2600, tau: 0.0033, gain: 0.68 },
+  body: { lowpass: 2150, tau: 0.018, gain: 1.0 },
+  thump: { f0: 190, f1: 95, tau: 0.026, gain: 0.26 },
+  mech: { freq: 3500, delay: 0.01, tau: 0.009, gain: 0.17 },
+  tail: { lowpass: 1000, attack: 0.024, tau: 0.19, gain: 0.19 },
+  reflections: [
+    [0.07, 0.11],
+    [0.145, 0.055],
+  ],
+};
+
+/** .45 ACP SMG: a duller, rounder pop than 9 mm (slower bullet, less crack), a heavier bolt clack. */
+const SMG02_SHOT: GunshotRecipe = {
+  length: 0.75,
+  crack: { highpass: 2200, tau: 0.003, gain: 0.42 },
+  body: { lowpass: 1900, tau: 0.017, gain: 0.9 },
+  thump: { f0: 170, f1: 85, tau: 0.026, gain: 0.27 },
+  mech: { freq: 3200, delay: 0.009, tau: 0.008, gain: 0.2 },
+  tail: { lowpass: 950, attack: 0.02, tau: 0.15, gain: 0.15 },
+  reflections: [
+    [0.065, 0.1],
+    [0.13, 0.05],
+  ],
+};
+
+/** 7.62 semi-auto: a big, sharp report and a long tail, between the rifle and the bolt action. */
+const DMR01_SHOT: GunshotRecipe = {
+  length: 1.5,
+  crack: { highpass: 2200, tau: 0.005, gain: 0.9 },
+  body: { lowpass: 1800, tau: 0.032, gain: 1.0 },
+  thump: { f0: 150, f1: 72, tau: 0.04, gain: 0.3 },
+  mech: { freq: 2900, delay: 0.013, tau: 0.01, gain: 0.14 },
+  tail: { lowpass: 800, attack: 0.035, tau: 0.36, gain: 0.27 },
+  reflections: [
+    [0.095, 0.14],
+    [0.2, 0.08],
+    [0.34, 0.035],
+  ],
+};
+
+/** P220-family 9 mm: close to PIS-01, a slightly fuller body (heavier slide). */
+const PIS02_SHOT: GunshotRecipe = {
+  length: 0.6,
+  crack: { highpass: 2900, tau: 0.0026, gain: 0.65 },
+  body: { lowpass: 2450, tau: 0.013, gain: 0.78 },
+  thump: { f0: 220, f1: 115, tau: 0.017, gain: 0.17 },
+  mech: { freq: 4000, delay: 0.0065, tau: 0.006, gain: 0.2 },
+  tail: { lowpass: 1080, attack: 0.02, tau: 0.12, gain: 0.13 },
+  reflections: [
+    [0.06, 0.09],
+    [0.12, 0.04],
+  ],
+};
+
+/** M249-type 5.56 belt-fed: a rifle report with a heavier, lower action (open bolt slamming forward). */
+const LMG01_SHOT: GunshotRecipe = {
+  length: 1.0,
+  crack: { highpass: 2300, tau: 0.0036, gain: 0.72 },
+  body: { lowpass: 1950, tau: 0.021, gain: 1.0 },
+  thump: { f0: 175, f1: 85, tau: 0.03, gain: 0.29 },
+  mech: { freq: 3000, delay: 0.012, tau: 0.01, gain: 0.15 },
+  tail: { lowpass: 900, attack: 0.026, tau: 0.22, gain: 0.22 },
+  reflections: [
+    [0.075, 0.12],
+    [0.155, 0.06],
+  ],
+};
+
+/** UMP-type cocking knob: pulled back along its slot and slapped home (a harder, hollower clack). */
+function smgSlap(seed: number): Float32Array {
+  const rand = rng(seed);
+  const out = buffer(0.32);
+  mix(out, slide(rand, 0.08, 1900, 0.35), 1, 0);
+  mix(out, click(rand, 1700, 0.01, 0.7), 1, 0.08);
+  const knock = biquad(noise(0.06, rand), 'lowpass', 1300);
+  shape(knock, expEnv(0.0005, 0.016));
+  mix(out, knock, 0.9, 0.14);
+  mix(out, click(rand, 1350, 0.016, 1), 1, 0.14);
+  return finish(out, 0.7, 1.2);
+}
+
+/** Feed cover of a belt-fed gun: the latch, the hinge swinging, the cover striking its stop. */
+function lmgCover(seed: number): Float32Array {
+  const rand = rng(seed);
+  const out = buffer(0.4);
+  mix(out, click(rand, 2700, 0.006, 0.6), 1, 0);
+  mix(out, slide(rand, 0.1, 1300, 0.25), 1, 0.02);
+  const hit = biquad(noise(0.08, rand), 'bandpass', 1100, 1.4);
+  shape(hit, expEnv(0.0005, 0.02));
+  mix(out, hit, 1, 0.12);
+  mix(out, click(rand, 1500, 0.014, 0.9), 1, 0.12);
+  return finish(out, 0.65, 1.1);
+}
+
+/** A belt laid in the feed tray: a quick run of link-on-link rattles, then the round seated in the tray. */
+function lmgBelt(seed: number): Float32Array {
+  const rand = rng(seed);
+  const out = buffer(0.36);
+  for (let k = 0; k < 7; k++) mix(out, click(rand, 3400 + rand() * 1600, 0.003, 0.35 + rand() * 0.2, 0.025), 1, k * 0.022 + rand() * 0.006);
+  mix(out, click(rand, 2100, 0.01, 0.8), 1, 0.2);
+  return finish(out, 0.5, 1);
+}
 
 function gunshot(r: GunshotRecipe, seed: number): Float32Array {
   const rand = rng(seed);
@@ -555,6 +679,22 @@ export function renderSound(id: SoundId, variant: number, opts: { srFireInterval
       return sgPump(seed);
     case 'pis01.shot':
       return gunshot(PIS01_SHOT, seed);
+    case 'ar02.shot':
+      return gunshot(AR02_SHOT, seed);
+    case 'smg02.shot':
+      return gunshot(SMG02_SHOT, seed);
+    case 'smg02.charge':
+      return smgSlap(seed);
+    case 'dmr01.shot':
+      return gunshot(DMR01_SHOT, seed);
+    case 'pis02.shot':
+      return gunshot(PIS02_SHOT, seed);
+    case 'lmg01.shot':
+      return gunshot(LMG01_SHOT, seed);
+    case 'lmg.cover':
+      return lmgCover(seed);
+    case 'lmg.belt':
+      return lmgBelt(seed);
     case 'sr01.bolt':
       return srBolt(seed, opts.srFireInterval);
     case 'karambit.swing':

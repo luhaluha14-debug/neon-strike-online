@@ -6,7 +6,7 @@ import type { ArmPose, HandGripProfile } from './view/HandGrip';
 export type FireMode = 'auto' | 'semi';
 
 /** Drives view animation style and HUD; behavior itself comes from the numbers below. */
-export type WeaponCategory = 'rifle' | 'sniper' | 'smg' | 'shotgun' | 'pistol' | 'melee';
+export type WeaponCategory = 'rifle' | 'sniper' | 'dmr' | 'smg' | 'shotgun' | 'pistol' | 'lmg' | 'melee';
 
 export interface RecoilProfile {
   /** Upward camera kick of the first shot (radians). */
@@ -96,6 +96,12 @@ export interface GltfFit {
   /** File nodes gathered into the part the reload animation drops out. */
   magazine?: readonly string[];
   /**
+   * Origin of that gathered magazine (model space; default the model origin). The support hand takes the
+   * magazine 11 cm below it on a reload, so it is the magazine's top (or, for a pouch, where the hand
+   * holds it from underneath).
+   */
+  magazinePivot?: Vec3;
+  /**
    * One-piece models (no magazine node): where the magazine sits, for the support hand to reach on a
    * reload (nothing on the model moves).
    */
@@ -106,6 +112,14 @@ export interface GltfFit {
   ejectPort?: Vec3;
   /** File nodes gathered into the bolt (cycled after each shot), pivoting on the bore axis at `pivot`. */
   bolt?: { nodes: readonly string[]; pivot: Vec3 };
+  /**
+   * Parted files (one node per part, under their own names): nodes gathered into a group named for the game
+   * before anything is looked up, so the moving parts below find it (`Slide`, `Trigger`, `ChargingHandle`,
+   * `FeedCover`: hinged at `pivot`, opened on a belt-fed reload). `rotation` (rad, model space, about
+   * `pivot`) turns the group once when the view is built (e.g. a bipod folded under the barrel), `scale`
+   * (its own axes, before the turn) shortens it (telescopic legs collapsed).
+   */
+  groups?: readonly { name: string; nodes: readonly string[]; pivot?: Vec3; rotation?: Vec3; scale?: Vec3 }[];
   /** Glove shape around the grip (defaults to a rifle pistol grip). */
   hand?: HandGripProfile;
   armPose?: ArmPose;

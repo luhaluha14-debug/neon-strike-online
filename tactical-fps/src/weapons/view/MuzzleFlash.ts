@@ -30,6 +30,10 @@ export const FLASH: Record<Exclude<WeaponCategory, 'melee'>, FlashProfile> = {
   pistol: { core: 0.11, prongLength: 0.07, prongWidth: 0.04, life: 0.04, sideJets: 0, smoke: 0.06 },
   shotgun: { core: 0.27, prongLength: 0.2, prongWidth: 0.11, life: 0.06, sideJets: 0, smoke: 0.15 },
   sniper: { core: 0.26, prongLength: 0.24, prongWidth: 0.07, life: 0.06, sideJets: 0.12, smoke: 0.14 },
+  // 7.62 through a long flash hider: larger than the rifle's, no brake.
+  dmr: { core: 0.22, prongLength: 0.2, prongWidth: 0.065, life: 0.055, sideJets: 0, smoke: 0.12 },
+  // 5.56 belt: the rifle's flash, a little bigger, the smoke building through a burst.
+  lmg: { core: 0.19, prongLength: 0.17, prongWidth: 0.06, life: 0.045, sideJets: 0, smoke: 0.11 },
 };
 
 /** Effects detail: low = flash only (no smoke). */

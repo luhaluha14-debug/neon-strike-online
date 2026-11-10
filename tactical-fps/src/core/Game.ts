@@ -20,7 +20,8 @@ import { ShellCasings } from '../fx/ShellCasings';
 import { ImpactEffects } from '../fx/ImpactEffects';
 import { createInputState } from '../input/InputState';
 import { loadControls, saveControls } from '../input/Controls';
-import { KeyboardMouseInput } from '../input/KeyboardMouseInput';
+import { GameInput } from '../input/GameInput';
+import { isTouchDevice, loadTouchSettings, saveTouchSettings } from '../input/TouchSettings';
 import { FirstPersonBody, type BodyState } from '../player/FirstPersonBody';
 import { PlayerController } from '../player/PlayerController';
 import { PlayerCombat, RESPAWN_DELAY, type PlayerDamageEvent } from '../player/PlayerCombat';
@@ -59,6 +60,9 @@ import { MultiplayerPanel } from '../ui/MultiplayerPanel';
 import { Lobby } from '../ui/Lobby';
 import { LobbyBackdrop } from './LobbyBackdrop';
 import { KillConfirm } from '../game/KillConfirm';
+import { TrainingStats, type CombatStats } from '../game/CombatStats';
+import { Minimap, type MinimapDot } from '../ui/Minimap';
+import { buildMinimapLayout } from '../world/MinimapLayout';
 import { CameraMotion } from '../player/CameraMotion';
 import { FrameStats, isSoftwareRenderer, webglRenderer } from './FrameStats';
 import { AllyMarkers } from '../fx/AllyMarkers';
@@ -79,7 +83,7 @@ import type { ToClient } from '../net/GameMessages';
 import { applyBomb, applyMatch, applyTeamMatch, type BombStateMsg, type MatchState, type TeamMatchState } from '../net/Mirror';
 
 /** When the case leaves after a round (s): at once, or when the pump (shotgun) / bolt (sniper) is worked. */
-const EJECT_DELAY: Record<Exclude<WeaponCategory, 'melee'>, number> = { rifle: 0, smg: 0, pistol: 0, shotgun: 0.22, sniper: 0.62 };
+const EJECT_DELAY: Record<Exclude<WeaponCategory, 'melee'>, number> = { rifle: 0, smg: 0, pistol: 0, shotgun: 0.22, sniper: 0.62, dmr: 0, lmg: 0 };
 /** Case throw (m/s): out of the port's side, up, back toward the shooter. */
 const EJECT: Record<Exclude<WeaponCategory, 'melee'>, { side: number; up: number; back: number }> = {
   rifle: { side: 1.8, up: 1.5, back: 0.3 },
@@ -87,9 +91,12 @@ const EJECT: Record<Exclude<WeaponCategory, 'melee'>, { side: number; up: number
   pistol: { side: 1.1, up: 2.0, back: 0.3 },
   shotgun: { side: 1.5, up: 1.1, back: 0.2 },
   sniper: { side: 1.2, up: 1.1, back: 0.3 },
+  dmr: { side: 2.0, up: 1.4, back: 0.3 },
+  // Belt-fed: cases (and links) drop out under the receiver.
+  lmg: { side: 0.35, up: -1.4, back: 0.15 },
 };
 /** Peak of the world muzzle light per weapon (high quality). */
-const MUZZLE_LIGHT: Record<Exclude<WeaponCategory, 'melee'>, number> = { rifle: 6, smg: 4.5, pistol: 3.5, shotgun: 9, sniper: 9 };
+const MUZZLE_LIGHT: Record<Exclude<WeaponCategory, 'melee'>, number> = { rifle: 6, smg: 4.5, pistol: 3.5, shotgun: 9, sniper: 9, dmr: 7.5, lmg: 6.5 };
 const DOWN = new THREE.Vector3(0, -1, 0);
 /** Ally chevron colour per team (the team colours of the HUD, a touch lighter to read on dark walls). */
 const TEAM_MARKER_COLOR: Record<'blue' | 'red', number> = { blue: 0x6aa2ff, red: 0xff7a6a };
@@ -101,7 +108,7 @@ const _camRight = new THREE.Vector3();
 const _motionEvents = { steps: 0, landing: 0 };
 const UP = new THREE.Vector3(0, 1, 0);
 /** World muzzle flash size of someone else's shot, per kind of weapon (CombatEffects.flash). */
-const WORLD_FLASH: Record<Exclude<WeaponCategory, 'melee'>, number> = { rifle: 1, smg: 0.75, pistol: 0.65, shotgun: 1.5, sniper: 1.6 };
+const WORLD_FLASH: Record<Exclude<WeaponCategory, 'melee'>, number> = { rifle: 1, smg: 0.75, pistol: 0.65, shotgun: 1.5, sniper: 1.6, dmr: 1.3, lmg: 1.1 };
 const _casePort = new THREE.Vector3();
 const _caseVel = new THREE.Vector3();
 const _caseRight = new THREE.Vector3();
@@ -132,7 +139,7 @@ const VOLUME_OPTIONS: readonly { value: number; label: string }[] = [
   { value: 0.75, label: '75%' },
   { value: 1, label: '100%' },
 ];
-import { saveSettings, type Settings } from './Settings';
+import { loadRenderScale, RENDER_SCALE_OPTIONS, saveRenderScale, saveSettings, type Settings } from './Settings';
 
 const _muzzleWorld = new THREE.Vector3();
 const _specEye = new THREE.Vector3();
@@ -146,6 +153,24 @@ const TEAM_ROSTER: readonly SquadMember[] = [
   ...['Alpha', 'Bravo', 'Charlie', 'Delta'].map((name) => ({ name, team: 'blue' })),
   ...['Echo', 'Foxtrot', 'Golf', 'Hotel', 'India'].map((name) => ({ name, team: 'red' })),
 ];
+/** 1대1: one opponent seat (a room member plays it; its AI never fights). */
+const DUEL_ROSTER: readonly SquadMember[] = [{ name: '상대', team: 'red' }];
+/** 1대1 rules: rounds to elimination, short prep (no buying), the deathmatch loadout. */
+const DUEL_RULES = { roundsToWin: 5, roundTime: 90, prepTime: 4 } as const;
+/** 1대1: seconds the match waits for a dropped opponent to rejoin before it ends in the other's favour. */
+export const DUEL_REJOIN_SECONDS = 30;
+
+/** Minimap: frames per second it is drawn, how often (s) the player's sight of enemies is checked, how long (s) a seen enemy stays where it was last seen. */
+const MINIMAP_FPS = 15;
+const MINIMAP_SIGHT_EVERY = 0.1;
+const MINIMAP_MEMORY = 1.5;
+/** Farthest an enemy is made out for the minimap (m): the bots' sight range. */
+const MINIMAP_SIGHT_RANGE = 70;
+const _frustum = new THREE.Frustum();
+const _vp = new THREE.Matrix4();
+const _chest = new THREE.Vector3();
+const _rayDir = new THREE.Vector3();
+
 /** Seconds after dying before the team match camera switches to a living teammate. */
 const SPECTATE_AFTER = 1.5;
 
@@ -161,6 +186,8 @@ export class Game implements HostGame, ClientGame {
     return this.qualityLevel;
   }
   private qualityLevel: QualityLevel;
+  /** Render resolution scale (settings: 해상도 배율), read before the renderer is made. */
+  private renderScale = loadRenderScale();
   /** Automatic quality measuring this session (null: the level was chosen by hand or in the link). */
   readonly autoQuality: AutoQualityMonitor | null;
   mapDef: MapDefinition;
@@ -172,6 +199,18 @@ export class Game implements HostGame, ClientGame {
   weapons: WeaponSystem | null = null;
   /** Training dummies of the current map. */
   trainingRange: TrainingRange | null = null;
+  /** Tactical minimap (all modes; enemies only as seen by the player: see updateMinimap). */
+  readonly minimap: Minimap;
+  private minimapMapId: string | null = null;
+  private minimapClock = 0;
+  private minimapSightClock = 0;
+  /** Enemies the player has seen: where and when (s, fxClock) it last saw each. */
+  private readonly enemySeen = new Map<string, { x: number; z: number; at: number }>();
+  private readonly allyDots: MinimapDot[] = Array.from({ length: 16 }, () => ({ x: 0, z: 0, alpha: 1 }));
+  private readonly enemyDots: MinimapDot[] = Array.from({ length: 16 }, () => ({ x: 0, z: 0, alpha: 1 }));
+
+  /** Training's own combat record (the dummies), apart from any match's; started again with each training session. */
+  readonly trainingStats = new TrainingStats();
   /** The local player's health, death and respawn timer (bullets reach it through the hitscan). */
   combat: PlayerCombat | null = null;
   /** Spawn point used by the last (re)spawn. */
@@ -306,7 +345,7 @@ export class Game implements HostGame, ClientGame {
   /** Tick of the first sound-producing shot in this frame (-1 = none yet). */
   private frameShotTick = -1;
 
-  private readonly input: KeyboardMouseInput;
+  private readonly input: GameInput;
   private readonly inputState = createInputState();
   /** What a dead player "presses": nothing. */
   private readonly deadInput = createInputState();
@@ -359,7 +398,7 @@ export class Game implements HostGame, ClientGame {
     const preset = QUALITY_PRESETS[quality];
 
     this.renderer = new THREE.WebGLRenderer({ antialias: preset.antialias, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, preset.pixelRatioCap));
+    this.renderer.setPixelRatio(this.pixelRatio(preset.pixelRatioCap));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -444,6 +483,12 @@ export class Game implements HostGame, ClientGame {
     // Weapons page: picking a card equips that loadout slot through the normal weapon system.
     this.hud.setWeaponOptions(DEFAULT_LOADOUT.map(menuWeapon), (slot) => this.weapons?.equipSlot(slot));
     this.hud.setWeaponOptionsEnabled(false);
+    this.hud.menu.bindSelect('render-scale', RENDER_SCALE_OPTIONS.map((v) => ({ value: v, label: v === 1 ? '100% (기본)' : `${Math.round(v * 100)}%` })), this.renderScale, (v) => {
+      this.renderScale = v;
+      saveRenderScale(v);
+      this.renderer.setPixelRatio(this.pixelRatio(QUALITY_PRESETS[this.qualityLevel].pixelRatioCap));
+      this.onResize();
+    });
     this.hud.menu.bindSelect('volume', VOLUME_OPTIONS, settings.volume, (v) => {
       this.settings.volume = v;
       saveSettings(this.settings);
@@ -456,7 +501,24 @@ export class Game implements HostGame, ClientGame {
     this.hud.menu.onPageShown((page) => {
       if (page === 'loadout') this.renderThumbnails();
     });
-    this.input = new KeyboardMouseInput(this.renderer.domElement, (locked) => this.onLockChange(locked));
+    this.minimap = new Minimap(this.hud.root);
+    // PC: keyboard + mouse with the pointer lock; phone / tablet: the touch controls (same input record).
+    const touchMode = isTouchDevice();
+    document.documentElement.classList.toggle('touch', touchMode);
+    this.input = new GameInput(this.renderer.domElement, this.hud.root, touchMode, (locked) => this.onLockChange(locked), {
+      onPause: () => this.input.release(),
+      onBoard: (held) => (this.scoreboardHeld = held),
+      onBuy: () => this.openBuyMenu(),
+      onMinimap: () => this.minimap.cycleZoom(),
+    });
+    if (this.input.touch) {
+      const ts = loadTouchSettings();
+      this.input.touch.applySettings(ts);
+      this.hud.menu.setTouchControls(ts, (t) => {
+        this.input.touch?.applySettings(t);
+        saveTouchSettings(t);
+      });
+    }
     // Controls page: sensitivity + key bindings, applied immediately, stored apart from the settings record.
     const controls = loadControls();
     this.input.sensitivity = controls.sensitivity;
@@ -527,6 +589,9 @@ export class Game implements HostGame, ClientGame {
       if (e.code === 'F3') {
         e.preventDefault();
         this.setStatsShown(!this.hud.statsVisible);
+      } else if (e.code === 'KeyM' && !e.repeat && this.input.active) {
+        // Minimap zoom (fixed key, like F3 / F4).
+        this.minimap.cycleZoom();
       } else if (e.code === 'F4' && this.input.active && this.combat?.alive !== false && this.mode === 'training') {
         e.preventDefault();
         this.respawn();
@@ -595,7 +660,7 @@ export class Game implements HostGame, ClientGame {
   async switchMap(id: string): Promise<void> {
     const def = findMap(id);
     if (this.loadingMap || def.id === this.mapDef.id) return;
-    if (document.pointerLockElement) document.exitPointerLock();
+    this.input.release();
     this.teardownMode();
     this.nav = null;
     this.tacticalMap = null;
@@ -663,6 +728,9 @@ export class Game implements HostGame, ClientGame {
       return false;
     }
     this.map = map;
+    this.nav = null;
+    // The minimap layout (and the walkable grid) now, behind the loading screen: no hitch in play.
+    this.prepareMinimap(map, def.id);
     const surfaces = enhanceMapMaterials(map.root, this.quality, this.skyEnv);
     console.info(`[map:${def.id}] surfaces`, surfaces);
     // Sky light under cover (medium / high: low keeps every surface fully lit and skips the bake).
@@ -806,7 +874,10 @@ export class Game implements HostGame, ClientGame {
     if (!map || !hitscan) return;
     this.teardownMode();
     const dm = this.mode === 'deathmatch';
-    const team = this.mode === 'team';
+    // Round modes: 5v5 and 1대1 (a two-seat TeamMatch).
+    const team = this.mode === 'team' || this.mode === 'duel';
+    const duel = this.mode === 'duel';
+    this.duelWait = null;
     if (this.netClient) {
       // Multiplayer member: everyone else comes from the host (puppets); the match is the host's.
       this.match = null;
@@ -819,6 +890,11 @@ export class Game implements HostGame, ClientGame {
     } else if (!dm && !team) {
       this.trainingRange = new TrainingRange(map, this.homeSpawn(map), hitscan);
       this.scene.add(this.trainingRange.group);
+      this.trainingStats.reset();
+      for (const t of this.trainingRange.targets)
+        t.onHit = (applied, killed, info) => {
+          if (info.sourceId === 'local') this.trainingStats.hit(applied, killed, info.zone === 'head');
+        };
     } else {
       // Built once per map and reused by every match and round.
       this.nav ??= new NavGrid(map);
@@ -827,7 +903,7 @@ export class Game implements HostGame, ClientGame {
       const rand = this.seed === null ? Math.random : seededRandom(this.seed);
       // Multiplayer host: a bot for every place in the room (other players take them over).
       const bots = this.netHost ? ROOM_CAPACITY.deathmatch - 1 : this.matchSettings.bots;
-      const squad = new BotSquad(map, this.nav, hitscan, team ? TEAM_ROSTER : bots, [AR_01], rand, this.matchSettings.botLook);
+      const squad = new BotSquad(map, this.nav, hitscan, duel ? DUEL_ROSTER : team ? TEAM_ROSTER : bots, [AR_01], rand, this.matchSettings.botLook);
       // Team match: deaths last until the round ends.
       squad.respawns = !team;
       squad.events = {
@@ -838,12 +914,16 @@ export class Game implements HostGame, ClientGame {
         },
         onDamage: (bot, e) => {
           this.netHost?.onBotDamaged(bot, e);
+          this.recordDamage(e.sourceId, bot.id, e.taken);
           if (!e.killed) return;
           const credited = (this.match?.recordKill(e.sourceId, bot.id, e.weaponId, e.zone === 'head') ?? false) || (this.teamMatch?.recordKill(e.sourceId, bot.id, e.weaponId, e.zone === 'head') ?? false);
           if (credited) this.onCreditedKill(e.sourceId, bot.id);
         },
       };
-      for (const b of squad.bots) b.sightBlocked = (a, c) => this.grenades?.sightBlocked(a, c) ?? false;
+      for (const b of squad.bots) {
+        b.sightBlocked = (a, c) => this.grenades?.sightBlocked(a, c) ?? false;
+        b.setDifficulty(this.matchSettings.botDifficulty);
+      }
       this.squad = squad;
       this.scene.add(squad.group);
       if (team) {
@@ -853,7 +933,10 @@ export class Game implements HostGame, ClientGame {
         if (this.weapons) this.weapons.team = this.localTeam;
         this.teamSpawns ??= this.buildTeamSpawns(map, this.nav);
         const ms = this.matchSettings;
-        this.teamMatch = new TeamMatch({
+        this.teamMatch = new TeamMatch(
+          duel
+            ? { ...DEFAULT_TEAM_MATCH, teamSize: 1, economy: null, objective: 'elimination', ...DUEL_RULES }
+            : {
             ...DEFAULT_TEAM_MATCH,
             roundsToWin: ms.roundsToWin,
             roundTime: ms.roundTime,
@@ -1239,7 +1322,7 @@ export class Game implements HostGame, ClientGame {
     this.teamHud.showResults(tm);
     // 대결 포기 pays nothing (EconomyRules), but the match id is closed so it can never be paid later.
     this.settleMatch('forfeit');
-    if (document.pointerLockElement) document.exitPointerLock();
+    this.input.release();
     return true;
   }
 
@@ -1257,6 +1340,27 @@ export class Game implements HostGame, ClientGame {
     this.audio.play('kill.confirm', { group: 'confirm', gain: 0.6, delay: 0.05 });
     this.hud.showKillNotice();
   });
+
+  /**
+   * Damage just applied (`amount` = health taken, after armour, capped at what was left), credited to
+   * the attacker's personal record by the match's own rules. Only the match authority gets here: in a
+   * room, the host applies all damage (a member's game shows the host's numbers).
+   */
+  private recordDamage(attacker: string, victim: string, amount: number): void {
+    if (this.netClient) return;
+    this.match?.recordDamage(attacker, victim, amount);
+    this.teamMatch?.recordDamage(attacker, victim, amount);
+  }
+
+  /**
+   * The player's combat record for what is being played: its own score line in a match (deathmatch or
+   * team, alone or in a room), the dummies' record in training; null with no mode running.
+   */
+  combatStats(): CombatStats | null {
+    if (this.match) return this.match.scores.get('local') ?? null;
+    if (this.teamMatch) return this.teamMatch.scores.get('local') ?? null;
+    return this.trainingRange ? this.trainingStats : null;
+  }
 
   /** The match credited `killer` with killing `victim`: the player's kill confirm, or a room member's (sent by the host). */
   private onCreditedKill(killer: string, victim: string): void {
@@ -1297,7 +1401,7 @@ export class Game implements HostGame, ClientGame {
       this.matchHud.hideResults();
       this.teamHud.hideResults();
     } else this.restartMatch();
-    if (document.pointerLockElement) document.exitPointerLock();
+    this.input.release();
     this.hud.menu.showLobby();
   }
 
@@ -1404,6 +1508,20 @@ export class Game implements HostGame, ClientGame {
         this.restartMatch();
       },
     );
+    this.hud.menu.bindSelect(
+      'bot-difficulty',
+      [
+        { value: 'easy', label: '쉬움' },
+        { value: 'normal', label: '보통' },
+        { value: 'hard', label: '어려움' },
+      ] as const,
+      ms.botDifficulty,
+      (d) => {
+        ms.botDifficulty = d;
+        save();
+        if (this.squad) for (const b of this.squad.bots) b.setDifficulty(d);
+      },
+    );
     this.hud.menu.setMatchOptionsVisible(this.mode === 'deathmatch');
     this.hud.menu.setTeamOptionsVisible(this.mode === 'team');
     this.hud.menu.setBotOptionsVisible(this.mode !== 'training');
@@ -1444,6 +1562,7 @@ export class Game implements HostGame, ClientGame {
     const sz = -e.direction.z;
     const angle = Math.atan2(sx * -fz + sz * fx, sx * fx + sz * fz);
     this.hud.showDamage(e.amount, angle);
+    this.recordDamage(e.sourceId, 'local', e.taken);
     if (e.killed) {
       this.audio.stopGroup('foley');
       const credited = (this.match?.recordKill(e.sourceId, 'local', e.weaponId, e.zone === 'head') ?? false) || (this.teamMatch?.recordKill(e.sourceId, 'local', e.weaponId, e.zone === 'head') ?? false);
@@ -1502,6 +1621,16 @@ export class Game implements HostGame, ClientGame {
       this.camera.updateProjectionMatrix();
     }
     this.hud.setScoped(this.scoped);
+    const touch = this.input.touch;
+    if (touch) {
+      touch.zoomed = this.scoped;
+      const tm = this.teamMatch;
+      touch.setContext({
+        use: !!tm?.bombMode && !!this.bomb,
+        utility: !!tm && (this.buyLoadout.grenades.flash > 0 || this.buyLoadout.grenades.smoke > 0),
+        buy: !!tm?.buyOpen && !!this.combat?.alive,
+      });
+    }
     const lookYaw = this.inputState.lookYaw;
     const lookPitch = this.inputState.lookPitch;
     this.weapons?.onLookInput(lookPitch, lookYaw);
@@ -1551,7 +1680,11 @@ export class Game implements HostGame, ClientGame {
           this.squad?.step(tick, this.playerCombatant);
           this.match.update(tick);
         }
-        if (tm) {
+        if (tm && this.duelHeld()) {
+          // 1대1 without its opponent (not joined yet / dropped): nothing moves on, its seat's AI does not fight.
+          this.squad?.hold(tick);
+          this.stepDuelWait(tick);
+        } else if (tm) {
           if (tm.phase === 'live') {
             this.stepDirector(tick, tm);
             this.squad?.step(tick, this.playerCombatant);
@@ -1576,13 +1709,13 @@ export class Game implements HostGame, ClientGame {
       this.matchHud.setRestartEnabled(!this.netClient);
       this.matchHud.showResults(this.match);
       this.settleMatch('completed');
-      if (document.pointerLockElement) document.exitPointerLock();
+      this.input.release();
     }
     if (this.teamMatch?.over && !this.teamHud.resultsShown) {
       this.teamHud.setRestartEnabled(!this.netClient);
       this.teamHud.showResults(this.teamMatch);
       this.settleMatch(this.teamMatch.forfeitedBy ? 'forfeit' : 'completed');
-      if (document.pointerLockElement) document.exitPointerLock();
+      this.input.release();
     }
     this.netHost?.update(frameTime);
     this.netClient?.update(frameTime);
@@ -1631,6 +1764,7 @@ export class Game implements HostGame, ClientGame {
     this.camera.rotation.set(player.pitch, player.yaw, roll);
     this.updateSpace(frameTime);
     this.updateAllyMarkers();
+    this.updateMinimap(frameTime);
     // Hands and weapon in the light of where the player stands (the map's own sky visibility).
     this.viewModel.setAmbient(this.skyGrid ? skyVisibilityAt(this.skyGrid, this.camera.position) : 1);
     if (dead && this.teamMatch) this.spectate(combat!.deadTime);
@@ -1651,7 +1785,12 @@ export class Game implements HostGame, ClientGame {
     this.grenadeFx.update(frameTime, this.grenades);
     if (this.bombFx.update(frameTime, this.bomb) && this.bomb) this.weaponAudio.world('c4.beep', this.bomb.position, 0.45, this.camera, 70);
     if (this.teamMatch) this.teamHud.setBomb(this.bombHud());
+    this.hud.setCombatStats(this.hud.menu.lobbyShown ? null : this.combatStats());
     if (this.match) this.matchHud.update(this.match, this.scoreboardHeld && this.input.active);
+    const dw = this.duelWait;
+    this.teamHud.setWaiting(
+      !dw ? null : dw.kind === 'join' ? '상대를 기다리는 중 — 방 코드를 알려 주세요' : `${dw.name || '상대'} 연결 끊김 — 재접속 대기 ${Math.ceil(dw.left)}초`,
+    );
     if (this.teamMatch) this.teamHud.update(this.teamMatch, this.teamAlive(), this.scoreboardHeld && this.input.active);
     this.viewModel.update(
       frameTime,
@@ -1893,6 +2032,115 @@ export class Game implements HostGame, ClientGame {
     return { fire: i.fire, reload: i.reload, equipSlot, equipLast: i.equipLast, inspect: i.inspect };
   }
 
+  /**
+   * The minimap: built once per map from the map's collision; drawn MINIMAP_FPS times a second.
+   * Teammates are shown (the team knows where it is). An enemy is shown only while the player
+   * itself can see it right now — inside the view, within sight range, no wall and no smoke in
+   * between (the same tests as seeing it on screen) — and then for MINIMAP_MEMORY seconds where it
+   * was last seen, fading. Nothing else: not where the host or the server knows it to be.
+   */
+  private updateMinimap(dt: number): void {
+    const map = this.map;
+    const p = this.player;
+    const show = !!map && !!p && !this.hud.menu.lobbyShown && (!!this.match || !!this.teamMatch || !!this.trainingRange || !!this.netClient);
+    this.minimap.setVisible(show);
+    if (!show || !map || !p) return;
+    // Built with the map while it loads (prepareMinimap); here only if that was skipped.
+    if (this.minimapMapId !== this.mapDef.id) this.prepareMinimap(map, this.mapDef.id);
+    this.minimapSightClock -= dt;
+    if (this.minimapSightClock <= 0) {
+      this.minimapSightClock = MINIMAP_SIGHT_EVERY;
+      this.minimapSight();
+    }
+    this.minimapClock -= dt;
+    if (this.minimapClock > 0) return;
+    this.minimapClock = 1 / MINIMAP_FPS;
+    // Teammates (team modes): the team's own positions.
+    let na = 0;
+    const team = this.mode === 'team' ? this.localTeam : null;
+    if (team) {
+      if (this.netClient) {
+        for (const q of this.netClient.puppets.all.values())
+          if (q.alive && q.team === team && na < this.allyDots.length) {
+            const d = this.allyDots[na++];
+            d.x = q.position.x;
+            d.z = q.position.z;
+          }
+      } else if (this.squad)
+        for (const b of this.squad.bots)
+          if (b.alive && b.team === team && na < this.allyDots.length) {
+            const d = this.allyDots[na++];
+            d.x = b.controller.position.x;
+            d.z = b.controller.position.z;
+          }
+    }
+    let ne = 0;
+    const now = this.fxClock;
+    for (const v of this.enemySeen.values()) {
+      const age = now - v.at;
+      if (age > MINIMAP_MEMORY || ne >= this.enemyDots.length) continue;
+      const d = this.enemyDots[ne++];
+      d.x = v.x;
+      d.z = v.z;
+      d.alpha = age < MINIMAP_SIGHT_EVERY * 1.5 ? 1 : Math.max(0.15, 1 - age / MINIMAP_MEMORY);
+    }
+    this.minimap.draw(p.position.x, p.position.z, p.yaw, this.allyDots, na, this.enemyDots, ne);
+  }
+
+  /** The minimap's layout of `map` (and the walkable grid it needs): once per map, during loading, not in play. */
+  private prepareMinimap(map: LoadedMap, mapId: string): void {
+    this.nav ??= new NavGrid(map);
+    const layout = buildMinimapLayout(map, this.nav);
+    console.info(`[minimap:${mapId}] ${layout.nx}×${layout.nz} cells in ${layout.buildMs.toFixed(0)} ms`);
+    this.minimap.setLayout(layout);
+    this.minimapMapId = mapId;
+    this.enemySeen.clear();
+  }
+
+  /** Which enemies the player sees right now (view, range, walls, smoke), for the minimap. */
+  private minimapSight(): void {
+    const map = this.map;
+    if (!map || !this.combat?.alive) return;
+    const cam = this.camera;
+    cam.updateMatrixWorld();
+    _vp.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+    _frustum.setFromProjectionMatrix(_vp);
+    const eye = cam.position;
+    const now = this.fxClock;
+    const check = (id: string, x: number, y: number, z: number, h: number, alive: boolean) => {
+      if (!alive) {
+        this.enemySeen.delete(id);
+        return;
+      }
+      for (const k of [0.75, 0.95]) {
+        _chest.set(x, y + h * k, z);
+        const dist = _chest.distanceTo(eye);
+        if (dist > MINIMAP_SIGHT_RANGE || !_frustum.containsPoint(_chest)) continue;
+        _rayDir.copy(_chest).sub(eye).normalize();
+        const wall = map.collision.raycast(eye, _rayDir, dist);
+        if (wall !== null && wall < dist - 0.2) continue;
+        if (this.grenades?.sightBlocked(eye, _chest)) continue;
+        const seen = this.enemySeen.get(id);
+        if (seen) {
+          seen.x = x;
+          seen.z = z;
+          seen.at = now;
+        } else this.enemySeen.set(id, { x, z, at: now });
+        return;
+      }
+    };
+    const team = this.mode === 'team' || this.mode === 'duel' ? this.localTeam : null;
+    if (this.netClient) {
+      for (const q of this.netClient.puppets.all.values()) if (!team || q.team !== team) check(q.id, q.position.x, q.position.y, q.position.z, q.height, q.alive);
+    } else if (this.squad) {
+      for (const b of this.squad.bots) {
+        if (team && b.team === team) continue;
+        const c = b.controller.position;
+        check(b.id, c.x, c.y, c.z, 1.8, b.alive);
+      }
+    }
+  }
+
   /** Teammates' feet (alive, not the player) for their markers; nothing outside team matches. */
   private updateAllyMarkers(): void {
     const feet = this.allyFeet;
@@ -2108,10 +2356,15 @@ export class Game implements HostGame, ClientGame {
    * A lower level during play, without reloading: pixel ratio, shadows and shadow map size (the
    * preset's other parts, antialiasing and surface shading, are fixed until the next load).
    */
+  /** Device pixels per CSS pixel for a quality level's cap, times the chosen render scale. */
+  private pixelRatio(cap: number): number {
+    return Math.min(window.devicePixelRatio, cap) * this.renderScale;
+  }
+
   private applyQuality(level: QualityLevel): void {
     this.qualityLevel = level;
     const preset = QUALITY_PRESETS[level];
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, preset.pixelRatioCap));
+    this.renderer.setPixelRatio(this.pixelRatio(preset.pixelRatioCap));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     const shadow = this.sun.shadow;
     if (this.renderer.shadowMap.enabled !== preset.shadows) {
@@ -2226,6 +2479,12 @@ export class Game implements HostGame, ClientGame {
   /** Issues the bought gear to the player's WeaponSystem; draws `draw` (catalog id) or the best weapon held. */
   private applyBuyLoadout(draw?: string): void {
     if (!this.weapons) return;
+    if (this.mode === 'duel') {
+      // 1대1: no buying; both players carry the deathmatch loadout (refilled every round).
+      this.playerSlotKeys = null;
+      this.weapons.setLoadout(DEFAULT_LOADOUT);
+      return;
+    }
     const entries = this.buyLoadout.weapons();
     this.playerSlotKeys = entries.map((e) => e.slotKey);
     const idx = draw ? entries.findIndex((e) => e.item.id === draw) : 0;
@@ -2250,7 +2509,7 @@ export class Game implements HostGame, ClientGame {
     this.updateBuyMenu();
     this.buyMenu.show();
     this.scoreboardHeld = false;
-    if (this.input.active) document.exitPointerLock();
+    if (this.input.active) this.input.release();
   }
 
   /**
@@ -2362,6 +2621,58 @@ export class Game implements HostGame, ClientGame {
 
   netTeamsChanged(): void {
     if (this.net?.room) this.onNetRoom?.(this.net.room);
+    this.duelSeatChanged();
+  }
+
+  // --- 1대1 ---------------------------------------------------------------------------
+
+  /** 1대1 waiting for its opponent: 'join' before the first one arrives, 'rejoin' while a dropped one may come back. */
+  duelWait: { kind: 'join' | 'rejoin'; left: number; name: string } | null = null;
+
+  /** The 1대1 opponent's seat is played by a room member. */
+  private duelOpponentHere(): boolean {
+    return !!this.squad?.bots[0]?.remote;
+  }
+
+  /** 1대1 on the host, its opponent not here: the match holds still. */
+  private duelHeld(): boolean {
+    if (this.mode !== 'duel' || this.netClient || !this.teamMatch || this.teamMatch.over) return false;
+    if (!this.duelOpponentHere() && !this.duelWait) this.duelWait = { kind: 'join', left: Infinity, name: '' };
+    return !!this.duelWait;
+  }
+
+  /** The opponent seat changed hands (a member came, left, or came back). */
+  private duelSeatChanged(): void {
+    const tm = this.teamMatch;
+    if (this.mode !== 'duel' || this.netClient || !tm || tm.over) return;
+    const here = this.duelOpponentHere();
+    const w = this.duelWait;
+    if (here && w) {
+      this.duelWait = null;
+      if (w.kind === 'join') {
+        // The opponent is here: a fresh match from round 1 (the seat's earlier AI record is not the player's).
+        this.restartMatch();
+      } else {
+        // Back in time: the round that was cut off is played again from its start.
+        tm.restartRound();
+        this.startRound(false);
+      }
+    } else if (!here && !w) {
+      const left = this.netHost?.lastLeftName ?? '';
+      const started = tm.history.length > 0 || tm.phase === 'live';
+      this.duelWait = started ? { kind: 'rejoin', left: DUEL_REJOIN_SECONDS, name: left } : { kind: 'join', left: Infinity, name: '' };
+    }
+  }
+
+  /** One tick of waiting: a dropped opponent that does not come back in time loses the match. */
+  private stepDuelWait(dt: number): void {
+    const w = this.duelWait;
+    if (!w || w.kind !== 'rejoin') return;
+    w.left = Math.max(0, w.left - dt);
+    if (w.left === 0) {
+      this.duelWait = null;
+      this.teamMatch?.forfeit('red');
+    }
   }
 
   get netAiming(): boolean {
@@ -2482,7 +2793,7 @@ export class Game implements HostGame, ClientGame {
 
   netYou(_id: string, team: string | null): void {
     this.localTeam = team === 'red' ? 'red' : 'blue';
-    const t = this.mode === 'team' ? this.localTeam : undefined;
+    const t = this.mode === 'team' || this.mode === 'duel' ? this.localTeam : undefined;
     if (this.combat) this.combat.team = t;
     if (this.weapons) this.weapons.team = t;
   }

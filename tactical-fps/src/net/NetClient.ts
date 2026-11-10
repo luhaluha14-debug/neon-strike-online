@@ -24,7 +24,7 @@ export interface ClientGame {
   readonly netAiming: boolean;
   readonly netUse: boolean;
   /** The host's mode / map: switch to it (loads the map if needed); resolves when ready to play. */
-  netMode(mode: 'deathmatch' | 'team', map: string): Promise<void>;
+  netMode(mode: 'deathmatch' | 'team' | 'duel', map: string): Promise<void>;
   netYou(id: string, team: string | null): void;
   netMatch(m: MatchState | TeamMatchState, bomb: BombStateMsg | null, who?: readonly [string, string][]): void;
   netSpawn(m: Extract<ToClient, { k: 'spawn' }>): void;

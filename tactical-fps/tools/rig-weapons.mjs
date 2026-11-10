@@ -5,6 +5,13 @@
 //   node tools/rig-weapons.mjs                writes public/weapons/<id>_rig.glb
 //   node tools/rig-weapons.mjs --out <dir>    writes them to <dir> instead (tests: the same bytes)
 //
+// Phase 24 weapons (AR-02, SMG-02, DMR-01, PIS-02, LMG-01) come from Blender
+// with every part already its own node, so they need no splitting. Two of them
+// lack a piece the first-person animation shows (AUGMENTS below): the P220's
+// magazine body inside the grip (only its base plate is modelled) and the
+// M249's belt from the pouch to the feed tray. Those files are copied node for
+// node and buffer for buffer, and only the new nodes are appended.
+//
 // The source files (public/weapons/<id>.glb) are read, never changed. Each
 // model was built in Blender from separate pieces joined into one mesh, so
 // every piece is still a loose part of the vertex data. The moving pieces are
@@ -97,6 +104,8 @@ const RIGS = {
 
 /** Materials for generated pieces that the sources do not have. */
 const NEW_MATERIALS = {
+  Belt_Brass: { name: 'Belt_Brass', pbrMetallicRoughness: { baseColorFactor: [0.7, 0.5, 0.22, 1], metallicFactor: 0.9, roughnessFactor: 0.38 } },
+  Belt_Link: { name: 'Belt_Link', pbrMetallicRoughness: { baseColorFactor: [0.035, 0.035, 0.035, 1], metallicFactor: 0.7, roughnessFactor: 0.45 } },
   Shell_Hull: { name: 'Shell_Hull', pbrMetallicRoughness: { baseColorFactor: [0.45, 0.07, 0.05, 1], metallicFactor: 0, roughnessFactor: 0.55 } },
   Shell_Brass: { name: 'Shell_Brass', pbrMetallicRoughness: { baseColorFactor: [0.72, 0.52, 0.24, 1], metallicFactor: 0.9, roughnessFactor: 0.35 } },
 };
@@ -383,7 +392,142 @@ function rig(id) {
   console.log(`${id}_rig.glb  ${glb.length} bytes (source ${src})  parts: ${report.join(', ')}`);
 }
 
+// ---- augment (parted Blender files: copy everything, append missing pieces) ---------------------
+
+/**
+ * Pieces added to a parted file (file axes: muzzle at +X, +Y up, +Z the right side). Each becomes a
+ * child node of the file's root with its vertices in the root's space (translation 0), so weapons.ts
+ * can gather it with the file's own nodes (`fit.magazine`).
+ */
+const AUGMENTS = {
+  pis02: { pieces: [
+    {
+      // Double-stack 9 mm magazine body inside the grip frame (the file models only its base plate), following
+      // the grip's rake (back edge -0.108 at the bottom, -0.088 at the top) 2-3 mm inside the panels.
+      name: 'P_MagBody',
+      add: [{ kind: 'slantedBox', material: 'RifleMetal', bottom: [-0.1, -0.064, -0.077], top: [-0.085, -0.05, 0.022], halfWidth: 0.0095 }],
+    },
+  ] },
+  lmg01: { pieces: [
+    {
+      // 5.56 belt: six linked rounds rising from the pouch mouth (top y -0.068) up the left side to the feed
+      // tray (left of the receiver, y ~0), bullets toward the muzzle.
+      name: 'G_Belt',
+      add: Array.from({ length: 6 }, (_, i) => {
+        const y = -0.064 + i * 0.0115;
+        const z = -0.03 + (i >= 4 ? (i - 3) * 0.004 : 0);
+        return [
+          { kind: 'slantedBox', material: 'Belt_Brass', bottom: [0.012, 0.057, y - 0.0045], top: [0.012, 0.057, y + 0.0045], halfWidth: 0.0045, z },
+          { kind: 'slantedBox', material: 'Belt_Link', bottom: [0.024, 0.042, y - 0.0052], top: [0.024, 0.042, y + 0.0052], halfWidth: 0.0052, z },
+        ];
+      }).flat(),
+    },
+  ] },
+  // M110: no piece missing, but the file's tan (linear 0.42 / 0.29 / 0.16, a light coyote that reads as
+  // plastic in game) darkened to flat dark earth (sRGB ~#8a7352); the scope's tan and the metal stay.
+  dmr01: {
+    pieces: [],
+    materials: {
+      FDE_Tan: { baseColorFactor: [0.24, 0.17, 0.09, 1] },
+      FDE_Polymer: { baseColorFactor: [0.21, 0.15, 0.08, 1], roughnessFactor: 0.75 },
+    },
+  },
+};
+
+function augment(id) {
+  const file = `${DIR}${id}.glb`;
+  const b = readFileSync(file);
+  const jsonLen = b.readUInt32LE(12);
+  const json = JSON.parse(b.subarray(20, 20 + jsonLen).toString());
+  const binLen = b.readUInt32LE(20 + jsonLen);
+  const srcBin = b.subarray(20 + jsonLen + 8, 20 + jsonLen + 8 + binLen);
+  const rootIndex = json.scenes[json.scene ?? 0].nodes[0];
+  const root = json.nodes[rootIndex];
+  const materials = json.materials;
+  const matIndex = (name) => {
+    let i = materials.findIndex((m) => m.name === name);
+    if (i < 0) i = materials.push({ ...NEW_MATERIALS[name] }) - 1;
+    return i;
+  };
+  const chunks = [srcBin];
+  let byteLength = srcBin.length;
+  const addView = (data, target) => {
+    const bytes = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+    const pad = (4 - (byteLength % 4)) % 4;
+    if (pad) {
+      chunks.push(Buffer.alloc(pad));
+      byteLength += pad;
+    }
+    json.bufferViews.push({ buffer: 0, byteOffset: byteLength, byteLength: bytes.length, target });
+    chunks.push(bytes);
+    byteLength += bytes.length;
+    return json.bufferViews.length - 1;
+  };
+  const report = [];
+  const spec = AUGMENTS[id];
+  for (const [name, pbr] of Object.entries(spec.materials ?? {})) {
+    const m = materials.find((x) => x.name === name);
+    if (!m) throw new Error(`${id}: no material ${name}`);
+    m.pbrMetallicRoughness = { ...m.pbrMetallicRoughness, ...pbr };
+    report.push(`${name} recoloured`);
+  }
+  for (const piece of spec.pieces) {
+    const byMat = new Map();
+    for (const a of piece.add) {
+      const g = slantedBox(a);
+      const dz = a.z ?? 0;
+      const pos = g.pos.map((v, i) => (i % 3 === 2 ? v + dz : v));
+      const m = matIndex(a.material);
+      const acc = byMat.get(m) ?? { pos: [], nor: [], idx: [] };
+      const base = acc.pos.length / 3;
+      acc.pos.push(...pos);
+      acc.nor.push(...g.nor);
+      acc.idx.push(...g.idx.map((i) => i + base));
+      byMat.set(m, acc);
+    }
+    const primitives = [...byMat.entries()].map(([material, g]) => {
+      const min = [0, 1, 2].map((d) => Math.min(...g.pos.filter((_, i) => i % 3 === d)));
+      const max = [0, 1, 2].map((d) => Math.max(...g.pos.filter((_, i) => i % 3 === d)));
+      json.accessors.push({ bufferView: addView(Float32Array.from(g.pos), 34962), componentType: 5126, count: g.pos.length / 3, type: 'VEC3', min, max });
+      json.accessors.push({ bufferView: addView(Float32Array.from(g.nor), 34962), componentType: 5126, count: g.nor.length / 3, type: 'VEC3' });
+      json.accessors.push({ bufferView: addView(Uint16Array.from(g.idx), 34963), componentType: 5123, count: g.idx.length, type: 'SCALAR' });
+      const n = json.accessors.length;
+      return { attributes: { POSITION: n - 3, NORMAL: n - 2 }, indices: n - 1, material };
+    });
+    json.meshes.push({ name: piece.name, primitives });
+    json.nodes.push({ name: piece.name, mesh: json.meshes.length - 1 });
+    root.children = [...(root.children ?? []), json.nodes.length - 1];
+    report.push(`${piece.name} (added, ${piece.add.length} pieces)`);
+  }
+  json.buffers = [{ byteLength }];
+  json.asset = { ...json.asset, generator: `GRID tools/rig-weapons.mjs from ${id}.glb (${json.asset.generator})` };
+  const bin = Buffer.concat(chunks, byteLength);
+  const glb = writeGlb(json, bin);
+  writeFileSync(`${OUT}${id}_rig.glb`, glb);
+  console.log(`${id}_rig.glb  ${glb.length} bytes (source ${b.length})  nodes kept: ${json.nodes.length - spec.pieces.length}  ${report.join(', ')}`);
+}
+
+function writeGlb(json, bin) {
+  const jsonBuf = Buffer.from(JSON.stringify(json));
+  const jsonChunk = Buffer.concat([jsonBuf, Buffer.alloc((4 - (jsonBuf.length % 4)) % 4, 0x20)]);
+  const binChunk = Buffer.concat([bin, Buffer.alloc((4 - (bin.length % 4)) % 4)]);
+  const header = Buffer.alloc(12);
+  header.writeUInt32LE(0x46546c67, 0);
+  header.writeUInt32LE(2, 4);
+  header.writeUInt32LE(12 + 8 + jsonChunk.length + 8 + binChunk.length, 8);
+  const ch = (len, type) => {
+    const c = Buffer.alloc(8);
+    c.writeUInt32LE(len, 0);
+    c.writeUInt32LE(type, 4);
+    return c;
+  };
+  return Buffer.concat([header, ch(jsonChunk.length, 0x4e4f534a), jsonChunk, ch(binChunk.length, 0x004e4942), binChunk]);
+}
+
 const args = process.argv.slice(2);
 const outAt = args.indexOf('--out');
 const OUT = outAt >= 0 ? args.splice(outAt, 2)[1].replace(/\/?$/, '/') : DIR;
-for (const id of args.length ? args : Object.keys(RIGS)) rig(id);
+for (const id of args.length ? args : [...Object.keys(RIGS), ...Object.keys(AUGMENTS)]) {
+  if (AUGMENTS[id]) augment(id);
+  else rig(id);
+}

@@ -1,5 +1,6 @@
 import { ARMOR_CONFIG, PLAYER_CONFIG } from '../config';
 import { MainMenu, type MenuMap, type MenuOption, type MenuWeapon } from './MainMenu';
+import { formatKd, type CombatStats } from '../game/CombatStats';
 import './theme.css';
 import './hud.css';
 
@@ -25,6 +26,7 @@ export class Hud {
   private readonly ammoMag: HTMLSpanElement;
   private readonly ammoReserve: HTMLSpanElement;
   private readonly weaponStatus: HTMLDivElement;
+  private readonly reloadPrompt: HTMLDivElement;
   private readonly reloadBar: HTMLDivElement;
   private readonly hitMarker: HTMLDivElement;
   private hitMarkerAnim: Animation | null = null;
@@ -33,6 +35,14 @@ export class Hud {
   private readonly vignette: HTMLDivElement;
   private readonly damageDir: HTMLDivElement;
   private readonly vitals: HTMLDivElement;
+  private readonly combat: HTMLDivElement;
+  private readonly csKills: HTMLElement;
+  private readonly csDeaths: HTMLElement;
+  private readonly csKd: HTMLElement;
+  private readonly csHs: HTMLElement;
+  private readonly csDmg: HTMLElement;
+  /** Combat record last shown (-1 = hidden), so the DOM is only touched when a number changes. */
+  private readonly csShown = { kills: -1, deaths: -1, headshots: -1, damage: -1 };
   private readonly death: HTMLDivElement;
   private readonly deathSeconds: HTMLSpanElement;
   private readonly deathBar: HTMLDivElement;
@@ -74,6 +84,10 @@ export class Hud {
           </div>
         </div>
       </div>
+      <div class="combat-stats" hidden>
+        <div class="cs-row"><span class="cs-k">KILLS</span><b class="cs-v cs-kills">0</b><span class="cs-k">DEATHS</span><b class="cs-v cs-deaths">0</b><span class="cs-k">K/D</span><b class="cs-v cs-kd">0.00</b></div>
+        <div class="cs-row"><span class="cs-k">HEADSHOTS</span><b class="cs-v cs-hs">0</b><span class="cs-k">DAMAGE</span><b class="cs-v cs-dmg">0</b></div>
+      </div>
       <div class="weapon">
         <div class="loadout"></div>
         <div class="utility" hidden><span class="ut ut-flash"></span><span class="ut ut-smoke"></span></div>
@@ -102,11 +116,18 @@ export class Hud {
     this.ammoMag = this.root.querySelector('.ammo-mag')!;
     this.ammoReserve = this.root.querySelector('.ammo-reserve')!;
     this.weaponStatus = this.root.querySelector('.weapon-status')!;
+    this.reloadPrompt = this.root.querySelector('.reload-prompt')!;
     this.reloadBar = this.root.querySelector('.reload-bar')!;
     this.hitMarker = this.root.querySelector('.hitmarker')!;
     this.vignette = this.root.querySelector('.damage-vignette')!;
     this.damageDir = this.root.querySelector('.damage-dir')!;
     this.vitals = this.root.querySelector('.vitals')!;
+    this.combat = this.root.querySelector('.combat-stats')!;
+    this.csKills = this.combat.querySelector('.cs-kills')!;
+    this.csDeaths = this.combat.querySelector('.cs-deaths')!;
+    this.csKd = this.combat.querySelector('.cs-kd')!;
+    this.csHs = this.combat.querySelector('.cs-hs')!;
+    this.csDmg = this.combat.querySelector('.cs-dmg')!;
     this.death = this.root.querySelector('.death')!;
     this.deathSeconds = this.root.querySelector('.death-seconds')!;
     this.deathBar = this.root.querySelector('.death-bar')!;
@@ -336,6 +357,8 @@ export class Hud {
         const span = document.createElement('span');
         span.className = i === active ? 'slot active' : 'slot';
         span.textContent = `${keys?.[i] ?? i + 1} ${n}`;
+        // The weapon key's slot (0-based): tapping it on a touch screen picks that weapon, as the key does.
+        span.dataset.slot = String((keys?.[i] ?? i + 1) - 1);
         return span;
       }),
     );
@@ -374,11 +397,14 @@ export class Hud {
       this.root.classList.toggle('reloading', reloading);
       // Magazine empty with rounds in reserve: a small prompt under the crosshair, where the eyes are.
       this.root.classList.toggle('reload-needed', empty && !reloading && reserve > 0);
+      // A touch screen has a 장전 button, not an R key.
+      const reloadHint = document.documentElement.classList.contains('touch') ? '장전 버튼' : 'R 재장전';
+      this.reloadPrompt.textContent = reloadHint;
       this.weaponStatus.textContent = reloading
         ? '재장전 중'
         : empty
           ? reserve > 0
-            ? 'R 재장전'
+            ? reloadHint
             : '탄약 없음'
           : '';
     }
@@ -393,6 +419,31 @@ export class Hud {
   setStatsVisible(visible: boolean): void {
     this.stats.classList.toggle('visible', visible);
     this.menu.setToggle('stats', visible);
+  }
+
+  /**
+   * The player's combat record for the match (or training) being played, or null to hide it. Called
+   * every frame; only a changed number is written to the page (no animation, nothing allocated).
+   */
+  setCombatStats(s: CombatStats | null): void {
+    const c = this.csShown;
+    if (!s) {
+      if (c.kills !== -1) {
+        this.combat.hidden = true;
+        c.kills = c.deaths = c.headshots = c.damage = -1;
+      }
+      return;
+    }
+    if (c.kills === -1) this.combat.hidden = false;
+    if (s.kills !== c.kills || s.deaths !== c.deaths) {
+      if (s.kills !== c.kills) this.csKills.textContent = String(s.kills);
+      if (s.deaths !== c.deaths) this.csDeaths.textContent = String(s.deaths);
+      this.csKd.textContent = formatKd(s.kills, s.deaths);
+      c.kills = s.kills;
+      c.deaths = s.deaths;
+    }
+    if (s.headshots !== c.headshots) this.csHs.textContent = String((c.headshots = s.headshots));
+    if (s.damage !== c.damage) this.csDmg.textContent = String((c.damage = s.damage));
   }
 
   get statsVisible(): boolean {

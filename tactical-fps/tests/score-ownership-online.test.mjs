@@ -110,13 +110,13 @@ test('room: the seat’s earlier record stays the bot’s; the member’s kill i
     assert.ok(deathsBefore >= 1);
 
     // The member joins: its seat starts from zero on both screens; the AI's record is kept aside.
-    const lines0 = await host.evaluate(() => Object.fromEntries([...window.game.match.scores].map(([id, l]) => [id, { kills: l.kills, deaths: l.deaths, gen: l.gen, weaponKills: { ...l.weaponKills } }])));
+    const lines0 = await host.evaluate(() => Object.fromEntries([...window.game.match.scores].map(([id, l]) => [id, { kills: l.kills, deaths: l.deaths, gen: l.gen, weaponKills: { ...l.weaponKills }, headshots: l.headshots, damage: l.damage }])));
     await join(guest, code);
     await listen(guest);
     const seat = await host.evaluate(() => window.game.squad.bots.find((b) => b.remote).id);
     assert.deepEqual(await line(host, seat), { name: 'Bravo', kills: 0, deaths: 0, gen: lines0[seat].gen + 1 });
     const kept = await host.evaluate(() => [...window.game.netHost.members.values()][0].botRecord);
-    assert.deepEqual(kept, { kills: lines0[seat].kills, deaths: lines0[seat].deaths, weaponKills: lines0[seat].weaponKills });
+    assert.deepEqual(kept, { kills: lines0[seat].kills, deaths: lines0[seat].deaths, weaponKills: lines0[seat].weaponKills, headshots: lines0[seat].headshots, damage: lines0[seat].damage });
     assert.ok(kept.kills >= 3, 'the seat had kills of its own');
     await guest.waitForFunction((gen) => window.game.match.scores.get('local')?.gen === gen, lines0[seat].gen + 1);
     const g0 = await guest.evaluate(() => (({ kills, deaths }) => ({ kills, deaths }))(window.game.match.scores.get('local')));

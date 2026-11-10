@@ -8,10 +8,11 @@ export const MP_PROTOCOL = 1;
 export const MP_PATH = '/mp';
 export const MP_SERVICE = 'grid-mp';
 
-export type RoomMode = 'deathmatch' | 'team';
+/** 'duel': 1대1, two players only (no bots fight). */
+export type RoomMode = 'deathmatch' | 'team' | 'duel';
 
 /** Humans per room (bots fill the rest of the match). */
-export const ROOM_CAPACITY: Record<RoomMode, number> = { deathmatch: 8, team: 10 };
+export const ROOM_CAPACITY: Record<RoomMode, number> = { deathmatch: 8, team: 10, duel: 2 };
 
 export const NAME_MAX = 16;
 /** Room codes: 5 characters without look-alikes (0/O, 1/I/L). */

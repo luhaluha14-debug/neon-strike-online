@@ -47,7 +47,8 @@ body {
 }
 /* Gameplay readouts stay out of the way while the menu is open. */
 .hud:not(.playing) .vitals,
-.hud:not(.playing) .weapon {
+.hud:not(.playing) .weapon,
+.hud:not(.playing) .combat-stats {
   visibility: hidden;
 }
 .ch-line {
@@ -336,6 +337,56 @@ body {
 }
 .hud.low-health .health-bar {
   background: var(--hud-danger);
+}
+
+/* Personal combat record (bottom left, just above health): small, static, out of the line of fire. */
+.combat-stats {
+  position: absolute;
+  left: max(24px, env(safe-area-inset-left));
+  bottom: calc(max(24px, env(safe-area-inset-bottom)) + 72px);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 10px;
+  background: var(--hud-bg);
+  border-left: 2px solid var(--c-border-strong);
+  font-size: 11px;
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.combat-stats[hidden] {
+  display: none;
+}
+.cs-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.cs-k {
+  letter-spacing: 0.12em;
+  color: var(--hud-dim);
+  font-size: 10px;
+}
+.cs-v {
+  min-width: 2ch;
+  margin-right: 6px;
+  font-weight: 600;
+  color: var(--hud-fg);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+}
+.cs-row .cs-v:last-child {
+  margin-right: 0;
+}
+/* Short windows (landscape phones): one notch smaller (the health panel below does not move). */
+@media (max-height: 520px) {
+  .combat-stats {
+    padding: 4px 8px;
+    font-size: 10px;
+  }
+  .cs-k {
+    font-size: 9px;
+  }
 }
 
 /* Perf / debug */

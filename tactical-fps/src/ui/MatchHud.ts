@@ -1,4 +1,5 @@
 import { feedName, type KillEvent, type Match } from '../game/Match';
+import { fillCombatResults } from './combatResults';
 import './match.css';
 
 const FEED_SECONDS = 6;
@@ -42,6 +43,7 @@ export class MatchHud {
           <div class="results-title"></div>
           <div class="results-sub"></div>
           <div class="results-reward" aria-live="polite"></div>
+          <div class="results-personal" hidden></div>
           <table class="score-table results-table"></table>
           <div class="results-actions">
             <button type="button" class="btn btn-primary results-restart">다시 시작</button>
@@ -113,6 +115,7 @@ export class MatchHud {
     const me = m.ranking.findIndex((s) => s.isPlayer) + 1;
     const why = m.endReason === 'kills' ? `${m.config.killTarget}킬 달성` : '시간 종료';
     this.results.querySelector('.results-sub')!.textContent = `${why} · ${me}위 / ${m.scores.size}`;
+    fillCombatResults(this.results.querySelector('.results-personal')!, m.scores.get('local'), '데스매치');
     this.boardKey = '';
     this.fillTable(this.results.querySelector('table')!, m);
   }

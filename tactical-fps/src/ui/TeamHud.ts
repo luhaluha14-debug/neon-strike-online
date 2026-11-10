@@ -1,10 +1,12 @@
 import { formatMoney } from '../game/Economy';
 import { feedName, type KillEvent } from '../game/Match';
 import { TEAM_NAME, type RoundEnd, type Team, type TeamMatch, type TeamScoreLine } from '../game/TeamMatch';
+import { fillCombatResults } from './combatResults';
+import { RoundRecords } from './roundRecords';
 import './match.css';
 
 const FEED_SECONDS = 6;
-const WEAPON_SHORT: Record<string, string> = { ar01: 'AR-01', sr01: 'SR-01', karambit: 'M9', smg01: 'SMG-01', sg01: 'SG-01', pis01: 'PIS-01', c4: 'C4' };
+const WEAPON_SHORT: Record<string, string> = { ar01: 'AR-01', sr01: 'SR-01', karambit: 'M9', smg01: 'SMG-01', sg01: 'SG-01', pis01: 'PIS-01', ar02: 'AR-02', smg02: 'SMG-02', dmr01: 'DMR-01', pis02: 'PIS-02', lmg01: 'LMG-01', c4: 'C4' };
 const REASON: Record<RoundEnd, string> = { elimination: '전멸', time: '시간', bomb: 'C4 폭파', defuse: 'C4 해체' };
 
 /** What the bomb line of the HUD shows (built by Game from what the player may know). */
@@ -46,9 +48,13 @@ export class TeamHud {
   private readonly feed: HTMLElement;
   private readonly board: HTMLElement;
   private readonly results: HTMLElement;
+  /** 라운드 기록: per-round summary and detail on the results screen. */
+  readonly roundRecords = new RoundRecords();
   private last = '';
   private bombKey = '';
   private bannerKey = '';
+  /** 1대1 waiting for its opponent: shown in the round banner instead of the round state. */
+  private waiting: string | null = null;
   private feedKey = -1;
   /** Time of the newest kill already shown (later ones slide in). */
   private feedNewest = -Infinity;
@@ -83,6 +89,7 @@ export class TeamHud {
           <div class="results-title"></div>
           <div class="results-sub"></div>
           <div class="results-reward" aria-live="polite"></div>
+          <div class="results-personal" hidden></div>
           <ol class="round-history"></ol>
           <div class="results-teams"></div>
           <div class="results-actions">
@@ -108,6 +115,7 @@ export class TeamHud {
     this.feed = q('.killfeed');
     this.board = q('.scoreboard');
     this.results = q('.results');
+    q('.round-history').after(this.roundRecords.root);
     q('.results-restart').addEventListener('click', onRestart);
     q('.results-menu').addEventListener('click', onMenu);
     q('.results-lobby').addEventListener('click', onLobby);
@@ -208,8 +216,20 @@ export class TeamHud {
     this.results.classList.toggle('won', won);
     this.results.classList.toggle('forfeit', forfeit);
     this.results.querySelector('.results-reward')!.textContent = '';
-    this.results.querySelector('.results-title')!.textContent = forfeit ? (won ? '상대 포기 - 승리' : '대결 포기 - 패배') : winner ? `${TEAM_NAME[winner]} 승리` : '경기 종료';
+    // 1대1 (a two-seat match): the winner by name; an opponent who dropped and did not come back forfeits.
+    const duel = m.config.teamSize === 1;
+    const winnerName = winner ? ([...m.scores.values()].find((l) => l.team === winner)?.name ?? TEAM_NAME[winner]) : '';
+    this.results.querySelector('.results-title')!.textContent = forfeit
+      ? won
+        ? duel
+          ? '상대 기권 - 승리'
+          : '상대 포기 - 승리'
+        : '대결 포기 - 패배'
+      : winner
+        ? `${duel ? winnerName : TEAM_NAME[winner]} 승리`
+        : '경기 종료';
     this.results.querySelector('.results-sub')!.textContent = `${won ? '승리' : '패배'} · BLUE ${m.roundWins.blue} : ${m.roundWins.red} RED · ${m.history.length}라운드${forfeit ? ' 진행 후 포기' : ''}`;
+    fillCombatResults(this.results.querySelector('.results-personal')!, m.scores.get('local'), duel ? '1대1 대전' : m.bombMode ? '팀전 · 폭탄 설치' : '팀전 · 섬멸');
     this.results.querySelector('.round-history')!.innerHTML = m.history
       .map((r) => {
         const cls = r.winner ?? 'draw';
@@ -218,8 +238,14 @@ export class TeamHud {
         return `<li class="rh ${cls}" title="라운드 ${r.round}: ${label} (${why}, 생존 ${r.alive.blue}:${r.alive.red})"><span class="rh-n">${r.round}</span><span class="rh-w">${label}</span><span class="rh-why">${why}</span></li>`;
       })
       .join('');
+    this.roundRecords.show(m);
     this.results.querySelector('.results-teams')!.innerHTML = teamTables(m);
     this.boardKey = '';
+  }
+
+  /** 1대1: the opponent is not here (yet / any more); null when it is. */
+  setWaiting(text: string | null): void {
+    this.waiting = text;
   }
 
   /** GRID credit line under the result (set once the economy has answered). */
@@ -242,9 +268,12 @@ export class TeamHud {
     let text = '';
     let cls = '';
     let sub = '';
-    if (m.phase === 'prep') {
+    if (this.waiting) {
+      text = this.waiting;
+      cls = 'prep';
+    } else if (m.phase === 'prep') {
       text = `라운드 ${m.round} — ${m.economy ? '작전 준비' : '준비'}`;
-      if (m.economy) sub = 'B: 장비 구매';
+      if (m.economy) sub = document.documentElement.classList.contains('touch') ? '구매 버튼: 장비 구매' : 'B: 장비 구매';
       cls = 'prep';
     } else if (m.phase === 'result' && m.lastRound) {
       const r = m.lastRound;

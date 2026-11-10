@@ -45,13 +45,25 @@ after(async () => {
   await env?.close();
 });
 
-test('scope config: SR-01 only, zoom 4x and 0.4 sensitivity from its definition', async () => {
+test('scope config: SR-01 zoom 4x and 0.4 sensitivity, DMR-01 (Phase 24) 3x and 0.5, from their definitions; no other weapon has one', async () => {
   page = await openGame(env, { map: 'warehouse' });
   const r = await page.evaluate(async () => {
     const { WEAPONS } = await import('/src/weapons/weapons.ts');
     return Object.fromEntries(Object.values(WEAPONS).map((w) => [w.id, w.scope ?? null]));
   });
-  assert.deepEqual(r, { ar01: null, sr01: { zoom: 4, sensitivity: 0.4 }, karambit: null, smg01: null, sg01: null, pis01: null });
+  assert.deepEqual(r, {
+    ar01: null,
+    sr01: { zoom: 4, sensitivity: 0.4 },
+    karambit: null,
+    smg01: null,
+    sg01: null,
+    pis01: null,
+    ar02: null,
+    smg02: null,
+    dmr01: { zoom: 3, sensitivity: 0.5 },
+    pis02: null,
+    lmg01: null,
+  });
 });
 
 test('SR-01: right button held zooms in (FOV / 4 magnification), shows the scope, hides the crosshair and the weapon; release restores', async () => {

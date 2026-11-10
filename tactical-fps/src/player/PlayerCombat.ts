@@ -15,8 +15,10 @@ const HEAD = 0.86;
 const LEGS = 0.5;
 
 export interface PlayerDamageEvent {
-  /** Health lost. */
+  /** Health lost by the hit's damage after armour (may be more than was left: see `taken`). */
   amount: number;
+  /** Health actually taken: `amount` capped at the health the target had left (combat statistics count this). */
+  taken: number;
   /** Damage the armour stopped (0 without armour or on an uncovered zone). */
   absorbed: number;
   /** Shooter id ('local' = the player, bots 'bot-N') and weapon. */
@@ -109,13 +111,15 @@ export class PlayerCombat implements Damageable {
     this.hits++;
     const { health, absorbed } = armorSplit(info.amount, info.zone, this.armor);
     this.armor = Math.max(0, this.armor - absorbed * ARMOR_CONFIG.wearPerAbsorbed);
+    const left = p.health;
     p.health = Math.max(0, p.health - health);
+    const taken = left - p.health;
     const killed = p.health === 0;
     if (killed) {
       this.dead = true;
       this.deadTime = 0;
     }
-    this.onDamage?.({ amount: health, absorbed, sourceId: info.sourceId, weaponId: info.weaponId, zone: info.zone, direction: info.direction.clone(), killed });
+    this.onDamage?.({ amount: health, taken, absorbed, sourceId: info.sourceId, weaponId: info.weaponId, zone: info.zone, direction: info.direction.clone(), killed });
   }
 
   /** Advances timers by one simulation tick. */

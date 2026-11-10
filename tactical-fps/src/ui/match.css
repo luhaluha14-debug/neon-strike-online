@@ -195,6 +195,47 @@
   flex: 1;
 }
 
+/* The player's own combat record on the results screen: five numbers in one row under the result line. */
+.results-personal {
+  margin: -6px 0 16px;
+  padding: 10px 12px 12px;
+  background: var(--c-bg-3, rgba(255, 255, 255, 0.04));
+  border-left: 2px solid var(--c-accent);
+}
+.results-personal[hidden] {
+  display: none;
+}
+.cr-mode {
+  margin-bottom: 8px;
+  font-size: var(--fs-xs);
+  letter-spacing: 0.08em;
+  color: var(--c-text-3);
+}
+.cr-row {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+.cr-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.cr-k {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--c-text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cr-v {
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--c-text);
+}
+
 /* Team match (TeamHud): same panels, team colours. */
 .team-hud {
   --team-blue: #5b93ff;
@@ -391,6 +432,137 @@
 }
 .rh.red .rh-w {
   color: var(--team-red);
+}
+
+/* 라운드 기록 (team results): a row per round with the player's numbers; a chosen round in detail below. */
+.round-records {
+  margin: 0 0 16px;
+}
+.round-records[hidden],
+.rr-detail[hidden] {
+  display: none;
+}
+.rr-title {
+  margin-bottom: 6px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--c-text);
+}
+.rr-hint {
+  margin-left: 6px;
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  color: var(--c-text-3);
+}
+.rr-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+.rr-table th {
+  padding: 4px 6px;
+  font-weight: 500;
+  text-align: right;
+  color: var(--c-text-3);
+  border-bottom: 1px solid var(--c-border);
+}
+.rr-table th:nth-child(-n + 2),
+.rr-table td:nth-child(-n + 2) {
+  text-align: left;
+}
+.rr-table td {
+  padding: 3px 6px;
+  text-align: right;
+  color: var(--c-text-2);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+.rr-table tbody tr {
+  cursor: pointer;
+}
+.rr-table tbody tr:hover,
+.rr-table tbody tr.sel {
+  background: rgba(255, 255, 255, 0.05);
+}
+.rr-table tbody tr.sel td {
+  color: var(--c-text);
+}
+.rr-pick {
+  min-width: 28px;
+  padding: 2px 6px;
+  border: 1px solid var(--c-border-strong);
+  background: transparent;
+  color: var(--c-text);
+  font: inherit;
+  cursor: pointer;
+}
+.rr-table tr.sel .rr-pick {
+  border-color: var(--c-accent);
+  color: var(--c-accent);
+}
+.rr-out {
+  font-weight: 600;
+}
+.rr-table tr.win .rr-out {
+  color: var(--c-accent);
+}
+.rr-table tr.loss .rr-out {
+  color: var(--c-danger);
+}
+.rr-detail {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border-left: 2px solid var(--c-accent);
+  font-size: var(--fs-xs);
+  color: var(--c-text-2);
+}
+.rr-head {
+  margin-bottom: 4px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--c-text);
+}
+.rr-line,
+.rr-alive {
+  margin-bottom: 4px;
+}
+.rr-teams {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+}
+/* The detail tables: name first (not a rank), then four numbers of equal width. */
+.rr-team {
+  font-size: var(--fs-sm);
+}
+.rr-team th,
+.rr-team td {
+  padding: 4px 6px;
+}
+.score-table.rr-team th:first-child,
+.score-table.rr-team td:first-child {
+  width: auto;
+  max-width: 9em;
+  color: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.score-table.rr-team th:nth-child(n + 2),
+.score-table.rr-team td:nth-child(n + 2) {
+  width: 3.2em;
+  text-align: right;
+}
+.score-table.rr-team td:nth-child(n + 2) {
+  font-variant-numeric: tabular-nums;
+}
+.score-table.rr-team tr.me td:first-child {
+  color: var(--c-accent);
+}
+.rr-none {
+  color: var(--c-text-3);
 }
 
 /* C4 objective: the player's side, bomb status / timer, key hint and the player's plant / defuse bar. */

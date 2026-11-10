@@ -138,7 +138,8 @@ test('buy menu: B opens it without pausing, the mouse is free, view and trigger 
   assert.deepEqual(r.sections, ['주무기', '보조무기', '근접', '전술 장비']);
   assert.match(r.loadout, /주무기없음.*보조무기없음.*근접Knife/);
   const byId = Object.fromEntries(r.cards.map((c) => [c.id, c]));
-  assert.deepEqual(Object.keys(byId).sort(), ['AR-01', 'ARMOR-01', 'FLASH-01', 'Knife', 'PIS-01', 'SG-01', 'SMG-01', 'SMOKE-01', 'SR-01']);
+  // Phase 24 added AR-02 / SMG-02 / DMR-01 / LMG-01 / PIS-02 (on sale) and LMG-02 (listed, its model pending).
+  assert.deepEqual(Object.keys(byId).sort(), ['AR-01', 'AR-02', 'ARMOR-01', 'DMR-01', 'FLASH-01', 'Knife', 'LMG-01', 'LMG-02', 'PIS-01', 'PIS-02', 'SG-01', 'SMG-01', 'SMG-02', 'SMOKE-01', 'SR-01']);
   assert.deepEqual([byId['AR-01'].price, byId['AR-01'].state, byId['AR-01'].tag], ['$2,700', 'buyable', '구매']);
   assert.deepEqual([byId['SR-01'].price, byId['SR-01'].state, byId['SR-01'].tag], ['$4,750', 'short', '자금 부족']);
   assert.deepEqual([byId.Knife.price, byId.Knife.state, byId.Knife.tag], ['무료', 'issued', '기본 지급']);
@@ -150,6 +151,19 @@ test('buy menu: B opens it without pausing, the mouse is free, view and trigger 
     ['SMG-01', 'SG-01', 'PIS-01', 'ARMOR-01', 'FLASH-01', 'SMOKE-01'].map((id) => byId[id].price),
     ['$1,500', '$2,000', '$500', '$650', '$300', '$400'],
   );
+  // The Phase 24 weapons: their prices; with $3,000 the cheaper ones are on sale, the dearer ones short; LMG-02 locked.
+  assert.deepEqual(
+    ['AR-02', 'SMG-02', 'DMR-01', 'LMG-01', 'PIS-02', 'LMG-02'].map((id) => [byId[id].price, byId[id].state]),
+    [
+      ['$3,100', 'short'],
+      ['$1,700', 'buyable'],
+      ['$4,000', 'short'],
+      ['$5,200', 'short'],
+      ['$600', 'buyable'],
+      ['$5,700', 'locked'],
+    ],
+  );
+  assert.equal(byId['LMG-02'].tag, '준비 중');
 });
 
 test('buying: not enough money is refused with the reason and changes nothing; AR-01 costs exactly $2,700 and is issued', async () => {

@@ -1,8 +1,11 @@
+import { PLAYER_CONFIG } from '../config';
+
 // Free-for-all deathmatch rules: kills and deaths per combatant, a time
 // limit and a kill target. Pure logic (no rendering), driven by Game.
 
 /** 'deathmatch' free-for-all, 'team' 5v5 rounds (TeamMatch), 'training' dummies. */
-export type GameMode = 'deathmatch' | 'team' | 'training';
+/** 'duel' (1대1) is a room mode only: two players, rounds (a two-seat TeamMatch). */
+export type GameMode = 'deathmatch' | 'team' | 'training' | 'duel';
 
 export interface MatchConfig {
   /** Number of AI opponents. */
@@ -39,6 +42,13 @@ export interface ScoreLine {
    * display history and is cut short on its way to room members).
    */
   weaponKills: Record<string, number>;
+  /** The current controller's credited kills whose final hit was to the head (as the kill feed's HS mark). */
+  headshots: number;
+  /**
+   * Health the current controller's hits actually took from enemies (after armour, never more than the
+   * victim had left; nothing for self-damage or a teammate). Worked out where damage is applied.
+   */
+  damage: number;
 }
 
 export interface KillEvent {
@@ -60,6 +70,8 @@ export interface SeatRecord {
   kills: number;
   deaths: number;
   weaponKills?: Record<string, number>;
+  headshots?: number;
+  damage?: number;
 }
 
 /**
@@ -68,19 +80,30 @@ export interface SeatRecord {
  * name. Returns the record the previous controller leaves behind.
  */
 export function reassignSeat(line: ScoreLine, name: string, restore?: SeatRecord): SeatRecord {
-  const left = { kills: line.kills, deaths: line.deaths, weaponKills: { ...line.weaponKills } };
+  const left = { kills: line.kills, deaths: line.deaths, weaponKills: { ...line.weaponKills }, headshots: line.headshots, damage: line.damage };
   line.gen++;
   line.name = name;
   line.kills = restore?.kills ?? 0;
   line.deaths = restore?.deaths ?? 0;
   line.weaponKills = { ...restore?.weaponKills };
+  line.headshots = restore?.headshots ?? 0;
+  line.damage = restore?.damage ?? 0;
   return left;
 }
 
-/** Counts a credited kill on the killer's line (total and per weapon). */
-export function creditKill(line: ScoreLine, weaponId: string): void {
+/** Counts a credited kill on the killer's line (total, per weapon, and a headshot kill when the final hit was to the head). */
+export function creditKill(line: ScoreLine, weaponId: string, head = false): void {
   line.kills++;
   line.weaponKills[weaponId] = (line.weaponKills[weaponId] ?? 0) + 1;
+  if (head) line.headshots++;
+}
+
+/** Most damage one hit can be credited with: a full-health target's health (a garbage amount cannot inflate it). */
+export const MAX_CREDITED_HIT = PLAYER_CONFIG.maxHealth;
+
+/** Health actually taken by one hit, as credited (whole points, 0…MAX_CREDITED_HIT; anything else counts 0). */
+export function creditedDamage(amount: number): number {
+  return Number.isFinite(amount) && amount > 0 ? Math.min(MAX_CREDITED_HIT, Math.round(amount)) : 0;
 }
 
 /** True when `k` is a kill made by the current controller of `line` (not by whoever held the seat before). */
@@ -120,7 +143,7 @@ export class Match {
     players: readonly { id: string; name: string; isPlayer: boolean }[],
   ) {
     this.timeLeft = config.timeLimit;
-    for (const p of players) this.scores.set(p.id, { ...p, kills: 0, deaths: 0, gen: 0, weaponKills: {} });
+    for (const p of players) this.scores.set(p.id, { ...p, kills: 0, deaths: 0, gen: 0, weaponKills: {}, headshots: 0, damage: 0 });
   }
 
   /** Someone else controls seat `id` from now on (see reassignSeat); null if there is no such seat. */
@@ -136,10 +159,23 @@ export class Match {
     if (v) v.deaths++;
     const k = this.scores.get(killer);
     const credited = !!k && killer !== victim;
-    if (credited) creditKill(k, weaponId);
+    if (credited) creditKill(k, weaponId, head);
     this.feed.push(killEvent(this.scores, { killer, victim, weaponId, head, at: this.elapsed }));
     if (k && k.kills >= this.config.killTarget) this.end('kills');
     return credited;
+  }
+
+  /**
+   * Health a hit by `attacker` just took from `victim` (as applied: after armour, capped at what was
+   * left). Credited to the attacker's line unless it hurt itself or the match is over. Returns the
+   * points credited.
+   */
+  recordDamage(attacker: string, victim: string, amount: number): number {
+    if (this.over || attacker === victim || !this.scores.has(victim)) return 0;
+    const a = this.scores.get(attacker);
+    const n = a ? creditedDamage(amount) : 0;
+    if (a) a.damage += n;
+    return n;
   }
 
   update(dt: number): void {

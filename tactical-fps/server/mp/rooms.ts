@@ -28,7 +28,7 @@ interface Room {
 export type Outbox = { to: string; msg: ServerMessage }[];
 
 const MAP_ID = /^[a-z0-9_-]{1,32}$/;
-const MODES: readonly RoomMode[] = ['deathmatch', 'team'];
+const MODES: readonly RoomMode[] = ['deathmatch', 'team', 'duel'];
 
 export class Rooms {
   private readonly clients = new Map<string, Client>();

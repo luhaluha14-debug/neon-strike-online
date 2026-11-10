@@ -1,6 +1,6 @@
 import type { FireMode, WeaponDefinition, WeaponViewSpec } from './WeaponDefinition';
 import type { GrenadeKind } from '../combat/Grenades';
-import { AR_01, KARAMBIT, PIS_01, SG_01, SMG_01, SR_01 } from './weapons';
+import { AR_01, AR_02, DMR_01, KARAMBIT, LMG_01, PIS_01, PIS_02, SG_01, SMG_01, SMG_02, SR_01 } from './weapons';
 
 // Single catalog of everything the team match buy menu can show: weapons
 // (implemented or planned) and tactical equipment. Prices live here and
@@ -14,7 +14,7 @@ import { AR_01, KARAMBIT, PIS_01, SG_01, SMG_01, SR_01 } from './weapons';
 
 /** Where an item goes in the loadout (one of each, the knife is always there). */
 export type ItemSlot = 'primary' | 'secondary' | 'melee' | 'armor' | 'utility';
-export type ItemCategory = 'rifle' | 'sniper' | 'smg' | 'shotgun' | 'pistol' | 'knife' | 'armor' | 'grenade';
+export type ItemCategory = 'rifle' | 'sniper' | 'dmr' | 'smg' | 'shotgun' | 'pistol' | 'lmg' | 'knife' | 'armor' | 'grenade';
 
 export interface CatalogItem {
   /** Catalog / shop id ('AR-01', 'Knife', 'ARMOR-01', ...). */
@@ -49,6 +49,24 @@ export const CATALOG: readonly CatalogItem[] = [
   { id: 'SMG-01', name: '기관단총', slot: 'primary', category: 'smg', price: 1500, weapon: SMG_01, available: true },
   { id: 'SG-01', name: '산탄총 (8펠릿)', slot: 'primary', category: 'shotgun', price: 2000, weapon: SG_01, available: true },
   { id: 'PIS-01', name: '권총', slot: 'secondary', category: 'pistol', price: 500, weapon: PIS_01, available: true },
+  // Phase 24 arsenal (GRID's proposed prices, by role): each is its own item next to the ones above.
+  { id: 'AR-02', name: '돌격소총 (정밀)', slot: 'primary', category: 'rifle', price: 3100, weapon: AR_02, available: true },
+  { id: 'SMG-02', name: '기관단총 (.45 근접)', slot: 'primary', category: 'smg', price: 1700, weapon: SMG_02, available: true },
+  { id: 'DMR-01', name: '지정사수소총 (3배율)', slot: 'primary', category: 'dmr', price: 4000, weapon: DMR_01, available: true },
+  { id: 'LMG-01', name: '경기관총 (100발)', slot: 'primary', category: 'lmg', price: 5200, weapon: LMG_01, available: true },
+  // MG5-type 7.62 belt-fed: data planned, its model has not been delivered yet (no stand-in is shipped).
+  {
+    id: 'LMG-02',
+    name: '경기관총 (7.62)',
+    slot: 'primary',
+    category: 'lmg',
+    price: 5700,
+    weapon: null,
+    available: false,
+    lockedReason: '모델 준비 중',
+    planned: { fireMode: 'auto', magazineSize: 120, reserveAmmo: 240 },
+  },
+  { id: 'PIS-02', name: '권총 (15발)', slot: 'secondary', category: 'pistol', price: 600, weapon: PIS_02, available: true },
   { id: 'Knife', name: '근접 무기 (M9 총검)', slot: 'melee', category: 'knife', price: 0, weapon: KARAMBIT, available: true },
   // Armour points and absorption: ARMOR_CONFIG (config.ts). Body only (there is no helmet).
   { id: 'ARMOR-01', name: '방탄 조끼 (몸통)', slot: 'armor', category: 'armor', price: 650, weapon: null, available: true },

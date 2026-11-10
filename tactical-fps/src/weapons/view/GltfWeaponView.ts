@@ -49,7 +49,7 @@ export class GltfWeaponView implements WeaponView {
   readonly magazineDrop?: THREE.Vector3;
   readonly ejectPort?: THREE.Object3D;
   /** Moving parts found in the file, each with its rest position and the model's "back" (+Z) / "up" in its parent's space. */
-  private readonly parts: Partial<Record<'slide' | 'trigger' | 'pump' | 'pumpBolt' | 'handle' | 'shell', MovingPart>> = {};
+  private readonly parts: Partial<Record<'slide' | 'trigger' | 'pump' | 'pumpBolt' | 'handle' | 'shell' | 'cover', MovingPart>> = {};
 
   constructor(scene: THREE.Object3D, fit?: GltfFit) {
     // A scene wrapping a single weapon object takes that object's name (for debugging).
@@ -65,6 +65,12 @@ export class GltfWeaponView implements WeaponView {
     this.object = root;
     root.updateMatrixWorld(true);
     const find = (name: string) => root.getObjectByName(name) ?? null;
+    // Parted files: the file's nodes gathered into the game's named parts first (and a static turn, e.g. a folded bipod).
+    for (const g of fit?.groups ?? []) {
+      const group = gather(root, g.name, g.nodes, g.pivot ?? [0, 0, 0]);
+      if (g.rotation) group.rotation.set(g.rotation[0], g.rotation[1], g.rotation[2]);
+      if (g.scale) group.scale.set(g.scale[0], g.scale[1], g.scale[2]);
+    }
 
     const gripNode = find('Grip_R');
     if (gripNode) copyRootSpaceTransform(root, gripNode, this.gripAnchor);
@@ -90,7 +96,7 @@ export class GltfWeaponView implements WeaponView {
       root.add(this.muzzle);
     }
     this.magazine = find('Magazine') ?? undefined;
-    if (fit?.magazine) this.magazine = gather(root, 'Magazine', fit.magazine, [0, 0, 0]);
+    if (fit?.magazine) this.magazine = gather(root, 'Magazine', fit.magazine, fit.magazinePivot ?? [0, 0, 0]);
     if (!this.magazine && fit?.magwell) {
       this.reloadGrab = new THREE.Object3D();
       this.reloadGrab.name = 'MagWell';
@@ -101,7 +107,7 @@ export class GltfWeaponView implements WeaponView {
     const part = (name: string): MovingPart | undefined => {
       const o = find(name);
       if (!o) return undefined;
-      return { o, rest: o.position.clone(), back: dirInParent(o, new THREE.Vector3(0, 0, 1)), up: dirInParent(o, new THREE.Vector3(0, 1, 0)) };
+      return { o, rest: o.position.clone(), restX: o.rotation.x, back: dirInParent(o, new THREE.Vector3(0, 0, 1)), up: dirInParent(o, new THREE.Vector3(0, 1, 0)) };
     };
     this.parts.slide = part('Slide');
     this.parts.trigger = part('Trigger');
@@ -109,6 +115,7 @@ export class GltfWeaponView implements WeaponView {
     this.parts.pumpBolt = part('PumpBolt');
     this.parts.handle = part('ChargingHandle') ?? part('Charging_Handle');
     this.parts.shell = part('Shell');
+    this.parts.cover = part('FeedCover');
     // Ejection port: the file's own node, else the fit's point (model space).
     const portNode = find('Ejection_Port') ?? find('Dust_Cover');
     if (portNode) {
@@ -171,6 +178,8 @@ export class GltfWeaponView implements WeaponView {
     move(this.parts.trigger, state.sinceShot < 0.08 && state.category !== 'melee' ? 0.004 : 0);
     // Charging handle racked at the end of a reload (the charge / chamber sound).
     move(this.parts.handle, state.reload === null ? 0 : chargeTravel(state.reload) * (state.category === 'smg' ? 0.045 : 0.06));
+    // Belt-fed reload: the feed cover swings up on its front hinge while the belt is laid in.
+    if (this.parts.cover) this.parts.cover.o.rotation.x = this.parts.cover.restX - (state.reload === null ? 0 : coverOpen(state.reload)) * COVER_ANGLE;
     if (this.parts.shell) shellInsert(this.parts.shell, state);
   }
 
@@ -184,10 +193,14 @@ export class GltfWeaponView implements WeaponView {
 const PUMP_TRAVEL = 0.075;
 /** Pistol slide travel (m). */
 const SLIDE_TRAVEL = 0.028;
+/** How far a belt-fed gun's feed cover opens (rad, ~70°). */
+const COVER_ANGLE = 1.22;
 
 interface MovingPart {
   o: THREE.Object3D;
   rest: THREE.Vector3;
+  /** Rest turn about the model's X axis (a hinged part). */
+  restX: number;
   /** Model +Z (toward the shooter) in the part's parent space. */
   back: THREE.Vector3;
   /** Model +Y in the part's parent space. */
@@ -228,6 +241,19 @@ export function chargeTravel(t: number): number {
   if (t < 0.86 || t > 0.95) return 0;
   if (t < 0.92) return (t - 0.86) / 0.06;
   return 1 - (t - 0.92) / 0.03;
+}
+
+/**
+ * Feed cover of a belt-fed reload, 0 (shut) .. 1 (open): up at 0.02-0.12 (the cover sound at 0.03), open
+ * while the box goes out and the new belt goes in, shut at 0.86-0.9 (closing sound at 0.88), before the
+ * charging handle (0.86-0.95).
+ */
+export function coverOpen(t: number): number {
+  const ease = (x: number) => x * x * (3 - 2 * x);
+  if (t < 0.02 || t > 0.9) return 0;
+  if (t < 0.12) return ease((t - 0.02) / 0.1);
+  if (t < 0.86) return 1;
+  return 1 - ease((t - 0.86) / 0.04);
 }
 
 /** Shotgun reload: a shell comes up to the loading port and is pushed in at each insert (0.15, 0.4, 0.65). */
