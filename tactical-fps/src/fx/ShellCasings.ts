@@ -23,6 +23,9 @@ export const CASES: Record<CaseKind, { length: number; radius: number; color: nu
   pistol: { length: 0.019, radius: 0.0048, color: 0xcfa74e },
   sniper: { length: 0.067, radius: 0.0068, color: 0xc29a46 },
   shotgun: { length: 0.065, radius: 0.0101, color: 0x8e1b14 },
+  // 7.62x51 and 5.56 belt rounds.
+  dmr: { length: 0.051, radius: 0.006, color: 0xc39b47 },
+  lmg: { length: 0.045, radius: 0.0048, color: 0xc9a14a },
 };
 
 /** Where a case lands: the floor height under a point (or null: nothing below). */

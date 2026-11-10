@@ -135,7 +135,20 @@ test('weapon switch spam: one model at a time, shared geometry intact, each file
   );
   // Every weapon file (the standard three and the team match buy-menu weapons, those three rigged into
   // moving parts by tools/rig-weapons.mjs), each downloaded once.
-  assert.deepEqual(counts, { '/weapons/ar01.glb': 1, '/weapons/sr01.glb': 1, '/weapons/m9_bayonet.glb': 1, '/weapons/smg01_rig.glb': 1, '/weapons/sg01_rig.glb': 1, '/weapons/pis01_rig.glb': 1 });
+  // Phase 24: the five new files too (three of them rigged copies).
+  assert.deepEqual(counts, {
+    '/weapons/ar01.glb': 1,
+    '/weapons/sr01.glb': 1,
+    '/weapons/m9_bayonet.glb': 1,
+    '/weapons/smg01_rig.glb': 1,
+    '/weapons/sg01_rig.glb': 1,
+    '/weapons/pis01_rig.glb': 1,
+    '/weapons/ar02.glb': 1,
+    '/weapons/smg02.glb': 1,
+    '/weapons/dmr01_rig.glb': 1,
+    '/weapons/pis02_rig.glb': 1,
+    '/weapons/lmg01_rig.glb': 1,
+  });
 });
 
 test('after switching to Seoul: same GLB models, no leftovers from the first map', async () => {

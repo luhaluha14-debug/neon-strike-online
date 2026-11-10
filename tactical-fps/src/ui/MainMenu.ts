@@ -31,9 +31,11 @@ export interface MenuOption<T> {
 const CATEGORY_LABEL: Record<MenuWeapon['category'], string> = {
   rifle: '돌격소총',
   sniper: '저격소총',
+  dmr: '지정사수소총',
   smg: '기관단총',
   shotgun: '산탄총',
   pistol: '권총',
+  lmg: '경기관총',
   melee: '근접 무기',
 };
 
@@ -558,7 +560,7 @@ export class MainMenu {
   // --- Loadout ----------------------------------------------------------------
 
   setWeapons(weapons: readonly MenuWeapon[], onSelect: (slot: number) => void): void {
-    const order: MenuWeapon['category'][] = ['rifle', 'sniper', 'smg', 'shotgun', 'pistol', 'melee'];
+    const order: MenuWeapon['category'][] = ['rifle', 'dmr', 'sniper', 'smg', 'lmg', 'shotgun', 'pistol', 'melee'];
     const groups = order
       .map((cat) => ({ cat, items: weapons.filter((w) => w.category === cat) }))
       .filter((g) => g.items.length > 0);

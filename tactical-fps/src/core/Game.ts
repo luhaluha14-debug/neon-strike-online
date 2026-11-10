@@ -83,7 +83,7 @@ import type { ToClient } from '../net/GameMessages';
 import { applyBomb, applyMatch, applyTeamMatch, type BombStateMsg, type MatchState, type TeamMatchState } from '../net/Mirror';
 
 /** When the case leaves after a round (s): at once, or when the pump (shotgun) / bolt (sniper) is worked. */
-const EJECT_DELAY: Record<Exclude<WeaponCategory, 'melee'>, number> = { rifle: 0, smg: 0, pistol: 0, shotgun: 0.22, sniper: 0.62 };
+const EJECT_DELAY: Record<Exclude<WeaponCategory, 'melee'>, number> = { rifle: 0, smg: 0, pistol: 0, shotgun: 0.22, sniper: 0.62, dmr: 0, lmg: 0 };
 /** Case throw (m/s): out of the port's side, up, back toward the shooter. */
 const EJECT: Record<Exclude<WeaponCategory, 'melee'>, { side: number; up: number; back: number }> = {
   rifle: { side: 1.8, up: 1.5, back: 0.3 },
@@ -91,9 +91,12 @@ const EJECT: Record<Exclude<WeaponCategory, 'melee'>, { side: number; up: number
   pistol: { side: 1.1, up: 2.0, back: 0.3 },
   shotgun: { side: 1.5, up: 1.1, back: 0.2 },
   sniper: { side: 1.2, up: 1.1, back: 0.3 },
+  dmr: { side: 2.0, up: 1.4, back: 0.3 },
+  // Belt-fed: cases (and links) drop out under the receiver.
+  lmg: { side: 0.35, up: -1.4, back: 0.15 },
 };
 /** Peak of the world muzzle light per weapon (high quality). */
-const MUZZLE_LIGHT: Record<Exclude<WeaponCategory, 'melee'>, number> = { rifle: 6, smg: 4.5, pistol: 3.5, shotgun: 9, sniper: 9 };
+const MUZZLE_LIGHT: Record<Exclude<WeaponCategory, 'melee'>, number> = { rifle: 6, smg: 4.5, pistol: 3.5, shotgun: 9, sniper: 9, dmr: 7.5, lmg: 6.5 };
 const DOWN = new THREE.Vector3(0, -1, 0);
 /** Ally chevron colour per team (the team colours of the HUD, a touch lighter to read on dark walls). */
 const TEAM_MARKER_COLOR: Record<'blue' | 'red', number> = { blue: 0x6aa2ff, red: 0xff7a6a };
@@ -105,7 +108,7 @@ const _camRight = new THREE.Vector3();
 const _motionEvents = { steps: 0, landing: 0 };
 const UP = new THREE.Vector3(0, 1, 0);
 /** World muzzle flash size of someone else's shot, per kind of weapon (CombatEffects.flash). */
-const WORLD_FLASH: Record<Exclude<WeaponCategory, 'melee'>, number> = { rifle: 1, smg: 0.75, pistol: 0.65, shotgun: 1.5, sniper: 1.6 };
+const WORLD_FLASH: Record<Exclude<WeaponCategory, 'melee'>, number> = { rifle: 1, smg: 0.75, pistol: 0.65, shotgun: 1.5, sniper: 1.6, dmr: 1.3, lmg: 1.1 };
 const _casePort = new THREE.Vector3();
 const _caseVel = new THREE.Vector3();
 const _caseRight = new THREE.Vector3();

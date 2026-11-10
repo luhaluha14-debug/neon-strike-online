@@ -34,6 +34,9 @@ export const WEAPON_WEIGHT: Record<WeaponCategory, { sway: number; bob: number; 
   pistol: { sway: 0.6, bob: 0.65, follow: 16, land: 0.6, air: 0.7 },
   shotgun: { sway: 1.25, bob: 1.15, follow: 7.5, land: 1.3, air: 1.15 },
   sniper: { sway: 1.4, bob: 1.2, follow: 6.5, land: 1.45, air: 1.25 },
+  // Marksman rifle: between the rifle and the bolt action. The machine gun: the heaviest, slowest to follow.
+  dmr: { sway: 1.3, bob: 1.15, follow: 7.5, land: 1.35, air: 1.2 },
+  lmg: { sway: 1.6, bob: 1.35, follow: 5.5, land: 1.6, air: 1.35 },
   melee: { sway: 0.7, bob: 0.8, follow: 15, land: 0.7, air: 0.8 },
 };
 
@@ -67,6 +70,10 @@ const SHOT_FEEL: Record<Exclude<WeaponCategory, 'melee'>, ShotFeel> = {
   shotgun: { kick: 2.2, rise: 0.72, back: 0.28, roll: 0.57, light: 2.8 },
   // Snaps up ~2°, hardly pushes back (3 mm).
   pistol: { kick: 1.1, rise: 1.3, back: 0.11, roll: 0.43, light: 1.2 },
+  // A full-power round, one at a time: ~1.6° / 10 mm.
+  dmr: { kick: 1.5, rise: 0.72, back: 0.27, roll: 0.38, light: 2.2 },
+  // Heavy gun, small kicks: it shoves back more than it rises, and keeps shaking through a burst.
+  lmg: { kick: 0.9, rise: 0.5, back: 0.26, roll: 0.33, light: 1.7 },
 };
 const RIFLE_FEEL = SHOT_FEEL.rifle;
 
@@ -549,6 +556,8 @@ const DRAW: Record<WeaponCategory, { x: number; y: number; rx: number; rz: numbe
   pistol: { x: -0.03, y: 0.2, rx: 0.95, rz: 0.15 },
   shotgun: { x: 0, y: 0.26, rx: 0.55, rz: -0.45 },
   sniper: { x: -0.03, y: 0.28, rx: 0.5, rz: -0.35 },
+  dmr: { x: -0.02, y: 0.27, rx: 0.55, rz: -0.3 },
+  lmg: { x: 0, y: 0.3, rx: 0.45, rz: -0.4 },
   melee: { x: 0.02, y: 0.18, rx: 0.4, rz: 0.6 },
 };
 function drawOffset(category: WeaponCategory, d: number): void {
@@ -615,6 +624,25 @@ function reloadOffset(category: WeaponCategory, t: number): void {
       off.y -= e * 0.065;
       off.rx -= e * 0.07;
       off.rz += e * 0.45;
+      break;
+    case 'dmr':
+      // Like the rifle, heavier: dipped and rolled for the box magazine (out 0.04, in 0.81), then charged.
+      off.y -= e * 0.065;
+      off.rx -= e * 0.075;
+      off.rz += e * 0.5;
+      off.y += bump(t, 0.81, 0.08) * 0.01;
+      off.z += bump(t, 0.9, 0.08) * 0.012;
+      break;
+    case 'lmg':
+      // Belt-fed: brought up and canted left so the feed cover and tray face the eye (cover up 0.03,
+      // pouch out 0.12 and in 0.8, belt laid 0.83, cover slapped shut 0.88), then charged at the end.
+      off.y += e * 0.02;
+      off.rx += e * 0.14;
+      off.rz -= e * 0.32;
+      off.x -= e * 0.02;
+      off.y += bump(t, 0.8, 0.07) * 0.01;
+      off.y -= bump(t, 0.88, 0.05) * 0.012;
+      off.z += bump(t, 0.92, 0.06) * 0.012;
       break;
     case 'melee':
       break;
