@@ -170,7 +170,7 @@ export class NetHost {
 
   /** Tells every member the room's mode / map (they load it and say 'hi'). */
   announce(to?: string): void {
-    const mode = this.game.mode === 'team' ? 'team' : 'deathmatch';
+    const mode = this.game.mode === 'team' || this.game.mode === 'duel' ? this.game.mode : 'deathmatch';
     this.send({ k: 'mode', mode, map: this.game.mapId }, to);
   }
 
@@ -207,6 +207,10 @@ export class NetHost {
     }
   }
 
+  /** Name of the member that last left (1대1: who may come back), and the record it left with. */
+  lastLeftName: string | null = null;
+  private lastLeftRecord: SeatRecord | null = null;
+
   /** A member left the room: its character goes back to the AI. */
   memberGone(id: string): void {
     const rp = this.members.get(id);
@@ -218,6 +222,8 @@ export class NetHost {
   /** The game set up a new match (start, restart): everyone gets a character again. */
   onSetup(): void {
     this.lag.clear();
+    // A new match: nobody's record from the last one comes back.
+    this.lastLeftRecord = null;
     this.send({ k: 'restart' });
     this.announce();
     for (const rp of this.members.values()) {
@@ -342,7 +348,10 @@ export class NetHost {
       pick.order = null;
       pick.name = rp.name;
       // The member's own record starts here; the AI's kills and deaths before the hand-over are not the member's.
-      rp.botRecord = this.seatChange(pick.id, rp.name);
+      // 1대1: the same player back after a drop gets its own record of this match back.
+      const back = this.game.mode === 'duel' && this.lastLeftRecord && this.lastLeftName === rp.name ? this.lastLeftRecord : undefined;
+      this.lastLeftRecord = null;
+      rp.botRecord = this.seatChange(pick.id, rp.name, back);
       pick.onSpawn = () => this.onSpawned(rp);
     }
     const bot = rp.bot;
@@ -360,7 +369,9 @@ export class NetHost {
     bot.useKey = false;
     bot.name = rp.botName;
     // The AI gets its seat back with its own record; the member's leaves with the member.
-    this.seatChange(bot.id, rp.botName, rp.botRecord ?? undefined);
+    const left = this.seatChange(bot.id, rp.botName, rp.botRecord ?? undefined);
+    this.lastLeftName = rp.name;
+    this.lastLeftRecord = left;
     rp.botRecord = null;
     this.lag.forget(bot.id);
     rp.bot = null;
@@ -451,7 +462,8 @@ export class NetHost {
     if (!hitscan || !def || !bot.alive || !validV3(m.o) || !validV3(m.d, 2) || !Number.isFinite(m.rt)) return refuse('invalid');
     const tm = this.game.teamMatch;
     if ((tm && tm.phase !== 'live') || this.game.match?.over) return refuse('phase');
-    const allowed = tm ? rp.buy.weapons().some((e) => e.item.weapon?.id === def.id) : DEFAULT_LOADOUT.some((w) => w.id === def.id);
+    // 1대1 has no buying: both players carry the deathmatch loadout.
+    const allowed = tm && this.game.mode !== 'duel' ? rp.buy.weapons().some((e) => e.item.weapon?.id === def.id) : DEFAULT_LOADOUT.some((w) => w.id === def.id);
     if (!allowed) return refuse('weapon');
     // No faster than the weapon fires on average (a shotgun round is several pellets). Rounds may
     // arrive bunched (network), so a short burst is allowed: a bucket of SHOT_BURST rounds.

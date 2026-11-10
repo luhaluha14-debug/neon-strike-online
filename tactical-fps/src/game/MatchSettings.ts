@@ -1,6 +1,7 @@
 import { BOT_COUNT_OPTIONS, DEFAULT_MATCH, KILL_TARGET_OPTIONS, TIME_LIMIT_OPTIONS, type GameMode, type MatchConfig } from './Match';
 import { DEFAULT_TEAM_MATCH, ROUND_TIME_OPTIONS, ROUNDS_TO_WIN_OPTIONS, type TeamObjective } from './TeamMatch';
 import type { BotLook } from '../ai/BotSquad';
+import type { BotDifficulty } from '../ai/Bot';
 
 // Mode and match rules, stored apart from the settings record (whose format stays as is).
 // Deathmatch (bots / timeLimit / killTarget) and team match (roundsToWin / roundTime)
@@ -16,6 +17,8 @@ export interface MatchSettings extends MatchConfig {
   objective: TeamObjective;
   /** Bot bodies in both bot modes: built-in animated body or the character models. */
   botLook: BotLook;
+  /** Bot skill in both bot modes (reaction and aim; see BOT_DIFFICULTY). */
+  botDifficulty: BotDifficulty;
 }
 
 const KEY = 'tactical-fps.match.v1';
@@ -36,6 +39,7 @@ export function loadMatchSettings(): MatchSettings {
     roundTime: DEFAULT_TEAM_MATCH.roundTime,
     objective: DEFAULT_TEAM_MATCH.objective,
     botLook: 'procedural',
+    botDifficulty: 'normal',
   };
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Record<string, unknown>;
@@ -47,6 +51,7 @@ export function loadMatchSettings(): MatchSettings {
     if ((ROUND_TIME_OPTIONS as readonly unknown[]).includes(raw.roundTime)) s.roundTime = raw.roundTime as number;
     s.objective = parseObjective(raw.objective) ?? s.objective;
     if (raw.botLook === 'procedural' || raw.botLook === 'agents') s.botLook = raw.botLook;
+    if (raw.botDifficulty === 'easy' || raw.botDifficulty === 'normal' || raw.botDifficulty === 'hard') s.botDifficulty = raw.botDifficulty;
   } catch {
     // Defaults.
   }

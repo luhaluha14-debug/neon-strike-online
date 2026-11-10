@@ -7,7 +7,7 @@ import './mp.css';
 const NAME_KEY = 'tactical-fps.mp.name';
 /** A relay that did not answer is asked once more after this long. */
 const RECHECK_MS = 5000;
-const MODE_LABEL: Record<RoomMode, string> = { deathmatch: '데스매치 (개인전)', team: '5대5 라운드전 (팀전)' };
+const MODE_LABEL: Record<RoomMode, string> = { deathmatch: '데스매치 (개인전)', team: '5대5 라운드전 (팀전)', duel: '1대1 대전 (2명)' };
 const TEAM_LABEL = { blue: 'BLUE', red: 'RED' } as const;
 
 /** What the lobby needs from the game. */
@@ -60,6 +60,7 @@ export class MultiplayerPanel implements LobbyRoomSource {
           <select class="select mp-mode">
             <option value="deathmatch">${MODE_LABEL.deathmatch}</option>
             <option value="team">${MODE_LABEL.team}</option>
+            <option value="duel">${MODE_LABEL.duel}</option>
           </select>
         </label>
         <div class="mp-actions">
@@ -276,7 +277,7 @@ export class MultiplayerPanel implements LobbyRoomSource {
       this.q('.mp-room-mode').textContent = `${MODE_LABEL[room.mode]} · ${this.game.mapName} · ${room.members.length}/${room.capacity}명`;
       this.q('.mp-members').innerHTML = room.members
         .map((m) => {
-          const team = room.mode === 'team' ? this.game.teamOf(m.id) : null;
+          const team = room.mode === 'team' || room.mode === 'duel' ? this.game.teamOf(m.id) : null;
           return `<li class="${m.id === me ? 'me' : ''}"${team ? ` data-team="${team}"` : ''}>${team ? `<span class="mp-team ${team}">${TEAM_LABEL[team]}</span> ` : ''}${escape(m.name)}${m.id === room.hostId ? ' <span class="mp-host">방장</span>' : ''}${m.id === me ? ' <span class="muted">(나)</span>' : ''}</li>`;
         })
         .join('');

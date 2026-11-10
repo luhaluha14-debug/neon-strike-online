@@ -244,8 +244,8 @@ html.touch .killfeed li:nth-last-child(n + 4) {
   display: none;
 }
 html.touch .killfeed li {
-  padding: 3px 8px;
-  font-size: 11px;
+  padding: 2px 6px;
+  font-size: 10px;
 }
 /* Key hints that mean nothing without a keyboard. */
 html.touch .kbd,

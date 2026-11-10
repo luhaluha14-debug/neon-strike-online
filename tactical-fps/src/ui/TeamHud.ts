@@ -53,6 +53,8 @@ export class TeamHud {
   private last = '';
   private bombKey = '';
   private bannerKey = '';
+  /** 1대1 waiting for its opponent: shown in the round banner instead of the round state. */
+  private waiting: string | null = null;
   private feedKey = -1;
   /** Time of the newest kill already shown (later ones slide in). */
   private feedNewest = -Infinity;
@@ -214,9 +216,20 @@ export class TeamHud {
     this.results.classList.toggle('won', won);
     this.results.classList.toggle('forfeit', forfeit);
     this.results.querySelector('.results-reward')!.textContent = '';
-    this.results.querySelector('.results-title')!.textContent = forfeit ? (won ? '상대 포기 - 승리' : '대결 포기 - 패배') : winner ? `${TEAM_NAME[winner]} 승리` : '경기 종료';
+    // 1대1 (a two-seat match): the winner by name; an opponent who dropped and did not come back forfeits.
+    const duel = m.config.teamSize === 1;
+    const winnerName = winner ? ([...m.scores.values()].find((l) => l.team === winner)?.name ?? TEAM_NAME[winner]) : '';
+    this.results.querySelector('.results-title')!.textContent = forfeit
+      ? won
+        ? duel
+          ? '상대 기권 - 승리'
+          : '상대 포기 - 승리'
+        : '대결 포기 - 패배'
+      : winner
+        ? `${duel ? winnerName : TEAM_NAME[winner]} 승리`
+        : '경기 종료';
     this.results.querySelector('.results-sub')!.textContent = `${won ? '승리' : '패배'} · BLUE ${m.roundWins.blue} : ${m.roundWins.red} RED · ${m.history.length}라운드${forfeit ? ' 진행 후 포기' : ''}`;
-    fillCombatResults(this.results.querySelector('.results-personal')!, m.scores.get('local'), m.bombMode ? '팀전 · 폭탄 설치' : '팀전 · 섬멸');
+    fillCombatResults(this.results.querySelector('.results-personal')!, m.scores.get('local'), duel ? '1대1 대전' : m.bombMode ? '팀전 · 폭탄 설치' : '팀전 · 섬멸');
     this.results.querySelector('.round-history')!.innerHTML = m.history
       .map((r) => {
         const cls = r.winner ?? 'draw';
@@ -228,6 +241,11 @@ export class TeamHud {
     this.roundRecords.show(m);
     this.results.querySelector('.results-teams')!.innerHTML = teamTables(m);
     this.boardKey = '';
+  }
+
+  /** 1대1: the opponent is not here (yet / any more); null when it is. */
+  setWaiting(text: string | null): void {
+    this.waiting = text;
   }
 
   /** GRID credit line under the result (set once the economy has answered). */
@@ -250,7 +268,10 @@ export class TeamHud {
     let text = '';
     let cls = '';
     let sub = '';
-    if (m.phase === 'prep') {
+    if (this.waiting) {
+      text = this.waiting;
+      cls = 'prep';
+    } else if (m.phase === 'prep') {
       text = `라운드 ${m.round} — ${m.economy ? '작전 준비' : '준비'}`;
       if (m.economy) sub = document.documentElement.classList.contains('touch') ? '구매 버튼: 장비 구매' : 'B: 장비 구매';
       cls = 'prep';

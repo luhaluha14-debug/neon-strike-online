@@ -45,7 +45,7 @@ export type ToClient =
   /** Which character is yours (team match: which team). */
   | { k: 'you'; id: string; team: string | null }
   /** Mode / map of the room's match (a client switches if needed). */
-  | { k: 'mode'; mode: 'deathmatch' | 'team'; map: string }
+  | { k: 'mode'; mode: 'deathmatch' | 'team' | 'duel'; map: string }
   /** Combatants, ~20 per second. */
   | { k: 'snap'; t: number; e: EntityState[] }
   /** Match / round / bomb state, a few times a second and on changes. */

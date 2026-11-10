@@ -241,6 +241,21 @@ export class TeamMatch {
     return true;
   }
 
+  /**
+   * The round being played starts over from its prep (1대1: a dropped player came back in time).
+   * Nothing of the cut-off round is kept for it (its tally starts again when it goes live); rounds
+   * already decided, wins and records stay. Not after the match is over.
+   */
+  restartRound(): boolean {
+    if (this.phase === 'over') return false;
+    this.phase = 'prep';
+    this.phaseLeft = this.config.prepTime;
+    this.roundTimeLeft = this.config.roundTime;
+    this.planted = false;
+    this.startTally();
+    return true;
+  }
+
   /** Match winner once over (null = not over, or impossible tie). A forfeit goes to the other team. */
   get winner(): Team | null {
     if (!this.over) return null;

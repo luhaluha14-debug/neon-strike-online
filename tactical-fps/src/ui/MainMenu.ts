@@ -113,6 +113,11 @@ export class MainMenu {
                 <select class="select" data-setting="bot-look"></select>
                 <span class="field-hint">요원 모델은 리깅·애니메이션이 없는 정적 포즈입니다(걷기 동작 없음).</span>
               </label>
+              <label class="field">
+                <span class="field-label">봇 난이도</span>
+                <select class="select" data-setting="bot-difficulty"></select>
+                <span class="field-hint">반응 속도와 조준(거리·움직이는 적·연사)만 달라집니다. 시야와 무기는 같습니다.</span>
+              </label>
             </div>
             <div class="match-options">
               <label class="field">
@@ -621,7 +626,7 @@ export class MainMenu {
 
   // --- Settings ---------------------------------------------------------------
 
-  bindSelect<T extends string | number>(setting: 'quality' | 'frame-limit' | 'volume' | 'mode' | 'bots' | 'time-limit' | 'kill-target' | 'rounds-to-win' | 'round-time' | 'objective' | 'bot-look' | 'render-scale', options: readonly MenuOption<T>[], current: T, onChange: (value: T) => void): void {
+  bindSelect<T extends string | number>(setting: 'quality' | 'frame-limit' | 'volume' | 'mode' | 'bots' | 'time-limit' | 'kill-target' | 'rounds-to-win' | 'round-time' | 'objective' | 'bot-look' | 'bot-difficulty' | 'render-scale', options: readonly MenuOption<T>[], current: T, onChange: (value: T) => void): void {
     const select = this.root.querySelector<HTMLSelectElement>(`select[data-setting="${setting}"]`)!;
     select.replaceChildren(
       ...options.map((o) => {
@@ -757,6 +762,7 @@ function controlsHtml(): string {
     ['Esc', '일시정지 · 메뉴'],
     ['F4', '스폰으로 복귀'],
     ['F3', '성능 정보'],
+    ['M', '미니맵 확대 / 축소'],
   ];
   const touchRange = (k: keyof typeof TOUCH_LIMITS, label: string, step: number, hint = '') => `
       <label class="field">

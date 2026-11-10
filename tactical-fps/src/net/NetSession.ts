@@ -42,7 +42,7 @@ export async function listRooms(timeoutMs = 6000): Promise<RoomSummary[] | null>
     if (j?.service !== MP_SERVICE || !Array.isArray(j.rooms)) return null;
     return j.rooms.filter(
       (x): x is RoomSummary =>
-        !!x && typeof x.code === 'string' && (x.mode === 'deathmatch' || x.mode === 'team') && typeof x.map === 'string' && Number.isFinite(x.players) && Number.isFinite(x.capacity),
+        !!x && typeof x.code === 'string' && (x.mode === 'deathmatch' || x.mode === 'team' || x.mode === 'duel') && typeof x.map === 'string' && Number.isFinite(x.players) && Number.isFinite(x.capacity),
     );
   } catch {
     return null;

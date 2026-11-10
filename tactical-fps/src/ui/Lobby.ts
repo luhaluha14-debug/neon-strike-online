@@ -6,7 +6,8 @@ export type LobbyMode = 'deathmatch' | 'team' | 'training';
 
 /** What the lobby needs from the game (Game implements it). */
 export interface LobbyGame {
-  readonly mode: LobbyMode;
+  /** 'duel' (1대1) comes from a room only; the lobby's mode cards are the other two. */
+  readonly mode: LobbyMode | 'duel';
   readonly mapName: string;
 }
 
@@ -44,7 +45,7 @@ const MODES: readonly { id: Exclude<LobbyMode, 'training'>; title: string; tag: 
   { id: 'deathmatch', title: '봇 데스매치', tag: '개인전', desc: '모두가 적. 제한 시간 또는 목표 킬을 먼저 채우면 끝납니다.' },
 ];
 
-const ROOM_MODE: Record<RoomMode, string> = { deathmatch: '데스매치', team: '5대5 라운드전' };
+const ROOM_MODE: Record<RoomMode, string> = { deathmatch: '데스매치', team: '5대5 라운드전', duel: '1대1 대전' };
 
 /**
  * The GRID lobby: the first screen, drawn inside the menu overlay. Every

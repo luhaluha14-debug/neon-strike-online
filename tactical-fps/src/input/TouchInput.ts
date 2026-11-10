@@ -44,6 +44,8 @@ export interface TouchCallbacks {
   onBoard(held: boolean): void;
   /** The buy button (team match prep). */
   onBuy(): void;
+  /** A tap on the minimap: next zoom. */
+  onMinimap?(): void;
 }
 
 export class TouchInput {
@@ -266,6 +268,13 @@ export class TouchInput {
       finger = { kind: 'button', act, x: e.clientX, y: e.clientY };
       this.press(act, btn);
     } else {
+      // A tap on the minimap: its zoom.
+      const mm = document.querySelector<HTMLElement>('.minimap');
+      const mb = mm && !mm.hidden ? mm.getBoundingClientRect() : null;
+      if (mb && mb.width > 0 && e.clientX >= mb.left && e.clientX <= mb.right && e.clientY >= mb.top && e.clientY <= mb.bottom) {
+        this.cb.onMinimap?.();
+        return;
+      }
       // A tap on the weapon strip picks that weapon.
       const slot = [...document.querySelectorAll<HTMLElement>('.hud .loadout [data-slot]')].find((el) => {
         const b = el.getBoundingClientRect();

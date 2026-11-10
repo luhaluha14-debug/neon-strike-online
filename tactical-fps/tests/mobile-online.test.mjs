@@ -69,7 +69,11 @@ test('11, 12, 13: a phone in a PC’s room: joins with taps, moves, fires and ki
       g.squad.respawns = false;
       g.combat.protection = 1e9;
       for (const b of g.squad.bots) b.combat.protection = 1e9;
-      return g.squad.bots.find((b) => b.remote).id;
+      // The phone's character back up if the bots got it before the room was quieted (a dead one cannot move).
+      const seat = g.squad.bots.find((b) => b.remote);
+      if (!seat.alive) seat.spawn(seat.position.clone(), seat.controller.yaw);
+      seat.combat.protection = 1e9;
+      return seat.id;
     });
     // The phone's spawn protection runs out before it fires (shots from a protected player still count, but keep it plain).
     await phone.waitForTimeout(500);
@@ -100,6 +104,8 @@ test('11, 12, 13: a phone in a PC’s room: joins with taps, moves, fires and ki
       target.spawn(at, yaw + Math.PI);
       target.combat.protection = 0;
       target.order = null;
+      // It stands still where it was put (its AI would walk it out of the line of fire).
+      target.step = (dt) => target.hold(dt);
       window.__target = target.id;
       // Every round of the phone the host resolves (its own hitscan, its rules).
       window.__hostShots = 0;

@@ -4,7 +4,8 @@ import { PLAYER_CONFIG } from '../config';
 // limit and a kill target. Pure logic (no rendering), driven by Game.
 
 /** 'deathmatch' free-for-all, 'team' 5v5 rounds (TeamMatch), 'training' dummies. */
-export type GameMode = 'deathmatch' | 'team' | 'training';
+/** 'duel' (1대1) is a room mode only: two players, rounds (a two-seat TeamMatch). */
+export type GameMode = 'deathmatch' | 'team' | 'training' | 'duel';
 
 export interface MatchConfig {
   /** Number of AI opponents. */
