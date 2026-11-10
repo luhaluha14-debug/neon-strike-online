@@ -9,13 +9,41 @@ import { loadTouchSettings, type TouchSettings } from './TouchSettings';
 // lock on a PC and the touch session on a touch screen.
 
 export class GameInput extends KeyboardMouseInput {
-  readonly touch: TouchInput | null;
+  /** The touch controls, while the device is in touch mode (null on a PC). */
+  touch: TouchInput | null;
   private readonly lockListener: (locked: boolean) => void;
+  private touchSettings: TouchSettings;
 
-  constructor(element: HTMLElement, hudRoot: HTMLElement, touchMode: boolean, onLockChange: (locked: boolean) => void, touchCallbacks: TouchCallbacks, touchSettings: TouchSettings = loadTouchSettings()) {
+  constructor(
+    element: HTMLElement,
+    private readonly hudRoot: HTMLElement,
+    touchMode: boolean,
+    onLockChange: (locked: boolean) => void,
+    private readonly touchCallbacks: TouchCallbacks,
+    touchSettings: TouchSettings = loadTouchSettings(),
+  ) {
     super(element, onLockChange);
     this.lockListener = onLockChange;
+    this.touchSettings = touchSettings;
     this.touch = touchMode ? new TouchInput(hudRoot, touchSettings, touchCallbacks) : null;
+  }
+
+  /**
+   * Switches between the PC and the touch controls (settings, or auto mode seeing the other kind of
+   * input). Whatever was held is let go first on both sides (no key, button, finger or toggle carries
+   * over), playing stops, and the touch controls are built or removed.
+   */
+  setTouchMode(on: boolean, settings: TouchSettings = this.touchSettings): void {
+    this.touchSettings = settings;
+    if (on === this.touchMode) return;
+    this.release();
+    this.releaseAll();
+    if (on) {
+      this.touch = new TouchInput(this.hudRoot, settings, this.touchCallbacks);
+    } else {
+      this.touch?.dispose();
+      this.touch = null;
+    }
   }
 
   get touchMode(): boolean {

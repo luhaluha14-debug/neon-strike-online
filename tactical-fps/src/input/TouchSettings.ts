@@ -1,3 +1,4 @@
+import { classify, readSignals, resolveTouch } from './DeviceMode';
 // Touch controls layout and feel (phones / tablets), stored on this browser
 // under its own key, apart from the PC controls (tactical-fps.controls.v1)
 // and the general settings: nothing a PC player has set changes.
@@ -19,7 +20,27 @@ export interface TouchSettings {
   adsSensitivity: number;
   /** Opacity of the controls (they never hide the view entirely). */
   opacity: number;
+  /**
+   * Phase 25 touch conveniences (handling and readability only: no aim help, no change to damage, hit
+   * boxes or the host's rules). On / off values are 0 / 1.
+   * aimSmoothing: while aiming (ADS / scope), a drag's turn is eased in over a few frames (0 = off; the
+   *   whole turn still arrives, nothing is added or aimed for the player).
+   */
+  aimSmoothing: number;
+  /** 발사 버튼 고정: a tap starts firing, the next tap stops (instead of holding the button). */
+  fireToggle: number;
+  /** Semi-automatic weapons keep firing while the button is held, each round when the weapon allows it (its own fire rate). */
+  fireRepeat: number;
+  /** Larger minimap on the phone HUD. */
+  minimapLarge: number;
+  /** Larger ammo count, low ammo in colour. */
+  ammoEmphasis: number;
+  /** Steadier frame rate first: decorative effects (casings, muzzle smoke, the muzzle light) off. */
+  perfPriority: number;
 }
+
+/** The on / off settings (stored as 0 / 1). */
+export const TOUCH_TOGGLES = ['fireToggle', 'fireRepeat', 'minimapLarge', 'ammoEmphasis', 'perfPriority'] as const;
 
 export const TOUCH_LIMITS = {
   stickX: [0.06, 0.4],
@@ -30,10 +51,31 @@ export const TOUCH_LIMITS = {
   lookSensitivity: [0.2, 3],
   adsSensitivity: [0.2, 1.5],
   opacity: [0.25, 1],
+  aimSmoothing: [0, 0.8],
+  fireToggle: [0, 1],
+  fireRepeat: [0, 1],
+  minimapLarge: [0, 1],
+  ammoEmphasis: [0, 1],
+  perfPriority: [0, 1],
 } as const satisfies Record<keyof TouchSettings, readonly [number, number]>;
 
 export function defaultTouchSettings(): TouchSettings {
-  return { stickX: 0.16, stickY: 0.3, buttonsX: 0.03, buttonsY: 0.06, buttonScale: 1, lookSensitivity: 1, adsSensitivity: 0.7, opacity: 0.7 };
+  return {
+    stickX: 0.16,
+    stickY: 0.3,
+    buttonsX: 0.03,
+    buttonsY: 0.06,
+    buttonScale: 1,
+    lookSensitivity: 1,
+    adsSensitivity: 0.7,
+    opacity: 0.7,
+    aimSmoothing: 0,
+    fireToggle: 0,
+    fireRepeat: 0,
+    minimapLarge: 0,
+    ammoEmphasis: 0,
+    perfPriority: 0,
+  };
 }
 
 /** Each value inside its limits (anything else falls back to the default). */
@@ -46,6 +88,7 @@ export function sanitizeTouchSettings(raw: unknown): TouchSettings {
     const [lo, hi] = TOUCH_LIMITS[k];
     if (typeof v === 'number' && Number.isFinite(v)) out[k] = Math.min(hi, Math.max(lo, v));
   }
+  for (const k of TOUCH_TOGGLES) out[k] = out[k] >= 0.5 ? 1 : 0;
   return out;
 }
 
@@ -65,15 +108,7 @@ export function saveTouchSettings(s: TouchSettings): void {
   }
 }
 
-/**
- * A phone / tablet without a mouse: touch controls instead of the pointer lock. `?touch=1` / `?touch=0`
- * in the link forces either (testing on a PC, or a touch laptop with a mouse).
- */
+/** A device that gets the touch controls by detection alone (DeviceMode decides; `?touch=` still forces). */
 export function isTouchDevice(): boolean {
-  const p = new URLSearchParams(location.search).get('touch');
-  if (p === '1') return true;
-  if (p === '0') return false;
-  const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
-  const fine = typeof matchMedia === 'function' && matchMedia('(any-pointer: fine)').matches;
-  return (navigator.maxTouchPoints ?? 0) > 0 && coarse && !fine;
+  return resolveTouch('auto', classify(readSignals()));
 }

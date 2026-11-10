@@ -6,7 +6,7 @@ import { RoundRecords } from './roundRecords';
 import './match.css';
 
 const FEED_SECONDS = 6;
-const WEAPON_SHORT: Record<string, string> = { ar01: 'AR-01', sr01: 'SR-01', karambit: 'M9', smg01: 'SMG-01', sg01: 'SG-01', pis01: 'PIS-01', ar02: 'AR-02', smg02: 'SMG-02', dmr01: 'DMR-01', pis02: 'PIS-02', lmg01: 'LMG-01', c4: 'C4' };
+const WEAPON_SHORT: Record<string, string> = { ar01: 'AR-01', sr01: 'SR-01', karambit: 'M9', smg01: 'SMG-01', sg01: 'SG-01', pis01: 'PIS-01', ar02: 'AR-02', smg02: 'SMG-02', dmr01: 'DMR-01', pis02: 'PIS-02', lmg01: 'LMG-01', lmg02: 'LMG-02', c4: 'C4' };
 const REASON: Record<RoundEnd, string> = { elimination: '전멸', time: '시간', bomb: 'C4 폭파', defuse: 'C4 해체' };
 
 /** What the bomb line of the HUD shows (built by Game from what the player may know). */

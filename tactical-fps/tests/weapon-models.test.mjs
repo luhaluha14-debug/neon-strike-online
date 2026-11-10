@@ -148,6 +148,7 @@ test('weapon switch spam: one model at a time, shared geometry intact, each file
     '/weapons/dmr01_rig.glb': 1,
     '/weapons/pis02_rig.glb': 1,
     '/weapons/lmg01_rig.glb': 1,
+    '/weapons/lmg02.glb': 1,
   });
 });
 

@@ -62,3 +62,16 @@ html.touch .killfeed li {
   padding: 2px 6px;
   font-size: 10px;
 }
+
+/* 미니맵 크게 (touch setting): bigger where the screen is tall enough; on short phones only as far as
+   the button cluster under it allows (the reload button's top is ~115 px down at 360 px). */
+html.touch.tc-map-large .minimap {
+  width: 106px;
+  height: 106px;
+}
+@media (min-height: 420px) {
+  html.touch.tc-map-large .minimap {
+    width: 132px;
+    height: 132px;
+  }
+}

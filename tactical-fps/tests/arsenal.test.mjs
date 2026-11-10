@@ -1,5 +1,6 @@
 // Phase 24 arsenal: AR-02 (HK416-type), SMG-02 (UMP45-type), DMR-01 (M110-type), PIS-02 (P220-family),
-// LMG-01 (M249-type), each from its own Blender GLB, in the real game. What is checked:
+// LMG-01 (M249-type), LMG-02 (MG3-type, Phase 25: an MG42-family file, root K_MG42), each from its own
+// Blender GLB, in the real game. What is checked:
 //   1. every file loads as itself (its own root node and parts, no stand-in), parts gathered by name;
 //      muzzle, grip, support hand and ejection port where the file's own geometry is
 //   2. switching between them: one model in hand at a time, each file downloaded once
@@ -21,7 +22,7 @@ import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import { startEnv, openGame, installFrameDriver, ROOT } from './harness.mjs';
 
-const NEW = ['ar02', 'smg02', 'dmr01', 'lmg01', 'pis02'];
+const NEW = ['ar02', 'smg02', 'dmr01', 'lmg01', 'lmg02', 'pis02'];
 /** File root node and a few parts each file must bring (its own model, not a stand-in). */
 const FILES = {
   ar02: { url: '/weapons/ar02.glb', root: 'R_HK416', parts: ['R_UpperReceiver', 'R_Handguard', 'R_Magazine', 'R_Stock', 'R_TopRail'] },
@@ -29,6 +30,7 @@ const FILES = {
   dmr01: { url: '/weapons/dmr01_rig.glb', root: 'M_M110', parts: ['M_UpperReceiver', 'M_ScopeTube', 'M_Handguard', 'M_Magazine', 'M_BipodLegs'] },
   pis02: { url: '/weapons/pis02_rig.glb', root: 'P_P220', parts: ['P_Frame', 'P_GripPanels', 'P_MagBase', 'P_MagBody'] },
   lmg01: { url: '/weapons/lmg01_rig.glb', root: 'G_M249', parts: ['G_Receiver', 'G_FeedCover', 'G_AmmoPouch', 'G_Belt', 'G_BipodLegs'] },
+  lmg02: { url: '/weapons/lmg02.glb', root: 'K_MG42', parts: ['K_Receiver', 'K_BarrelJacket', 'K_FeedCover', 'K_BeltCases', 'K_BipodLegs'] },
 };
 
 let env;
@@ -144,9 +146,11 @@ test('1. each new weapon loads its own Blender file (root node, parts), no stand
     assert.ok(x.magazine >= 2, `${id}: magazine gathered from the file's nodes (${x.magazine})`);
     for (const [name, n] of x.groups) assert.ok(n >= 1, `${id}: ${name} gathered (${n} nodes)`);
     assert.ok(x.meshes >= 20, `${id}: the full model (${x.meshes} meshes)`);
-    assert.ok(x.tris < 8000, `${id}: low poly for first person (${x.tris} triangles)`);
+    // Phase 24's five under 8,000; LMG-02's file models its belt round by round: no more than AR-01 (12,200).
+    assert.ok(x.tris < (id === 'lmg02' ? 12200 : 8000), `${id}: low poly for first person (${x.tris} triangles)`);
     const bytes = statSync(join(ROOT, 'public', f.url)).size;
-    assert.ok(bytes < 260_000, `${id}: ${bytes} bytes`);
+    // LMG-02's belt is modelled round by round: no larger than AR-01's file (299,632 B).
+    assert.ok(bytes < (id === 'lmg02' ? 300_000 : 260_000), `${id}: ${bytes} bytes`);
     console.log(`[arsenal] ${id}: ${f.url} ${bytes} B, ${x.meshes} meshes, ${x.tris} triangles`);
   }
   assert.deepEqual(page.warnings.filter((w) => w.includes('[weapon]')), [], 'no part missing from a file');
@@ -157,7 +161,7 @@ test('1. anchors on the file\'s own geometry: muzzle at the barrel\'s end, grip 
     const { WEAPONS } = await import('/src/weapons/weapons.ts');
     const { loadGltfWeaponView } = await import('/src/weapons/view/GltfWeaponView.ts');
     const out = {};
-    for (const id of ['ar02', 'smg02', 'dmr01', 'lmg01', 'pis02']) {
+    for (const id of ['ar02', 'smg02', 'dmr01', 'lmg01', 'lmg02', 'pis02']) {
       const def = WEAPONS[id];
       const v = await loadGltfWeaponView(def.view.url, def.view.fit);
       v.object.updateMatrixWorld(true);
@@ -187,6 +191,7 @@ test('1. anchors on the file\'s own geometry: muzzle at the barrel\'s end, grip 
         smg02: ['U_PistolGrip', 'U_BottomRail', 'U_EjectionPort'],
         dmr01: ['M_PistolGrip', 'M_Handguard', 'M_EjectionPort', 'Bipod', 'M_SideRails'],
         lmg01: ['G_PistolGrip', 'G_HandguardLower', 'G_Receiver', 'Bipod', 'G_FeedCover'],
+        lmg02: ['K_PistolGrip', 'K_BarrelJacket', 'K_Receiver', 'Bipod'],
         pis02: ['P_GripPanels', 'P_Slide', 'P_MagBody', 'P_Frame'],
       }[id];
       for (const n of names) out[id].boxes[n] = bb(n);
@@ -203,14 +208,20 @@ test('1. anchors on the file\'s own geometry: muzzle at the barrel\'s end, grip 
   }
   const b = (id, n) => r[id].boxes[n];
   // Firing hand on the pistol grip (within 1.5 cm of its geometry), support hand at the handguard.
-  for (const [id, grip] of [['ar02', 'R_PistolGrip'], ['smg02', 'U_PistolGrip'], ['dmr01', 'M_PistolGrip'], ['lmg01', 'G_PistolGrip'], ['pis02', 'P_GripPanels']])
+  for (const [id, grip] of [['ar02', 'R_PistolGrip'], ['smg02', 'U_PistolGrip'], ['dmr01', 'M_PistolGrip'], ['lmg01', 'G_PistolGrip'], ['lmg02', 'K_PistolGrip'], ['pis02', 'P_GripPanels']])
     assert.ok(within(r[id].grip, b(id, grip), 0.015), `${id}: right hand on the grip ${JSON.stringify(r[id].grip.map((v) => +v.toFixed(3)))}`);
-  for (const [id, fore] of [['ar02', 'R_Handguard'], ['smg02', 'U_BottomRail'], ['dmr01', 'M_Handguard'], ['lmg01', 'G_HandguardLower']])
+  for (const [id, fore] of [['ar02', 'R_Handguard'], ['smg02', 'U_BottomRail'], ['dmr01', 'M_Handguard'], ['lmg01', 'G_HandguardLower'], ['lmg02', 'K_BarrelJacket']])
     assert.ok(within(r[id].support, b(id, fore), 0.03), `${id}: support hand at the handguard ${JSON.stringify(r[id].support.map((v) => +v.toFixed(3)))}`);
   assert.equal(r.pis02.support, null, 'PIS-02: one-handed');
   // Ports on the files' own port geometry (2 cm), the LMG's under the receiver, the pistol's on the slide.
   for (const [id, port] of [['ar02', 'R_EjectionPortCover'], ['smg02', 'U_EjectionPort'], ['dmr01', 'M_EjectionPort']]) assert.ok(within(r[id].port, b(id, port), 0.02), `${id}: ejection port`);
   assert.ok(r.lmg01.port[1] <= b('lmg01', 'G_Receiver').min[1] + 0.005, 'LMG-01: cases drop under the receiver');
+  assert.ok(r.lmg02.port[1] <= b('lmg02', 'K_Receiver').min[1] + 0.005, 'LMG-02: cases drop under the receiver');
+  // The MG3-type's bipod folded back under the jacket (the file stands it deployed down to y -0.32, feet ±134 mm).
+  const mgb = b('lmg02', 'Bipod');
+  assert.ok(mgb.min[1] > -0.1, `LMG-02: bipod folded (lowest y ${mgb.min[1].toFixed(3)})`);
+  assert.ok(mgb.max[0] < 0.05 && mgb.min[0] > -0.05, `LMG-02: legs closed (${mgb.min[0].toFixed(3)}..${mgb.max[0].toFixed(3)})`);
+  assert.ok(mgb.max[2] < r.lmg02.support[2], 'LMG-02: folded legs ahead of the support hand');
   assert.ok(within(r.pis02.port, b('pis02', 'P_Slide'), 0.006), 'PIS-02: port on the slide');
   // The M249's bipod folded under the barrel (the file stands it deployed, legs down to y -0.317).
   assert.ok(b('lmg01', 'Bipod').min[1] > -0.1, `LMG-01: bipod folded (lowest y ${b('lmg01', 'Bipod').min[1].toFixed(3)})`);
@@ -243,6 +254,9 @@ test('1. gloves vs weapon (clipping check): idle, just fired, mid reload, magazi
     ['LMG-01 idle', 'lmg01', {}, 6.5, 22],
     ['LMG-01 reload 40 %', 'lmg01', { reload: 0.4 }, 5.3, 10],
     ['LMG-01 reload 88 %', 'lmg01', { reload: 0.88 }, 14.9, 314],
+    ['LMG-02 idle', 'lmg02', {}, 3.4, 5],
+    ['LMG-02 reload 40 %', 'lmg02', { reload: 0.4 }, 5.3, 65],
+    ['LMG-02 reload 88 %', 'lmg02', { reload: 0.88 }, 7.0, 88],
     ['PIS-02 idle', 'pis02', {}, 2.1, 2],
     ['PIS-02 fired', 'pis02', { sinceShot: 0.03 }, 2.5, 4],
   ];
@@ -380,6 +394,7 @@ test('4, 8. reload with R: time, refill from the reserve, the cues in order (LMG
     smg02: ['mag.out', 'mag.in', 'smg02.charge'],
     dmr01: ['mag.out', 'mag.in', 'ar01.charge'],
     lmg01: ['lmg.cover', 'mag.out', 'mag.in', 'lmg.belt', 'lmg.cover', 'ar01.charge'],
+    lmg02: ['lmg.cover', 'mag.out', 'mag.in', 'lmg.belt', 'lmg.cover', 'ar01.charge'],
     pis02: ['mag.out', 'mag.in', 'sr01.chamber'],
   };
   for (const id of NEW) {
@@ -470,12 +485,13 @@ test('4. moving parts: magazine along its own rake, charging handle racked, pist
     assert.ok(x.drop > 0.1, `${id}: magazine out on a reload (${x.drop} m)`);
     assert.ok(x.rakeDot > 0.99, `${id}: along its own rake (${x.rakeDot})`);
   }
-  for (const id of ['ar02', 'dmr01', 'lmg01']) assert.ok(Math.abs(r[id].handle - 0.06) < 0.004, `${id}: charging handle racked 6 cm (${r[id].handle})`);
+  for (const id of ['ar02', 'dmr01', 'lmg01', 'lmg02']) assert.ok(Math.abs(r[id].handle - 0.06) < 0.004, `${id}: charging handle racked 6 cm (${r[id].handle})`);
   assert.ok(Math.abs(r.smg02.handle - 0.045) < 0.004, `SMG-02: cocking knob racked 4.5 cm (${r.smg02.handle})`);
   assert.ok(Math.abs(r.pis02.slide[0] - 0.028) < 0.003 && Math.abs(r.pis02.slide[1]) < 1e-4, `PIS-02: slide back 28 mm on a shot and home (${r.pis02.slide})`);
   assert.ok(Math.abs(r.pis02.slide[2] - 0.028) < 0.003, `PIS-02: locked back while empty (${r.pis02.slide[2]})`);
   assert.ok(r.lmg01.cover[1] < -1.1, `LMG-01: feed cover up ~70° mid reload (${r.lmg01.cover[1]} rad)`);
   assert.ok(Math.abs(r.lmg01.cover[2]) < 1e-6, 'LMG-01: shut again at the end');
+  assert.ok(r.lmg02.cover[1] < -1.1 && Math.abs(r.lmg02.cover[2]) < 1e-6, `LMG-02: feed cover up and shut again (${r.lmg02.cover})`);
   assert.equal(r.ar02.cover, null);
   await page.evaluate(() => window.T.run(30));
 });
@@ -519,12 +535,13 @@ test('6, 7. a case per round from the port on screen; the muzzle flash at the mu
     assert.ok(x.muzzle[2] < 1 && x.muzzle[0] > 0 && x.muzzle[0] < 1 && x.muzzle[1] < 0.05 && x.muzzle[1] > -1, `${x.id}: muzzle on screen low right ${x.muzzle}`);
   }
   assert.equal(r.lmg01.side, 1);
+  assert.equal(r.lmg02.side, 1);
 });
 
 test('8. each new weapon has its own gunshot (rendered, distinct from the others), the LMG its cover and belt, the UMP its slap', async () => {
   const r = await page.evaluate(async () => {
     const { renderSound } = await import('/src/audio/weaponSounds.ts');
-    const ids = ['ar01.shot', 'ar02.shot', 'smg01.shot', 'smg02.shot', 'sr01.shot', 'dmr01.shot', 'pis01.shot', 'pis02.shot', 'lmg01.shot', 'lmg.cover', 'lmg.belt', 'smg02.charge'];
+    const ids = ['ar01.shot', 'ar02.shot', 'smg01.shot', 'smg02.shot', 'sr01.shot', 'dmr01.shot', 'pis01.shot', 'pis02.shot', 'lmg01.shot', 'lmg02.shot', 'lmg.cover', 'lmg.belt', 'smg02.charge'];
     const out = {};
     for (const id of ids) {
       const s = renderSound(id, 0, { srFireInterval: 1.4 });
@@ -546,7 +563,7 @@ test('8. each new weapon has its own gunshot (rendered, distinct from the others
       }
       return +Math.sqrt(d / e).toFixed(2);
     };
-    const pairs = [['ar01.shot', 'ar02.shot'], ['smg01.shot', 'smg02.shot'], ['sr01.shot', 'dmr01.shot'], ['pis01.shot', 'pis02.shot'], ['ar01.shot', 'lmg01.shot']].map(([a, b]) => [a, b, diff(a, b)]);
+    const pairs = [['ar01.shot', 'ar02.shot'], ['smg01.shot', 'smg02.shot'], ['sr01.shot', 'dmr01.shot'], ['pis01.shot', 'pis02.shot'], ['ar01.shot', 'lmg01.shot'], ['lmg01.shot', 'lmg02.shot']].map(([a, b]) => [a, b, diff(a, b)]);
     for (const k of Object.keys(out)) delete out[k].head;
     out.pairs = pairs;
     return out;

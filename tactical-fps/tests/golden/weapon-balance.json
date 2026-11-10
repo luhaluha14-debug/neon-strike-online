@@ -428,5 +428,45 @@
       "yawRecovery": true,
       "sprayResetTime": 0.4
     }
+  },
+  "lmg02": {
+    "damage": {
+      "base": 28,
+      "headMultiplier": 3.2,
+      "limbMultiplier": 0.8,
+      "falloffStart": 45,
+      "falloffEnd": 130,
+      "falloffMinMultiplier": 0.8,
+      "maxRange": 300
+    },
+    "fireRate": 1000,
+    "fireMode": "auto",
+    "magazineSize": 120,
+    "reserveAmmo": 240,
+    "reloadTime": 6,
+    "equipTime": 1.4,
+    "pellets": 1,
+    "spread": {
+      "standing": 0.007853981633974483,
+      "moving": 0.06632251157578452,
+      "airborne": 0.17453292519943295,
+      "crouchMultiplier": 0.5
+    },
+    "recoil": {
+      "pitchPerShot": 0.007330382858376183,
+      "pitchGrowthPerShot": 0.0006108652381980154,
+      "growthShots": 12,
+      "maxPitch": 0.08726646259971647,
+      "yawJitter": 0.003490658503988659,
+      "yawDrift": 0.006632251157578452,
+      "yawDriftAfterShots": 8,
+      "yawDriftSign": -1,
+      "yawSwayShots": 10,
+      "kickResponse": 26,
+      "recoveryDelay": 0.16,
+      "recoverySpeed": 0.3141592653589793,
+      "yawRecovery": true,
+      "sprayResetTime": 0.4
+    }
   }
 }

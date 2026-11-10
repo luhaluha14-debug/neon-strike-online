@@ -46,7 +46,8 @@ export type SoundId =
   | 'pis02.shot'
   | 'lmg01.shot'
   | 'lmg.cover'
-  | 'lmg.belt';
+  | 'lmg.belt'
+  | 'lmg02.shot';
 
 /** Number of pre-rendered variants per sound. */
 export const VARIANTS: Record<SoundId, number> = {
@@ -91,6 +92,7 @@ export const VARIANTS: Record<SoundId, number> = {
   'lmg01.shot': 4,
   'lmg.cover': 2,
   'lmg.belt': 1,
+  'lmg02.shot': 4,
 };
 
 interface GunshotRecipe {
@@ -248,6 +250,20 @@ const LMG01_SHOT: GunshotRecipe = {
   reflections: [
     [0.075, 0.12],
     [0.155, 0.06],
+  ],
+};
+
+/** MG3-type 7.62 at 1,000 RPM: a sharp, ripping report (short body, quick decay) over a heavy action. */
+const LMG02_SHOT: GunshotRecipe = {
+  length: 1.1,
+  crack: { highpass: 2100, tau: 0.0042, gain: 0.85 },
+  body: { lowpass: 1750, tau: 0.017, gain: 1.0 },
+  thump: { f0: 150, f1: 70, tau: 0.028, gain: 0.32 },
+  mech: { freq: 2700, delay: 0.009, tau: 0.008, gain: 0.17 },
+  tail: { lowpass: 820, attack: 0.028, tau: 0.26, gain: 0.25 },
+  reflections: [
+    [0.08, 0.13],
+    [0.17, 0.07],
   ],
 };
 
@@ -695,6 +711,8 @@ export function renderSound(id: SoundId, variant: number, opts: { srFireInterval
       return lmgCover(seed);
     case 'lmg.belt':
       return lmgBelt(seed);
+    case 'lmg02.shot':
+      return gunshot(LMG02_SHOT, seed);
     case 'sr01.bolt':
       return srBolt(seed, opts.srFireInterval);
     case 'karambit.swing':

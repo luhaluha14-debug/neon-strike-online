@@ -118,6 +118,12 @@ export class KeyboardMouseInput implements InputSource {
     this.mouseButtons = 0;
   };
 
+  /** Every key and mouse button let go, pending clicks dropped (a change of controls). */
+  releaseAll(): void {
+    this.handleBlur();
+    this.clearLatches();
+  }
+
   private handleMouseDown = (e: MouseEvent): void => {
     // Only clicks made while captured count; the click that acquires the lock never fires.
     if (!this.locked) return;

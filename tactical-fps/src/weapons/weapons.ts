@@ -515,6 +515,8 @@ export const AR_02: WeaponDefinition = {
       ],
     },
     pose: { position: [0.17, -0.155, -0.47], rotation: [0.02, 0.12, -0.04], scale: 1 },
+    // Its own feel: flatter than AR-01 (less muzzle rise, more straight push back).
+    feel: { rise: 0.85, back: 1.15 },
   },
   sounds: {
     fire: 'ar02.shot',
@@ -590,6 +592,8 @@ export const SMG_02: WeaponDefinition = {
       armPose: { leftElbow: [-0.5, -0.34, 0.12] },
     },
     pose: { position: [0.17, -0.165, -0.46], rotation: [0.02, 0.12, -0.04], scale: 1 },
+    // .45: a heavier thump per round than SMG-01's buzz, less twist.
+    feel: { kick: 1.12, roll: 0.85 },
   },
   sounds: {
     fire: 'smg02.shot',
@@ -728,6 +732,8 @@ export const PIS_02: WeaponDefinition = {
       ],
     },
     pose: { position: [0.15, -0.165, -0.42], rotation: [0.02, 0.06, -0.02], scale: 1 },
+    // Heavier slide: snaps up a little more than PIS-01.
+    feel: { rise: 1.1 },
   },
   sounds: {
     fire: 'pis02.shot',
@@ -827,6 +833,91 @@ export const LMG_01: WeaponDefinition = {
   },
 };
 
+/**
+ * MG3-type 7.62 general-purpose machine gun (the delivered file is an MG42-family model, root `K_MG42`;
+ * the MG3 is its post-war successor): 1,000 RPM on a 120-round belt, 4 body hits, no one-shot head kill,
+ * heavier than LMG-01 to move and aim, the slowest reload and draw in the game.
+ */
+export const LMG_02: WeaponDefinition = {
+  id: 'lmg02',
+  displayName: 'LMG-02',
+  category: 'lmg',
+  fireMode: 'auto',
+  fireRate: 1000,
+  magazineSize: 120,
+  reserveAmmo: 240,
+  reloadTime: 6.0,
+  equipTime: 1.4,
+  damage: { base: 28, headMultiplier: 3.2, limbMultiplier: 0.8, falloffStart: 45, falloffEnd: 130, falloffMinMultiplier: 0.8, maxRange: 300 },
+  spread: { standing: deg(0.45), moving: deg(3.8), airborne: deg(10), crouchMultiplier: 0.5 },
+  recoil: {
+    pitchPerShot: deg(0.42),
+    pitchGrowthPerShot: deg(0.035),
+    growthShots: 12,
+    maxPitch: deg(5),
+    // Fast and heavy: a wider sideways walk than LMG-01, left first, swinging every 10 rounds.
+    yawJitter: deg(0.2),
+    yawDrift: deg(0.38),
+    yawDriftAfterShots: 8,
+    yawDriftSign: -1,
+    yawSwayShots: 10,
+    kickResponse: 26,
+    recoveryDelay: 0.16,
+    recoverySpeed: deg(18),
+    yawRecovery: true,
+    sprayResetTime: 0.4,
+  },
+  view: {
+    kind: 'gltf',
+    // The delivered file as it is (every part its own node, the belt modelled).
+    url: '/weapons/lmg02.glb',
+    fallback: 'ar01',
+    fit: {
+      rotation: [0, Math.PI / 2, 0],
+      // Grip (centre x -0.175 at the bottom, -0.158 at the top, ~9°).
+      // Fitted with the clipping check: 4 mm up and back on the grip.
+      grip: { position: [0, -0.102, 0.17], rotation: [-0.15, 0, 0] },
+      // Under the barrel jacket's rear (jacket x 0.02..0.535, bottom y -0.034).
+      support: { position: [0, -0.034, -0.11] },
+      hand: { width: 0.034, depth: 0.046, index: 'trigger' },
+      muzzle: [0, 0, -0.612],
+      // The belt hanging on the left is what is changed on a reload; the hand takes it by its middle.
+      magazine: ['K_BeltBullets', 'K_BeltCases', 'K_BeltLinks'],
+      magazinePivot: [-0.105, -0.06, 0.016],
+      // Cases drop out under the receiver.
+      ejectPort: [0.004, -0.04, 0.03],
+      groups: [
+        // Feed cover hinged at its front (file x 0.025, top y 0.072).
+        { name: 'FeedCover', nodes: ['K_FeedCover', 'K_FeedCoverRib', 'K_CoverLatch'], pivot: [0, 0.072, -0.025] },
+        { name: 'ChargingHandle', nodes: ['K_CockingHandle'] },
+        { name: 'Trigger', nodes: ['K_Trigger'] },
+        // The file's bipod stands deployed with its feet splayed ±134 mm: folded back under the jacket
+        // (as the MG42 / MG3 bipod folds) on its hinge (file x 0.47, y -0.047), legs closed together (sideways
+        // and fore-and-aft, where the deployed feet also spread) so they lie along the jacket.
+        { name: 'Bipod', nodes: ['K_BipodLegs', 'K_BipodFeet', 'K_BipodSpikes'], pivot: [0, -0.047, -0.47], rotation: [-Math.PI / 2, 0, 0], scale: [0.25, 1, 0.4] },
+      ],
+      armPose: { rightElbow: [0.26, -0.24, 0.46], leftElbow: [-0.34, -0.36, 0.02] },
+    },
+    pose: { position: [0.18, -0.12, -0.54], rotation: [0.02, 0.12, -0.05], scale: 1 },
+    // 7.62 at 1,000 RPM: each round shoves harder than LMG-01's.
+    feel: { kick: 1.12, back: 1.1 },
+  },
+  sounds: {
+    fire: 'lmg02.shot',
+    fireVolume: 0.95,
+    dry: 'dryfire',
+    equip: 'equip.gun',
+    reload: [
+      { at: 0.03, sound: 'lmg.cover' },
+      { at: 0.12, sound: 'mag.out' },
+      { at: 0.8, sound: 'mag.in' },
+      { at: 0.83, sound: 'lmg.belt' },
+      { at: 0.88, sound: 'lmg.cover' },
+    ],
+    reloadEnd: 'ar01.charge',
+  },
+};
+
 export const WEAPONS: Record<string, WeaponDefinition> = {
   [AR_01.id]: AR_01,
   [SR_01.id]: SR_01,
@@ -839,6 +930,7 @@ export const WEAPONS: Record<string, WeaponDefinition> = {
   [DMR_01.id]: DMR_01,
   [PIS_02.id]: PIS_02,
   [LMG_01.id]: LMG_01,
+  [LMG_02.id]: LMG_02,
 };
 
 /** Default loadout; slot index = number key - 1. */

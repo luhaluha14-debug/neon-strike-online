@@ -639,3 +639,51 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+
+/* Team status line never wraps (a wrapped line ran into the personal record and the round banner on
+   screens under ~760 px). Narrow screens: tighter, smaller, the pips thinner, so it stays one line
+   inside the room between the left and right HUD blocks. */
+.team-alive,
+.ta {
+  white-space: nowrap;
+}
+@media (max-width: 780px) {
+  .team-alive {
+    gap: 10px;
+    font-size: 11px;
+  }
+  .ta {
+    gap: 4px;
+  }
+  .ta b {
+    font-size: 14px;
+  }
+  .ta-pips {
+    gap: 2px;
+  }
+  .ta-pips i {
+    width: 5px;
+    height: 9px;
+  }
+}
+@media (max-width: 660px) {
+  .team-alive {
+    gap: 7px;
+    font-size: 10px;
+  }
+  .ta-pips i {
+    width: 4px;
+  }
+}
+/* Phones under ~700 px: the round banner narrower, so it stays between the personal record on the
+   left and the minimap / buttons on the right. */
+@media (max-width: 700px) {
+  html.touch .round-banner {
+    padding: 7px 14px;
+    font-size: 16px;
+    max-width: calc(100vw - 2 * 228px);
+  }
+  html.touch .rb-sub {
+    font-size: 10.5px;
+  }
+}

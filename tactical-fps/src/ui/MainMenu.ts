@@ -2,7 +2,7 @@ import type { WeaponCategory } from '../weapons/WeaponDefinition';
 import './menu.css';
 
 import { ACTIONS, bindKey, defaultControls, keyLabel, RESERVED_KEYS, SENSITIVITY_MAX, SENSITIVITY_MIN, type ActionId, type ControlSettings } from '../input/Controls';
-import { defaultTouchSettings, sanitizeTouchSettings, TOUCH_LIMITS, type TouchSettings } from '../input/TouchSettings';
+import { defaultTouchSettings, sanitizeTouchSettings, TOUCH_LIMITS, TOUCH_TOGGLES, type TouchSettings } from '../input/TouchSettings';
 
 export type MenuPage = 'play' | 'loadout' | 'settings' | 'controls' | 'inventory' | 'shop' | 'missions' | 'multi';
 
@@ -428,6 +428,11 @@ export class MainMenu {
     this.renderControls();
   }
 
+  /** The device the game detected and the controls in use (조작 방식 hint). */
+  setInputModeInfo(text: string): void {
+    this.root.querySelector('.input-mode-detected')!.textContent = text;
+  }
+
   /** Touch controls (phones / tablets): every slider applied at once; `onChange` gets the whole record. */
   setTouchControls(t: TouchSettings, onChange: (t: TouchSettings) => void): void {
     const inputs = [...this.root.querySelectorAll<HTMLInputElement>('input[data-touch]')];
@@ -446,12 +451,33 @@ export class MainMenu {
         show();
         onChange(t);
       };
+    const toggles = [...this.root.querySelectorAll<HTMLInputElement>('input[data-touch-toggle]')];
+    const showToggles = () => {
+      for (const el of toggles) el.checked = t[el.dataset.touchToggle as keyof TouchSettings] === 1;
+    };
+    for (const el of toggles)
+      el.onchange = () => {
+        Object.assign(t, sanitizeTouchSettings({ ...t, [el.dataset.touchToggle!]: el.checked ? 1 : 0 }));
+        showToggles();
+        onChange(t);
+      };
     this.root.querySelector<HTMLButtonElement>('.touch-reset')!.onclick = () => {
       Object.assign(t, defaultTouchSettings());
       show();
+      showToggles();
       onChange(t);
     };
     show();
+    showToggles();
+  }
+
+  /** 버튼 배치 편집: the 편집 button, and whether a layout of the player's own is in use. */
+  setTouchLayoutEditor(onEdit: () => void): void {
+    this.root.querySelector<HTMLButtonElement>('.touch-layout-edit')!.onclick = onEdit;
+  }
+
+  setTouchLayoutState(custom: boolean): void {
+    this.root.querySelector('.touch-layout-state')!.textContent = custom ? '(내 배치 사용 중)' : '(기본 배치)';
   }
 
   /** While a key button waits for input, the next key press becomes that action's key (Esc cancels). */
@@ -628,7 +654,7 @@ export class MainMenu {
 
   // --- Settings ---------------------------------------------------------------
 
-  bindSelect<T extends string | number>(setting: 'quality' | 'frame-limit' | 'volume' | 'mode' | 'bots' | 'time-limit' | 'kill-target' | 'rounds-to-win' | 'round-time' | 'objective' | 'bot-look' | 'bot-difficulty' | 'render-scale', options: readonly MenuOption<T>[], current: T, onChange: (value: T) => void): void {
+  bindSelect<T extends string | number>(setting: 'quality' | 'frame-limit' | 'volume' | 'mode' | 'bots' | 'time-limit' | 'kill-target' | 'rounds-to-win' | 'round-time' | 'objective' | 'bot-look' | 'bot-difficulty' | 'render-scale' | 'input-mode', options: readonly MenuOption<T>[], current: T, onChange: (value: T) => void): void {
     const select = this.root.querySelector<HTMLSelectElement>(`select[data-setting="${setting}"]`)!;
     select.replaceChildren(
       ...options.map((o) => {
@@ -774,7 +800,20 @@ function controlsHtml(): string {
           <output class="range-value" data-touch-out="${k}"></output>
         </span>${hint ? `<span class="field-hint">${hint}</span>` : ''}
       </label>`;
+  const touchToggle = (k: (typeof TOUCH_TOGGLES)[number], label: string, hint: string) => `
+      <label class="field">
+        <span class="field-label">${label}</span>
+        <span class="toggle"><input type="checkbox" data-touch-toggle="${k}" /><span class="track"></span></span>${hint ? `<span class="field-hint">${hint}</span>` : ''}
+      </label>`;
   return `
+    <div class="input-mode-settings">
+      <h2 class="section-title">조작 방식</h2>
+      <label class="field">
+        <span class="field-label">기기 모드</span>
+        <select class="select" data-setting="input-mode"></select>
+        <span class="field-hint input-mode-detected"></span>
+      </label>
+    </div>
     <div class="touch-settings">
       <h2 class="section-title">터치 조작</h2>
       ${touchRange('lookSensitivity', '카메라 감도', 0.05, '화면 오른쪽을 끌어 시점을 돌립니다. 발사 버튼을 누른 채 끌어도 조준됩니다.')}
@@ -786,6 +825,18 @@ function controlsHtml(): string {
       ${touchRange('stickY', '조이스틱 위치 (세로)', 0.01)}
       ${touchRange('buttonsX', '버튼 묶음 위치 (오른쪽 여백)', 0.01)}
       ${touchRange('buttonsY', '버튼 묶음 위치 (아래 여백)', 0.01)}
+      <div class="field">
+        <span class="field-label">버튼 배치 편집</span>
+        <button type="button" class="btn touch-layout-edit">편집</button>
+        <span class="field-hint">버튼을 하나씩 끌어 옮기고 크기·투명도를 정합니다. <span class="touch-layout-state"></span></span>
+      </div>
+      <h2 class="section-title">모바일 편의</h2>
+      ${touchRange('aimSmoothing', '조준 안정화', 0.05, '조준 중 화면을 끌 때 회전을 몇 프레임에 나눠 부드럽게 줍니다(0 = 끔). 자동 조준이 아니며 끈 만큼만 돕니다.')}
+      ${touchToggle('fireToggle', '발사 버튼 고정', '한 번 누르면 계속 쏘고, 다시 누르면 멈춥니다.')}
+      ${touchToggle('fireRepeat', '단발 무기 연속 발사', '누르고 있는 동안 단발 무기가 무기 자체의 발사 간격대로 다시 쏩니다(연사 속도는 그대로).')}
+      ${touchToggle('minimapLarge', '미니맵 크게', '')}
+      ${touchToggle('ammoEmphasis', '탄약 표시 강조', '탄약 숫자를 크게, 부족하면 색으로 표시합니다.')}
+      ${touchToggle('perfPriority', '프레임 안정 우선', '탄피·총구 연기·총구 조명 같은 장식 효과를 끕니다. 판정·정보 표시는 그대로입니다.')}
       <button type="button" class="btn touch-reset">터치 조작 초기화</button>
     </div>
     <div class="pc-controls">

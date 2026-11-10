@@ -1,7 +1,8 @@
 // Phase 24 arsenal in the team match: buying and choosing the new weapons (each its own item, next to the
 // first ones), and a member's new weapons online through the real relay (host authority: the host checks
 // each round against what the member bought, resolves the hits and credits the kill with the weapon).
-//   9. buy menu with the mouse: the cards, prices and specs from the weapon definitions; LMG-02 (MG5)
+//   9. buy menu with the mouse: the cards, prices and specs from the weapon definitions; LMG-02 (MG3-type,
+//      Phase 25: its model delivered, now on sale; it was locked while the model was missing)
 //      listed but locked until its model is delivered; buying replaces the slot; number keys draw them
 //  10. online: a member buys LMG-01 + PIS-02 from the host and fires both at the host player; the host
 //      accepts every round (none refused as a weapon not bought), the damage lands, the kill is credited
@@ -31,7 +32,7 @@ after(async () => {
   await vite?.close();
 });
 
-test('9. buy menu (mouse): the new weapons are their own cards with their real stats and prices; LMG-02 locked (model pending); buying replaces the slot; keys 1 / 2 draw them', async () => {
+test('9. buy menu (mouse): the new weapons are their own cards with their real stats and prices; LMG-02 (MG3-type) on sale; buying replaces the slot; keys 1 / 2 draw them', async () => {
   const page = await openGame(env, { map: 'warehouse', mode: 'team', objective: 'elimination', width: 1280, height: 720 });
   try {
     await page.click('.play-button');
@@ -53,7 +54,8 @@ test('9. buy menu (mouse): the new weapons are their own cards with their real s
     assert.match(cards['DMR-01'].spec, /20 \/ 60발 · 반자동 · 200 RPM · 피해 58/);
     assert.match(cards['LMG-01'].spec, /100 \/ 200발 · 자동 · 750 RPM · 피해 22/);
     assert.match(cards['PIS-02'].spec, /15 \/ 45발 · 반자동 · 340 RPM · 피해 25/);
-    assert.match(cards['LMG-02'].spec, /모델 준비 중/);
+    assert.match(cards['LMG-02'].spec, /120 \/ 240발 · 자동 · 1000 RPM · 피해 28/);
+    assert.match(cards['LMG-02'].price, /5,700/);
     assert.match(cards['DMR-01'].price, /4,000/);
     assert.match(cards['LMG-01'].price, /5,200/);
 
@@ -65,10 +67,10 @@ test('9. buy menu (mouse): the new weapons are their own cards with their real s
       return page.evaluate(() => ({ money: window.game.teamMatch.economy.money('local'), weapons: window.game.weapons.loadout.map((w) => w.def.id), primary: window.game.buyLoadout.primary?.id ?? null, secondary: window.game.buyLoadout.secondary?.id ?? null }));
     };
     const m0 = await page.evaluate(() => window.game.teamMatch.economy.money('local'));
-    // LMG-02: shown, not sold.
-    const locked = await buyCard('LMG-02');
-    assert.equal(locked.money, m0, 'nothing paid for LMG-02');
-    assert.ok(!locked.weapons.includes('lmg02'));
+    // LMG-02 (MG3-type): $5,700 paid, the gun issued.
+    const mg = await buyCard('LMG-02');
+    assert.equal(mg.money, m0 - 5700, 'LMG-02 costs $5,700');
+    assert.equal(mg.weapons[0], 'lmg02');
     // Each new weapon is its own choice in its slot (the first ones stay what they are).
     for (const [id, weapon] of [['DMR-01', 'dmr01'], ['AR-02', 'ar02'], ['SMG-01', 'smg01'], ['SMG-02', 'smg02'], ['LMG-01', 'lmg01']]) {
       const r = await buyCard(id);

@@ -77,6 +77,24 @@ const SHOT_FEEL: Record<Exclude<WeaponCategory, 'melee'>, ShotFeel> = {
 };
 const RIFLE_FEEL = SHOT_FEEL.rifle;
 
+/**
+ * How the kick settles back, per kind of weapon (spring stiffness and damping, both near critical): the
+ * SMG snaps back quickest, the pistol quick, the marksman and bolt-action rifles ease back smoothly onto
+ * the aim, the machine gun returns heavy. Rifle and shotgun as before.
+ */
+const SETTLE: Record<WeaponCategory, { k: number; d: number }> = {
+  rifle: { k: 220, d: 26 },
+  shotgun: { k: 220, d: 26 },
+  smg: { k: 260, d: 29 },
+  pistol: { k: 250, d: 28 },
+  sniper: { k: 180, d: 24 },
+  dmr: { k: 190, d: 24.5 },
+  lmg: { k: 200, d: 25.5 },
+  melee: { k: 220, d: 26 },
+};
+/** Aiming down sights (aim 1): what is left of the view model's kick and twist (steadier than from the hip). */
+const AIMED_KICK = 0.7;
+
 /** Pose offsets of the procedural animations this frame (relative to rest); reused, no per-frame garbage. */
 const off = { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0 };
 
@@ -113,8 +131,12 @@ export class ViewModelLayer {
   // Spring-ish state.
   private kick = 0;
   private kickVel = 0;
-  /** How the current weapon's kick shows (from its category). */
+  /** How the current weapon's kick shows (from its category, scaled by the weapon's own feel). */
   private feel: ShotFeel = RIFLE_FEEL;
+  /** The feel of the last shot (reused: no allocation per shot). */
+  private readonly shotFeel: ShotFeel = { ...RIFLE_FEEL };
+  /** How the kick settles back (from the category of the last shot). */
+  private settle = SETTLE.rifle;
   /** Sideways twist of the last shots (rad), sprung back like the kick. */
   private roll = 0;
   private rollVel = 0;
@@ -337,13 +359,24 @@ export class ViewModelLayer {
     this.camera.updateProjectionMatrix();
   }
 
-  /** Visual feedback for one shot/attack; melee motion comes from `sinceShot` instead. */
-  onShot(category: WeaponCategory): void {
+  /**
+   * Visual feedback for one shot/attack; melee motion comes from `sinceShot` instead. `feel` (the weapon's
+   * own, weapons.ts `view.feel`) scales its category's. Aiming down sights steadies it.
+   */
+  onShot(category: WeaponCategory, feel?: { kick?: number; rise?: number; back?: number; roll?: number }): void {
     if (category === 'melee') return;
     const k = SHOT_FEEL[category];
-    this.feel = k;
-    this.kickVel += k.kick;
-    this.rollVel += (Math.random() < 0.5 ? -1 : 1) * k.roll * (0.6 + Math.random() * 0.4);
+    const f = this.shotFeel;
+    f.kick = k.kick * (feel?.kick ?? 1);
+    f.rise = k.rise * (feel?.rise ?? 1);
+    f.back = k.back * (feel?.back ?? 1);
+    f.roll = k.roll * (feel?.roll ?? 1);
+    f.light = k.light;
+    this.feel = f;
+    this.settle = SETTLE[category];
+    const aimed = 1 - (1 - AIMED_KICK) * this.aimS;
+    this.kickVel += f.kick * aimed;
+    this.rollVel += (Math.random() < 0.5 ? -1 : 1) * f.roll * aimed * (0.6 + Math.random() * 0.4);
     if (this.view?.muzzle) {
       this.flash.fire(FLASH[category]);
       this.view.muzzle.getWorldPosition(this.flashLight.position);
@@ -354,8 +387,8 @@ export class ViewModelLayer {
   update(dt: number, m: ViewModelMotion, anim: WeaponAnimState): void {
     // Recoil kick: damped spring back to rest. Fixed substeps keep it stable
     // even when a frame takes 100 ms.
-    const stiffness = 220;
-    const damping = 26;
+    const stiffness = this.settle.k;
+    const damping = this.settle.d;
     const steps = Math.ceil(dt / (1 / 240));
     const h = dt / steps;
     const wt = WEAPON_WEIGHT[this.shownCategory];

@@ -1,5 +1,6 @@
 import type { InputState } from './InputState';
 import type { TouchSettings } from './TouchSettings';
+import { LAYOUT_IDS, placementCentre, safeInsets, type LayoutId, type TouchLayout } from './TouchLayout';
 import '../ui/touch.css';
 
 // Phone / tablet controls: a move stick on the left (it appears where the
@@ -70,6 +71,20 @@ export class TouchInput {
   private slot = -1;
   private cycle = 0;
   private context: TouchContext = { use: false, utility: false, buy: false };
+  /** 발사 버튼 고정 (fireToggle): firing until the next tap. */
+  private fireOn = false;
+  /** Aim smoothing: the part of a drag's turn not handed out yet. */
+  private pendingYaw = 0;
+  private pendingPitch = 0;
+  /** Per-control placement (버튼 배치 편집), null = the default arrangement. */
+  layout: TouchLayout | null = null;
+  /** Shown for the layout editor: every control visible, none taking input. */
+  private editing = false;
+  /** The stick's home centre (px) when the layout places it. */
+  private stickHome: { x: number; y: number } | null = null;
+  private resizeObserver: ResizeObserver | null = null;
+  private lastW = 0;
+  private lastH = 0;
 
   constructor(
     parent: HTMLElement,
@@ -112,6 +127,19 @@ export class TouchInput {
     window.addEventListener('resize', this.onResize);
     window.addEventListener('orientationchange', this.resetAll);
     document.addEventListener('visibilitychange', this.onVisibility);
+    // The screen changing shape (rotation, a resized window, browser bars): a placed layout is refitted.
+    // Observed on the full-screen layer itself (not every browser sends 'resize' for every change).
+    if (typeof ResizeObserver === 'function') {
+      this.resizeObserver = new ResizeObserver(() => {
+        const w = innerWidth;
+        const h = innerHeight;
+        if (w === this.lastW && h === this.lastH) return;
+        this.lastW = w;
+        this.lastH = h;
+        if (this.layout && !this.root.hidden) this.applyLayout(this.layout);
+      });
+      this.resizeObserver.observe(this.root);
+    }
     this.applySettings(settings);
     this.setContext(this.context);
   }
@@ -126,6 +154,8 @@ export class TouchInput {
     this.active = true;
     this.root.hidden = false;
     this.resetAll();
+    // The screen may have changed shape while the controls were hidden.
+    if (this.layout && (innerWidth !== this.lastW || innerHeight !== this.lastH)) this.applyLayout(this.layout);
   }
 
   stop(): void {
@@ -144,11 +174,94 @@ export class TouchInput {
     st.setProperty('--tc-stick-y', `${s.stickY * 100}%`);
     st.setProperty('--tc-buttons-x', `${s.buttonsX * 100}vw`);
     st.setProperty('--tc-buttons-y', `${s.buttonsY * 100}vh`);
+    if (!s.fireToggle) this.setFireOn(false);
+    this.applyLayout(this.layout);
+  }
+
+  /** The element of each placeable control. */
+  layoutElement(id: LayoutId): HTMLElement {
+    return id === 'stick' ? this.stickBase : this.button(id);
+  }
+
+  /**
+   * Places the controls the layout lists (the rest stay in the default arrangement): centre from the
+   * relative position, kept wholly inside the safe area; size and opacity per control. Measures each
+   * control in its default spot first (no layout per frame: only on a change or a resize).
+   */
+  applyLayout(l: TouchLayout | null): void {
+    this.layout = l;
+    for (const id of LAYOUT_IDS) {
+      const el = this.layoutElement(id);
+      el.classList.remove('placed');
+      for (const k of ['position', 'left', 'top', 'right', 'bottom', 'width', 'height', 'margin', 'opacity', 'fontSize']) el.style.removeProperty(k.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase()));
+      el.style.removeProperty('--sz');
+    }
     this.placeStick(null);
+    if (!l) return;
+    const wasHidden = this.root.hidden;
+    // Measured where the default arrangement puts them (hidden context buttons shown for the measure).
+    this.root.hidden = false;
+    const natural = new Map<LayoutId, { w: number; h: number; fs: number }>();
+    for (const id of LAYOUT_IDS) {
+      if (!l.controls[id]) continue;
+      const el = this.layoutElement(id);
+      const hid = el.hidden;
+      el.hidden = false;
+      const r = el.getBoundingClientRect();
+      natural.set(id, { w: r.width, h: r.height, fs: parseFloat(getComputedStyle(el).fontSize) || 12 });
+      el.hidden = hid;
+    }
+    const ins = safeInsets();
+    for (const id of LAYOUT_IDS) {
+      const p = l.controls[id];
+      const n = natural.get(id);
+      if (!p || !n) continue;
+      const el = this.layoutElement(id);
+      const w = n.w * p.size;
+      const h = n.h * p.size;
+      if (id === 'stick') this.stickHome = null;
+      const c = placementCentre(p, w, h, ins);
+      el.classList.add('placed');
+      if (id === 'stick') {
+        // The stick keeps its CSS box (margins scale with --sz): only its home centre and size change.
+        this.stickHome = c;
+        el.style.setProperty('--sz', String(p.size));
+        el.style.opacity = String(p.opacity);
+        continue;
+      }
+      el.style.position = 'fixed';
+      el.style.left = `${c.x - w / 2}px`;
+      el.style.top = `${c.y - h / 2}px`;
+      el.style.right = el.style.bottom = 'auto';
+      el.style.margin = '0';
+      el.style.width = `${w}px`;
+      el.style.height = `${h}px`;
+      el.style.opacity = String(p.opacity);
+      el.style.fontSize = `${n.fs * Math.min(p.size, 1.4)}px`;
+    }
+    this.root.hidden = wasHidden;
+    this.placeStick(null);
+  }
+
+  /** The layout editor's preview: every control shown, none taking input (the editor's own layer does). */
+  setEditing(on: boolean): void {
+    this.editing = on;
+    this.root.classList.toggle('editing', on);
+    if (on) {
+      this.resetAll();
+      this.root.hidden = false;
+      for (const id of LAYOUT_IDS) if (id !== 'stick') this.button(id).hidden = false;
+    } else {
+      this.root.hidden = !this.active;
+      const c = this.context;
+      this.context = { use: !c.use, utility: !c.utility, buy: !c.buy };
+      this.setContext(c);
+    }
   }
 
   /** Shows only the buttons the game has a use for now (no use key outside the C4 objective, ...). */
   setContext(c: TouchContext): void {
+    if (this.editing) return;
     if (c.use === this.context.use && c.utility === this.context.utility && c.buy === this.context.buy && this.root.dataset.ctx) return;
     this.context = { ...c };
     this.root.dataset.ctx = '1';
@@ -165,11 +278,21 @@ export class TouchInput {
       out.moveX = this.moveX;
       out.moveY = this.moveY;
     }
-    out.lookYaw += this.yaw;
-    out.lookPitch += this.pitch;
+    // Aim smoothing (setting, while aiming): the drag's turn handed out over a few frames; all of it
+    // arrives, nothing is added or steered.
+    const ease = this.zoomed ? this.settings.aimSmoothing : 0;
+    this.pendingYaw += this.yaw;
+    this.pendingPitch += this.pitch;
     this.yaw = 0;
     this.pitch = 0;
-    out.fire ||= held('fire') || this.latched.has('fire');
+    const give = 1 - ease;
+    const dy = Math.abs(this.pendingYaw) < 1e-5 ? this.pendingYaw : this.pendingYaw * give;
+    const dp = Math.abs(this.pendingPitch) < 1e-5 ? this.pendingPitch : this.pendingPitch * give;
+    this.pendingYaw -= dy;
+    this.pendingPitch -= dp;
+    out.lookYaw += dy;
+    out.lookPitch += dp;
+    out.fire ||= held('fire') || this.latched.has('fire') || this.fireOn;
     out.aim ||= this.aimOn;
     out.crouch ||= this.crouchOn;
     out.jump ||= held('jump') || this.latched.has('jump');
@@ -198,7 +321,9 @@ export class TouchInput {
     const board = [...this.fingers.values()].some((f) => f.kind === 'button' && f.act === 'board');
     this.fingers.clear();
     this.moveX = this.moveY = this.yaw = this.pitch = 0;
+    this.pendingYaw = this.pendingPitch = 0;
     this.aimOn = this.crouchOn = false;
+    this.setFireOn(false);
     this.clearLatches();
     for (const el of this.root.querySelectorAll('.tc-btn.on, .tc-btn.down')) el.classList.remove('on', 'down');
     this.placeStick(null);
@@ -216,6 +341,7 @@ export class TouchInput {
     window.removeEventListener('resize', this.onResize);
     window.removeEventListener('orientationchange', this.resetAll);
     document.removeEventListener('visibilitychange', this.onVisibility);
+    this.resizeObserver?.disconnect();
     this.root.remove();
     this.rotate.remove();
   }
@@ -227,7 +353,12 @@ export class TouchInput {
   }
 
   private radius(): number {
-    return STICK_RADIUS * this.settings.buttonScale;
+    return STICK_RADIUS * this.settings.buttonScale * (this.layout?.controls.stick?.size ?? 1);
+  }
+
+  private setFireOn(on: boolean): void {
+    this.fireOn = on;
+    this.root.querySelector('[data-act="fire"]')?.classList.toggle('on', on);
   }
 
   /** The stick drawn at the thumb (`at`) or back at its home position (null). */
@@ -238,6 +369,13 @@ export class TouchInput {
       s.top = `${at.y}px`;
       s.bottom = 'auto';
       this.stickBase.classList.add('live');
+    } else if (this.stickHome && this.stickBase.classList.contains('placed')) {
+      // Home where the layout put it.
+      s.left = `${this.stickHome.x}px`;
+      s.top = 'auto';
+      s.bottom = `${innerHeight - this.stickHome.y}px`;
+      this.stickBase.classList.remove('live');
+      this.stickKnob.style.transform = '';
     } else {
       s.left = 'var(--tc-stick-x)';
       s.top = 'auto';
@@ -252,8 +390,10 @@ export class TouchInput {
   };
 
   private onResize = (): void => {
-    // Turned to portrait (or the window changed shape under the fingers): let go of everything.
+    // Turned to portrait (or the window changed shape under the fingers): let go of everything; a
+    // placed layout is fitted to the new shape.
     this.resetAll();
+    if (this.layout) this.applyLayout(this.layout);
   };
 
   private onDown = (e: PointerEvent): void => {
@@ -354,6 +494,11 @@ export class TouchInput {
   private press(act: Act, el: HTMLElement): void {
     el.classList.add('down');
     switch (act) {
+      case 'fire':
+        // 발사 버튼 고정: a tap toggles firing; otherwise firing lasts while the button is held.
+        if (this.settings.fireToggle) this.setFireOn(!this.fireOn);
+        else this.latched.add(act);
+        break;
       case 'aim':
         this.aimOn = !this.aimOn;
         el.classList.toggle('on', this.aimOn);

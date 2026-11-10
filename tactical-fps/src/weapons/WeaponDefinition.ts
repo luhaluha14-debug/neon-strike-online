@@ -129,7 +129,15 @@ export interface GltfFit {
 export type WeaponViewSpec = (
   | { kind: 'procedural'; model: ProceduralModelId }
   | { kind: 'gltf'; url: string; fallback: ProceduralModelId; fit?: GltfFit }
-) & { pose: ViewmodelPose };
+) & {
+  pose: ViewmodelPose;
+  /**
+   * How this weapon's shot shows on the view model, as multipliers of its category's feel (kick impulse,
+   * muzzle rise, push back, twist). Presentation only: the round, the recoil of the aim and the balance
+   * are untouched. Absent = the category's feel (1 each).
+   */
+  feel?: { kick?: number; rise?: number; back?: number; roll?: number };
+};
 
 /** Sound cues of one weapon (ids from `audio/weaponSounds`). Presentation only. */
 export interface WeaponSounds {
