@@ -128,10 +128,13 @@ test('damage, fire rate, magazines and the SR-01 bolt / 4x scope are as they wer
     ar01: [24, 4.25, 600, 'auto', 30, 2.2],
     smg01: [19, 3.5, 800, 'auto', 30, 2.1],
     pis01: [26, 3.9, 360, 'semi', 12, 1.8],
-    sg01: [15, 2, 68, 'semi', 8, 3.2],
-    sr01: [115, 4, 41, 'semi', 5, 3.6],
+    // Phase 26-A: SG-01 18 a pellet (was 15), SR-01 145 (was 115); rates, magazines and reloads unchanged.
+    sg01: [18, 2, 68, 'semi', 8, 3.2],
+    sr01: [145, 4, 41, 'semi', 5, 3.6],
   });
   assert.deepEqual(W.SR_01.scope, { zoom: 4, sensitivity: 0.4 });
   assert.equal(W.SR_01.sounds.cycle, 'sr01.bolt');
-  assert.deepEqual(W.SG_01.pellets, { count: 8, spread: 3.2 * DEG });
+  // Phase 26-A: the pattern tightened from 3.2°.
+  assert.equal(W.SG_01.pellets.count, 8);
+  assert.ok(Math.abs(W.SG_01.pellets.spread - 2.7 * DEG) < 1e-12, `pattern ${W.SG_01.pellets.spread / DEG}°`);
 });

@@ -50,8 +50,8 @@ export const CATALOG: readonly CatalogItem[] = [
   { id: 'SG-01', name: '산탄총 (8펠릿)', slot: 'primary', category: 'shotgun', price: 2000, weapon: SG_01, available: true },
   { id: 'PIS-01', name: '권총', slot: 'secondary', category: 'pistol', price: 500, weapon: PIS_01, available: true },
   // Phase 24 arsenal (GRID's proposed prices, by role): each is its own item next to the ones above.
-  { id: 'AR-02', name: '돌격소총 (정밀)', slot: 'primary', category: 'rifle', price: 3100, weapon: AR_02, available: true },
-  { id: 'SMG-02', name: '기관단총 (.45 근접)', slot: 'primary', category: 'smg', price: 1700, weapon: SMG_02, available: true },
+  { id: 'AR-02', name: '돌격소총 (정밀)', slot: 'primary', category: 'rifle', price: 2900, weapon: AR_02, available: true },
+  { id: 'SMG-02', name: '기관단총 (.45 근접)', slot: 'primary', category: 'smg', price: 1800, weapon: SMG_02, available: true },
   { id: 'DMR-01', name: '지정사수소총 (3배율)', slot: 'primary', category: 'dmr', price: 4000, weapon: DMR_01, available: true },
   { id: 'LMG-01', name: '경기관총 (100발)', slot: 'primary', category: 'lmg', price: 5200, weapon: LMG_01, available: true },
   // MG3-type 7.62 belt-fed (Phase 25: the delivered file is an MG42-family model; no MG5 file was delivered).
