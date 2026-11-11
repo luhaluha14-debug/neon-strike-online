@@ -10,8 +10,8 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startEnv, openGame } from './harness.mjs';
 
-// 115 x 0.9 = 103.5 sits exactly on a rounding boundary (floating point decides).
-const SR_BODY_END = 104;
+// 145 x 0.9 = 130.5 sits exactly on a rounding boundary (floating point decides).
+const SR_BODY_END = 131;
 
 let env;
 let page;
@@ -82,8 +82,8 @@ test('damage numbers per weapon, zone and distance match the current weapon data
   assert.deepEqual(table, {
     // base 24, head x4.25, limb x0.8, 30-80 m falloff down to x0.8
     ar01: { head: [102, 102, 92, 82, 82], body: [24, 24, 22, 19, 19], limb: [19, 19, 17, 15, 15] },
-    // base 115, head x4, limb x0.85, 120-250 m falloff down to x0.9
-    sr01: { head: [460, 460, 437, 414, 414], body: [115, 115, 109, SR_BODY_END, SR_BODY_END], limb: [98, 98, 93, 88, 88] },
+    // Phase 26-A: base 145 (was 115), head x4, limb x0.65 (was 0.85), 120-250 m falloff down to x0.9
+    sr01: { head: [580, 580, 551, 522, 522], body: [145, 145, 138, SR_BODY_END, SR_BODY_END], limb: [94, 94, 90, 85, 85] },
     // base 40, head x1.5, no falloff
     karambit: { head: [60, 60, 60, 60, 60], body: [40, 40, 40, 40, 40], limb: [40, 40, 40, 40, 40] },
   });

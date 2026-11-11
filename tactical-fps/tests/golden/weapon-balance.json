@@ -41,9 +41,9 @@
   },
   "sr01": {
     "damage": {
-      "base": 115,
+      "base": 145,
       "headMultiplier": 4,
-      "limbMultiplier": 0.85,
+      "limbMultiplier": 0.65,
       "falloffStart": 120,
       "falloffEnd": 250,
       "falloffMinMultiplier": 0.9,
@@ -119,9 +119,9 @@
       "base": 19,
       "headMultiplier": 3.5,
       "limbMultiplier": 0.8,
-      "falloffStart": 12,
-      "falloffEnd": 40,
-      "falloffMinMultiplier": 0.65,
+      "falloffStart": 8,
+      "falloffEnd": 30,
+      "falloffMinMultiplier": 0.6,
       "maxRange": 150
     },
     "fireRate": 800,
@@ -156,11 +156,11 @@
   },
   "sg01": {
     "damage": {
-      "base": 15,
+      "base": 18,
       "headMultiplier": 2,
       "limbMultiplier": 0.75,
-      "falloffStart": 6,
-      "falloffEnd": 22,
+      "falloffStart": 8,
+      "falloffEnd": 24,
       "falloffMinMultiplier": 0.3,
       "maxRange": 60
     },
@@ -172,7 +172,7 @@
     "equipTime": 0.7,
     "pellets": {
       "count": 8,
-      "spread": 0.05585053606381855
+      "spread": 0.047123889803846894
     },
     "spread": {
       "standing": 0,
@@ -235,7 +235,7 @@
   },
   "ar02": {
     "damage": {
-      "base": 23,
+      "base": 24,
       "headMultiplier": 4.4,
       "limbMultiplier": 0.8,
       "falloffStart": 35,
@@ -243,7 +243,7 @@
       "falloffMinMultiplier": 0.8,
       "maxRange": 260
     },
-    "fireRate": 700,
+    "fireRate": 560,
     "fireMode": "auto",
     "magazineSize": 30,
     "reserveAmmo": 90,
@@ -275,12 +275,12 @@
   },
   "smg02": {
     "damage": {
-      "base": 27,
+      "base": 25,
       "headMultiplier": 3.4,
       "limbMultiplier": 0.8,
       "falloffStart": 10,
-      "falloffEnd": 35,
-      "falloffMinMultiplier": 0.6,
+      "falloffEnd": 30,
+      "falloffMinMultiplier": 0.55,
       "maxRange": 120
     },
     "fireRate": 650,
@@ -323,7 +323,7 @@
       "falloffMinMultiplier": 0.85,
       "maxRange": 350
     },
-    "fireRate": 200,
+    "fireRate": 170,
     "fireMode": "semi",
     "magazineSize": 20,
     "reserveAmmo": 60,
@@ -345,8 +345,8 @@
       "yawDrift": 0,
       "yawDriftAfterShots": 99,
       "kickResponse": 32,
-      "recoveryDelay": 0.16,
-      "recoverySpeed": 0.24434609527920614,
+      "recoveryDelay": 0.22,
+      "recoverySpeed": 0.13962634015954636,
       "yawRecovery": true,
       "sprayResetTime": 0.6
     }
@@ -399,7 +399,7 @@
       "falloffMinMultiplier": 0.8,
       "maxRange": 260
     },
-    "fireRate": 750,
+    "fireRate": 700,
     "fireMode": "auto",
     "magazineSize": 100,
     "reserveAmmo": 200,
@@ -431,7 +431,7 @@
   },
   "lmg02": {
     "damage": {
-      "base": 28,
+      "base": 21,
       "headMultiplier": 3.2,
       "limbMultiplier": 0.8,
       "falloffStart": 45,

@@ -49,12 +49,13 @@ test('9. buy menu (mouse): the new weapons are their own cards with their real s
       ),
     );
     for (const id of ['AR-01', 'SMG-01', 'SR-01', 'SG-01', 'PIS-01', 'AR-02', 'SMG-02', 'DMR-01', 'LMG-01', 'LMG-02', 'PIS-02']) assert.ok(cards[id], `card ${id}`);
-    assert.match(cards['AR-02'].spec, /30 \/ 90발 · 자동 · 700 RPM · 피해 23/);
-    assert.match(cards['SMG-02'].spec, /25 \/ 100발 · 자동 · 650 RPM · 피해 27/);
-    assert.match(cards['DMR-01'].spec, /20 \/ 60발 · 반자동 · 200 RPM · 피해 58/);
-    assert.match(cards['LMG-01'].spec, /100 \/ 200발 · 자동 · 750 RPM · 피해 22/);
+    // Phase 26-A numbers (AR-02 was 700 RPM / 23, SMG-02 27, DMR-01 200 RPM, LMG-01 750 RPM, LMG-02 28).
+    assert.match(cards['AR-02'].spec, /30 \/ 90발 · 자동 · 560 RPM · 피해 24/);
+    assert.match(cards['SMG-02'].spec, /25 \/ 100발 · 자동 · 650 RPM · 피해 25/);
+    assert.match(cards['DMR-01'].spec, /20 \/ 60발 · 반자동 · 170 RPM · 피해 58/);
+    assert.match(cards['LMG-01'].spec, /100 \/ 200발 · 자동 · 700 RPM · 피해 22/);
     assert.match(cards['PIS-02'].spec, /15 \/ 45발 · 반자동 · 340 RPM · 피해 25/);
-    assert.match(cards['LMG-02'].spec, /120 \/ 240발 · 자동 · 1000 RPM · 피해 28/);
+    assert.match(cards['LMG-02'].spec, /120 \/ 240발 · 자동 · 1000 RPM · 피해 21/);
     assert.match(cards['LMG-02'].price, /5,700/);
     assert.match(cards['DMR-01'].price, /4,000/);
     assert.match(cards['LMG-01'].price, /5,200/);

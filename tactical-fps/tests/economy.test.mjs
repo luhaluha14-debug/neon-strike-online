@@ -151,12 +151,13 @@ test('buy menu: B opens it without pausing, the mouse is free, view and trigger 
     ['SMG-01', 'SG-01', 'PIS-01', 'ARMOR-01', 'FLASH-01', 'SMOKE-01'].map((id) => byId[id].price),
     ['$1,500', '$2,000', '$500', '$650', '$300', '$400'],
   );
-  // The Phase 24 / 25 weapons: their prices; with $3,000 the cheaper ones are on sale, the dearer ones short.
+  // The Phase 24 / 25 weapons: their prices (Phase 26-A: AR-02 $2,900, was $3,100; SMG-02 $1,800, was $1,700);
+  // with $3,000 the cheaper ones are on sale, the dearer ones short.
   assert.deepEqual(
     ['AR-02', 'SMG-02', 'DMR-01', 'LMG-01', 'PIS-02', 'LMG-02'].map((id) => [byId[id].price, byId[id].state]),
     [
-      ['$3,100', 'short'],
-      ['$1,700', 'buyable'],
+      ['$2,900', 'buyable'],
+      ['$1,800', 'buyable'],
       ['$4,000', 'short'],
       ['$5,200', 'short'],
       ['$600', 'buyable'],

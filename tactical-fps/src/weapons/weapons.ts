@@ -79,7 +79,10 @@ export const AR_01: WeaponDefinition = {
   },
 };
 
-/** Bolt-action sniper rifle (AWP-style). One heavy, precise shot per bolt cycle. */
+/**
+ * Bolt-action sniper rifle (AWP-style). One heavy, precise shot per bolt cycle. Phase 26-A: a body hit
+ * kills through a vest too (145: the vest takes 44, 101 reaches the body); a leg hit does not (94).
+ */
 export const SR_01: WeaponDefinition = {
   id: 'sr01',
   displayName: 'SR-01',
@@ -94,9 +97,9 @@ export const SR_01: WeaponDefinition = {
   reloadTime: 3.6,
   equipTime: 1.0,
   damage: {
-    base: 115,
+    base: 145,
     headMultiplier: 4,
-    limbMultiplier: 0.85,
+    limbMultiplier: 0.65,
     falloffStart: 120,
     falloffEnd: 250,
     falloffMinMultiplier: 0.9,
@@ -219,7 +222,10 @@ export const KARAMBIT: WeaponDefinition = {
 // anchor nodes (fit values measured on the files' vertices). Not in the
 // free-for-all / training loadout.
 
-/** 9 mm SMG: fast, accurate on the move, weak at range. 6 body hits; a headshot does not kill. */
+/**
+ * 9 mm SMG: cheap, fast, accurate on the move, weak at range. 6 body hits inside ~15 m (Phase 26-A:
+ * the falloff starts at 8 m, was 12), more beyond; a headshot does not kill.
+ */
 export const SMG_01: WeaponDefinition = {
   id: 'smg01',
   displayName: 'SMG-01',
@@ -234,9 +240,9 @@ export const SMG_01: WeaponDefinition = {
     base: 19,
     headMultiplier: 3.5,
     limbMultiplier: 0.8,
-    falloffStart: 12,
-    falloffEnd: 40,
-    falloffMinMultiplier: 0.65,
+    falloffStart: 8,
+    falloffEnd: 30,
+    falloffMinMultiplier: 0.6,
     maxRange: 150,
   },
   spread: {
@@ -296,8 +302,8 @@ export const SMG_01: WeaponDefinition = {
 };
 
 /**
- * Pump shotgun: 8 pellets per round. Point blank a full pattern kills
- * (8 x 15); at range pellets spread out and lose damage fast.
+ * Pump shotgun: 8 pellets per round. Up close a full pattern kills, a vest or not
+ * (8 x 18; through a vest 8 x 13 = 104); at range pellets spread out and lose damage fast.
  */
 export const SG_01: WeaponDefinition = {
   id: 'sg01',
@@ -311,15 +317,15 @@ export const SG_01: WeaponDefinition = {
   reloadTime: 3.2,
   equipTime: 0.7,
   damage: {
-    base: 15,
+    base: 18,
     headMultiplier: 2,
     limbMultiplier: 0.75,
-    falloffStart: 6,
-    falloffEnd: 22,
+    falloffStart: 8,
+    falloffEnd: 24,
     falloffMinMultiplier: 0.3,
     maxRange: 60,
   },
-  pellets: { count: 8, spread: deg(3.2) },
+  pellets: { count: 8, spread: deg(2.7) },
   spread: {
     standing: 0,
     moving: deg(1.5),
@@ -454,23 +460,25 @@ export const PIS_01: WeaponDefinition = {
 // Blender files with every part its own node, the muzzle along +X, +Y up and the right side at +Z
 // (fit.rotation turns that into the game's -Z forward). Model space below = file (z, y, -x). Anchors,
 // muzzles and ports were measured on the files' vertices (grip rake from the grip's front / back edges).
-// None of these is in the free-for-all / training loadout, and no existing weapon's numbers changed.
+// None of these is in the free-for-all / training loadout. (Phase 24 changed no existing weapon's numbers; the Phase 26-A
+// rebalance did: tests/weapon-rebalance.test.mjs.)
 
 /**
- * HK416-type 5.56 rifle: a little faster and steadier than AR-01, a touch less per round. 5 body hits;
- * a head hit kills inside the falloff (23 x 4.4 = 101). For players who spray: less climb, gentler S path.
+ * HK416-type 5.56 precision rifle (Phase 26-A): slower than AR-01 (560 RPM, 5 body hits in 0.43 s, AR-01
+ * 0.40 s) and steadier; a head hit kills further out (24 x 4.4 = 106, to ~50 m; AR-01 ~36 m). Less climb,
+ * a gentler S path, less falloff: the rifle for taps and bursts at range, not a faster AR-01.
  */
 export const AR_02: WeaponDefinition = {
   id: 'ar02',
   displayName: 'AR-02',
   category: 'rifle',
   fireMode: 'auto',
-  fireRate: 700,
+  fireRate: 560,
   magazineSize: 30,
   reserveAmmo: 90,
   reloadTime: 2.4,
   equipTime: 0.6,
-  damage: { base: 23, headMultiplier: 4.4, limbMultiplier: 0.8, falloffStart: 35, falloffEnd: 90, falloffMinMultiplier: 0.8, maxRange: 260 },
+  damage: { base: 24, headMultiplier: 4.4, limbMultiplier: 0.8, falloffStart: 35, falloffEnd: 90, falloffMinMultiplier: 0.8, maxRange: 260 },
   spread: { standing: 0, moving: deg(1.5), airborne: deg(6), crouchMultiplier: 0.7 },
   recoil: {
     pitchPerShot: deg(0.4),
@@ -532,8 +540,9 @@ export const AR_02: WeaponDefinition = {
 };
 
 /**
- * UMP45-type .45 SMG: slower and harder hitting than SMG-01 (4 body hits up close, not 6), a smaller
- * magazine and a steep falloff: a close-quarters gun that loses out past ~15 m. A headshot does not kill.
+ * UMP45-type .45 SMG: slower and harder hitting than SMG-01 (4 body hits inside ~11 m, not 6), a smaller
+ * magazine and a steep falloff (Phase 26-A: 25 a round, x0.55 by 30 m): it beats AR-01 inside ~20 m and
+ * loses beyond. A headshot does not kill.
  */
 export const SMG_02: WeaponDefinition = {
   id: 'smg02',
@@ -545,7 +554,7 @@ export const SMG_02: WeaponDefinition = {
   reserveAmmo: 100,
   reloadTime: 2.3,
   equipTime: 0.5,
-  damage: { base: 27, headMultiplier: 3.4, limbMultiplier: 0.8, falloffStart: 10, falloffEnd: 35, falloffMinMultiplier: 0.6, maxRange: 120 },
+  damage: { base: 25, headMultiplier: 3.4, limbMultiplier: 0.8, falloffStart: 10, falloffEnd: 30, falloffMinMultiplier: 0.55, maxRange: 120 },
   spread: { standing: 0, moving: deg(1.0), airborne: deg(4.5), crouchMultiplier: 0.75 },
   recoil: {
     pitchPerShot: deg(0.38),
@@ -610,8 +619,10 @@ export const SMG_02: WeaponDefinition = {
 
 /**
  * M110-type 7.62 semi-auto designated marksman rifle: 2 body hits to kill out to ~60 m, a head hit kills
- * anywhere; 3x scope. Between AR and SR-01: faster than the bolt action (0.3 s a round), far weaker
- * per round, poor on the move.
+ * anywhere; 3x scope. Between AR and SR-01: faster than the bolt action (0.35 s a round), far weaker
+ * per round, poor on the move. Phase 26-A: the view settles slower than the trigger (about 0.4 s for a
+ * round; fired flat out the next one leaves ~0.45 deg high), so fast follow-ups at range must be held down
+ * or paced.
  */
 export const DMR_01: WeaponDefinition = {
   id: 'dmr01',
@@ -619,7 +630,7 @@ export const DMR_01: WeaponDefinition = {
   scope: { zoom: 3, sensitivity: 0.5 },
   category: 'dmr',
   fireMode: 'semi',
-  fireRate: 200,
+  fireRate: 170,
   magazineSize: 20,
   reserveAmmo: 60,
   reloadTime: 3.1,
@@ -635,8 +646,8 @@ export const DMR_01: WeaponDefinition = {
     yawDrift: 0,
     yawDriftAfterShots: 99,
     kickResponse: 32,
-    recoveryDelay: 0.16,
-    recoverySpeed: deg(14),
+    recoveryDelay: 0.22,
+    recoverySpeed: deg(8),
     yawRecovery: true,
     sprayResetTime: 0.6,
   },
@@ -749,7 +760,7 @@ export const PIS_02: WeaponDefinition = {
 };
 
 /**
- * M249-type 5.56 light machine gun: 100-round belt, 750 RPM, weak per round (5 body hits, no one-shot
+ * M249-type 5.56 light machine gun: 100-round belt, 700 RPM, weak per round (5 body hits, no one-shot
  * head kill) and loose on the move or in the air, steadier crouched. A 5.4 s reload (cover up, box out,
  * new belt in, cover down, charge) and a slow draw: it holds an angle, it does not duel.
  */
@@ -758,7 +769,7 @@ export const LMG_01: WeaponDefinition = {
   displayName: 'LMG-01',
   category: 'lmg',
   fireMode: 'auto',
-  fireRate: 750,
+  fireRate: 700,
   magazineSize: 100,
   reserveAmmo: 200,
   reloadTime: 5.4,
@@ -835,8 +846,10 @@ export const LMG_01: WeaponDefinition = {
 
 /**
  * MG3-type 7.62 general-purpose machine gun (the delivered file is an MG42-family model, root `K_MG42`;
- * the MG3 is its post-war successor): 1,000 RPM on a 120-round belt, 4 body hits, no one-shot head kill,
- * heavier than LMG-01 to move and aim, the slowest reload and draw in the game.
+ * the MG3 is its post-war successor): 1,000 RPM on a 120-round belt, 5 body hits (Phase 26-A: 21 a round,
+ * was 28), no one-shot head kill, heavier than LMG-01 to move and aim, the slowest reload and draw in the
+ * game. Its recoil is the price of the rate of fire (the climb per second is the steepest of all) and was
+ * left as it is: held down it kills faster than anything, left alone the burst walks off the target.
  */
 export const LMG_02: WeaponDefinition = {
   id: 'lmg02',
@@ -848,7 +861,7 @@ export const LMG_02: WeaponDefinition = {
   reserveAmmo: 240,
   reloadTime: 6.0,
   equipTime: 1.4,
-  damage: { base: 28, headMultiplier: 3.2, limbMultiplier: 0.8, falloffStart: 45, falloffEnd: 130, falloffMinMultiplier: 0.8, maxRange: 300 },
+  damage: { base: 21, headMultiplier: 3.2, limbMultiplier: 0.8, falloffStart: 45, falloffEnd: 130, falloffMinMultiplier: 0.8, maxRange: 300 },
   spread: { standing: deg(0.45), moving: deg(3.8), airborne: deg(10), crouchMultiplier: 0.5 },
   recoil: {
     pitchPerShot: deg(0.42),

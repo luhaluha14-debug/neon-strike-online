@@ -77,7 +77,7 @@ test('deathmatch: real hits through the hitscan feed the HUD; a shotgun blast of
         notices++;
         show(t);
       };
-      // SG-01: 8 pellets, all aimed at the chest (8 × 15 nominal = 120): 100 health taken, one kill.
+      // SG-01: 8 pellets, all aimed at the chest (8 × 18 nominal = 144): 100 health taken, one kill.
       for (let p = 0; p < 8; p++) {
         const res = g.hitscan.fire({ ...from(chest), damage: WEAPONS.sg01.damage, sourceId: 'local', weaponId: 'sg01' });
         kinds.push(res.kind);
@@ -105,11 +105,15 @@ test('deathmatch: real hits through the hitscan feed the HUD; a shotgun blast of
         feed: { kills: feed.length, hs: feed.filter((k) => k.head).length },
         notices,
         head,
+        pellet: WEAPONS.sg01.damage.base,
       };
     });
-    // 7 × 15 takes the 100 health; the 8th pellet passes the body already going down (it hits nothing alive).
+    // As many pellets as it takes for 100 health (6 × 18 since Phase 26-A, 7 × 15 before) hit; the rest pass
+    // the body already going down (they hit nothing alive).
+    const need = Math.ceil(100 / r.pellet);
     const hits = r.kinds.filter((k) => k === 'target').length;
-    assert.ok(hits >= 7 && r.kinds.slice(0, hits).every((k) => k === 'target'), `the pellets hit until the kill (${r.kinds})`);
+    assert.equal(need, 6);
+    assert.ok(hits >= need && r.kinds.slice(0, hits).every((k) => k === 'target'), `the pellets hit until the kill (${r.kinds})`);
     assert.deepEqual(r.afterSg, { kills: 1, deaths: 0, headshots: 0, damage: 100 });
     assert.equal(r.line.kills, 2);
     assert.equal(r.line.headshots, 1);
