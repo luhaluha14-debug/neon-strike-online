@@ -115,12 +115,13 @@ export class NetSession {
     this.name = name;
   }
 
-  quick(mode: RoomMode, map: string): Promise<RoomInfo> {
-    return this.enter({ t: 'quick', mode, map });
+  /** `bots`: for the room this creates when no open one is found (an existing room keeps its own setting). */
+  quick(mode: RoomMode, map: string, bots = true): Promise<RoomInfo> {
+    return this.enter({ t: 'quick', mode, map, bots });
   }
 
-  create(mode: RoomMode, map: string): Promise<RoomInfo> {
-    return this.enter({ t: 'create', mode, map });
+  create(mode: RoomMode, map: string, bots = true): Promise<RoomInfo> {
+    return this.enter({ t: 'create', mode, map, bots });
   }
 
   join(code: string): Promise<RoomInfo> {
@@ -130,6 +131,11 @@ export class NetSession {
   /** Host: the room now plays `map`. */
   setMap(map: string): void {
     this.raw({ t: 'map', map });
+  }
+
+  /** Host (deathmatch / team rooms): empty places played by bots or not. The relay answers with the room. */
+  setBots(bots: boolean): void {
+    this.raw({ t: 'bots', bots });
   }
 
   /** Leaves the room (stays connected). */

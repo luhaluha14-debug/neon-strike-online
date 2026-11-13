@@ -152,6 +152,25 @@ export class Match {
     return line ? reassignSeat(line, name, restore) : null;
   }
 
+  /** Lines of seats out of the match (a room without bots: nobody plays them), kept for when one is taken. */
+  private readonly benchedLines = new Map<string, ScoreLine>();
+
+  /** Seat `id` out of the match: its line leaves the scores (boards, ranks, results) until `unbench`. */
+  bench(id: string): void {
+    const line = this.scores.get(id);
+    if (!line) return;
+    this.scores.delete(id);
+    this.benchedLines.set(id, line);
+  }
+
+  /** Seat `id` back in the match (someone takes it): its line is back, as it was. */
+  unbench(id: string): void {
+    const line = this.benchedLines.get(id);
+    if (!line) return;
+    this.benchedLines.delete(id);
+    this.scores.set(id, line);
+  }
+
   /** Records a death; true when `killer` was credited with the kill (not a suicide, not after the end). */
   recordKill(killer: string, victim: string, weaponId: string, head: boolean): boolean {
     if (this.over) return false;

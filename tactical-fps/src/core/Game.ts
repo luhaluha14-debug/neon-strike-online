@@ -82,7 +82,7 @@ import { ROOM_CAPACITY, type RoomInfo } from '../net/Protocol';
 import type { NetSession } from '../net/NetSession';
 import { NetHost, type HostGame } from '../net/NetHost';
 import { NetClient, type ClientGame } from '../net/NetClient';
-import type { ToClient } from '../net/GameMessages';
+import { teamWaitOf, type TeamWaitMsg, type ToClient } from '../net/GameMessages';
 import { applyBomb, applyMatch, applyTeamMatch, type BombStateMsg, type MatchState, type TeamMatchState } from '../net/Mirror';
 
 /** When the case leaves after a round (s): at once, or when the pump (shotgun) / bolt (sniper) is worked. */
@@ -1025,7 +1025,17 @@ export class Game implements HostGame, ClientGame {
     this.hud.menu.setBotOptionsVisible(dm || team);
     if (!this.loadingMap) this.hud.setWeaponOptionsEnabled(!team);
     this.beginMatchRecord();
-    this.netHost?.onSetup();
+    this.teamWait = null;
+    this.appliedBots = this.botsAllowed;
+    // Everyone is seated again one by one: the team wait is judged once they all are (by teamHeld), not
+    // between two seats (a half-seated room would look short of players and start the match over again).
+    this.seatingRoom = true;
+    try {
+      this.netHost?.onSetup();
+    } finally {
+      this.seatingRoom = false;
+    }
+    this.syncBench();
   }
 
   /** Places everyone for the mode just set up: a first round (team), or spread out (deathmatch). */
@@ -1104,7 +1114,7 @@ export class Game implements HostGame, ClientGame {
     if (!tm || !bomb || !this.player) return;
     const carriers: { id: string; position: THREE.Vector3 }[] = [];
     if (tm.attackers === 'blue') carriers.push({ id: 'local', position: this.player.position });
-    for (const b of this.squad?.bots ?? []) if (b.team === tm.attackers) carriers.push({ id: b.id, position: b.position });
+    for (const b of this.squad?.bots ?? []) if (b.team === tm.attackers && !b.benched) carriers.push({ id: b.id, position: b.position });
     const pick = carriers[(tm.round - 1) % carriers.length];
     bomb.reset(pick?.id ?? null, pick?.position ?? this.player.position);
   }
@@ -1742,6 +1752,9 @@ export class Game implements HostGame, ClientGame {
           // 1대1 without its opponent (not joined yet / dropped): nothing moves on, its seat's AI does not fight.
           this.squad?.hold(tick);
           this.stepDuelWait(tick);
+        } else if (tm && this.teamHeld()) {
+          // A team room without bots and nobody on the other team: the match waits for players.
+          this.squad?.hold(tick);
         } else if (tm) {
           if (tm.phase === 'live') {
             this.stepDirector(tick, tm);
@@ -1848,7 +1861,11 @@ export class Game implements HostGame, ClientGame {
     if (this.match) this.matchHud.update(this.match, this.scoreboardHeld && this.input.active);
     const dw = this.duelWait;
     this.teamHud.setWaiting(
-      !dw ? null : dw.kind === 'join' ? '상대를 기다리는 중 — 방 코드를 알려 주세요' : `${dw.name || '상대'} 연결 끊김 — 재접속 대기 ${Math.ceil(dw.left)}초`,
+      dw
+        ? dw.kind === 'join'
+          ? '상대를 기다리는 중 — 방 코드를 알려 주세요'
+          : `${dw.name || '상대'} 연결 끊김 — 재접속 대기 ${Math.ceil(dw.left)}초`
+        : this.teamWaitText(),
     );
     if (this.teamMatch) this.teamHud.update(this.teamMatch, this.teamAlive(), this.scoreboardHeld && this.input.active);
     this.viewModel.update(
@@ -2763,6 +2780,119 @@ export class Game implements HostGame, ClientGame {
   netTeamsChanged(): void {
     if (this.net?.room) this.onNetRoom?.(this.net.room);
     this.duelSeatChanged();
+    this.teamSeatChanged();
+  }
+
+  // --- Rooms without bots (deathmatch / team; 1대1 never has bots) ------------------------------
+
+  /** The policy the current match was set up with (a change from the host restarts it). */
+  private appliedBots = true;
+
+  /** Empty places are played by bots: always offline and in 1대1 (its own rules); in a room, the room's setting. */
+  get botsAllowed(): boolean {
+    return !this.netHost || this.mode === 'duel' || this.net?.room?.bots !== false;
+  }
+
+  /**
+   * Host: every seat nobody plays is out of the match in a room without bots, and a seat someone takes
+   * is back in (placed: a spawn point in deathmatch, its team's spot before a round; during a live round
+   * it waits for the next one, like anyone who died). Called on setup and whenever a seat changes hands.
+   */
+  syncBench(): void {
+    const squad = this.squad;
+    if (!squad || this.netClient) return;
+    const allowed = this.botsAllowed;
+    for (const b of squad.bots) {
+      const out = !allowed && !b.remote;
+      if (out === b.benched) continue;
+      squad.setBenched(b, out);
+      if (out) {
+        this.match?.bench(b.id);
+        this.teamMatch?.bench(b.id);
+        continue;
+      }
+      this.match?.unbench(b.id);
+      this.teamMatch?.unbench(b.id);
+      if (this.match) {
+        const avoid = [this.player?.position, ...squad.bots.filter((o) => o !== b && o.alive).map((o) => o.position)].filter((p): p is THREE.Vector3 => !!p);
+        squad.spawnFree(b, avoid);
+      } else if (this.teamMatch && this.teamMatch.phase === 'prep' && this.teamSpawns) {
+        // Its place in the round-start order (startRound), so nobody shares a spot.
+        const t = b.team as Team;
+        const before = squad.bots.slice(0, squad.bots.indexOf(b)).filter((o) => o.team === t).length;
+        const list = this.spawnsOf(t);
+        const s = list[((t === 'blue' ? 1 : 0) + before) % list.length];
+        squad.spawnAt(b, s.position, s.yaw);
+      }
+    }
+  }
+
+  /** A team room without bots waiting for players: 'join' before its first round, 'rejoin' after a team emptied. */
+  teamWait: 'join' | 'rejoin' | null = null;
+  /** A new match is seating the room's members (setupMode → NetHost.onSetup). */
+  private seatingRoom = false;
+  /** A room member: the host's team wait as last sent with the match state (null: not waiting). */
+  netTeamWait: TeamWaitMsg | null = null;
+
+  /** The host's team wait for the members: why, and the team with nobody (the host is BLUE, so RED). */
+  get teamWaitState(): TeamWaitMsg | null {
+    return this.teamWait && this.netHost && this.mode === 'team' ? [this.teamWait, 'red'] : null;
+  }
+
+  /** The round banner while a team room without bots waits, worded for this player's team (host or member alike). */
+  private teamWaitText(): string | null {
+    const w = this.netClient ? this.netTeamWait : this.teamWaitState;
+    if (!w || this.mode !== 'team') return null;
+    const [kind, short] = w;
+    if (short === this.localTeam) return '봇 없는 방 — 우리 팀에 플레이어가 더 오기를 기다리는 중';
+    return kind === 'join' ? '봇 없는 방 — 상대 팀 플레이어를 기다리는 중 (방 코드를 알려 주세요)' : '봇 없는 방 — 상대 팀에 플레이어가 없어 기다리는 중';
+  }
+
+  /**
+   * The host's match is under way (a change of the bot setting would start it over): not over, and not a
+   * team room still waiting for its first opponent (nothing has started there).
+   */
+  get netMatchInProgress(): boolean {
+    if (!this.netHost) return false;
+    if (this.teamMatch) return !this.teamMatch.over && this.teamWait !== 'join';
+    return !!this.match && !this.match.over;
+  }
+
+  /** Someone plays on the other team (the host is always BLUE). */
+  private teamOpponentsHere(): boolean {
+    return !!this.squad?.bots.some((b) => b.team === 'red' && !!b.remote);
+  }
+
+  /** A team room without bots, on the host, nobody on the other team: the match holds still. */
+  private teamHeld(): boolean {
+    if (this.mode !== 'team' || !this.netHost || this.botsAllowed || !this.teamMatch || this.teamMatch.over) return false;
+    if (!this.teamOpponentsHere() && !this.teamWait) this.teamWait = 'join';
+    return !!this.teamWait;
+  }
+
+  /** A seat changed hands in a team room without bots: start (or pick up) the match once both teams have players. */
+  private teamSeatChanged(): void {
+    const tm = this.teamMatch;
+    if (this.seatingRoom) return;
+    if (this.mode !== 'team' || !this.netHost || this.botsAllowed || !tm || tm.over) {
+      this.teamWait = null;
+      return;
+    }
+    const here = this.teamOpponentsHere();
+    const w = this.teamWait;
+    if (here && w) {
+      this.teamWait = null;
+      if (w === 'join') {
+        // The first opponent is here: a fresh match from round 1.
+        this.restartMatch();
+      } else {
+        // Players again on both sides: the round that was cut off is played again from its start.
+        tm.restartRound();
+        this.startRound(false);
+      }
+    } else if (!here && !w) {
+      this.teamWait = tm.history.length > 0 || tm.phase === 'live' ? 'rejoin' : 'join';
+    }
   }
 
   // --- 1대1 ---------------------------------------------------------------------------
@@ -2854,7 +2984,11 @@ export class Game implements HostGame, ClientGame {
         if (this.net?.room) this.onNetRoom?.(this.net.room);
         void this.onNetHostChanged(id);
       },
-      room: (r) => this.onNetRoom?.(r),
+      room: (r) => {
+        this.onNetRoom?.(r);
+        // The host changed the bot setting: the match starts over with it (everyone keeps their seat).
+        if (this.netHost && this.map && !this.loadingMap && this.botsAllowed !== this.appliedBots) this.restartMatch();
+      },
       closed: () => this.leaveMultiplayer('closed'),
     };
     this.hud.menu.setMatchLocked(true);
@@ -2881,6 +3015,7 @@ export class Game implements HostGame, ClientGame {
     this.netClient?.dispose();
     this.netClient = null;
     this.netTeams.clear();
+    this.netTeamWait = null;
     this.localTeam = 'blue';
     this.mode = this.matchSettings.mode;
     this.hud.menu.setMatchLocked(false);
@@ -2890,6 +3025,7 @@ export class Game implements HostGame, ClientGame {
   }
 
   private async becomeHost(room: RoomInfo): Promise<void> {
+    this.netTeamWait = null;
     this.netClient?.dispose();
     this.netClient = null;
     this.localTeam = 'blue';
@@ -2901,6 +3037,7 @@ export class Game implements HostGame, ClientGame {
   }
 
   private becomeClient(): void {
+    this.netTeamWait = null;
     this.netHost?.stop();
     this.netHost = null;
     this.syncBackgroundTicker();
@@ -2939,9 +3076,10 @@ export class Game implements HostGame, ClientGame {
     if (this.weapons) this.weapons.team = t;
   }
 
-  netMatch(m: MatchState | TeamMatchState, bomb: BombStateMsg | null, who?: readonly [string, string][]): void {
+  netMatch(m: MatchState | TeamMatchState, bomb: BombStateMsg | null, who?: readonly [string, string][], tw?: unknown): void {
     const c = this.netClient;
     if (!c) return;
+    this.netTeamWait = m.kind === 'dm' ? null : teamWaitOf(tw);
     const teams = new Map<string, 'blue' | 'red'>();
     if (Array.isArray(who)) for (const w of who) if (Array.isArray(w) && typeof w[0] === 'string' && (w[1] === 'blue' || w[1] === 'red')) teams.set(w[0], w[1]);
     if ([...teams].join() !== [...this.netTeams].join()) {

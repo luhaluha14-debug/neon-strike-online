@@ -79,7 +79,8 @@ test('team room from the lobby: listed with its head count, joined from the list
       training: document.querySelector('.lobby [data-lobby="training"]').disabled,
       multi: document.querySelector('.lobby [data-lobby="multi"]').disabled,
     }));
-    assert.deepEqual(banner, { shown: true, code, meta: '5대5 라운드전 · 2/10명', play: true, training: true, multi: false });
+    // Phase 26-B: the banner also says the room's bot setting (a new room: bots allowed).
+    assert.deepEqual(banner, { shown: true, code, meta: '5대5 라운드전 · 2/10명 · 봇 허용', play: true, training: true, multi: false });
     // 경기 입장 from the banner: into the room's match.
     await guest.click('.lobby-room-play');
     await guest.waitForFunction(() => window.game.input.active);

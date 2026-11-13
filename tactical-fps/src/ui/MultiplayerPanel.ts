@@ -18,6 +18,8 @@ export interface MultiplayerGame {
   mapNameOf(id: string): string;
   /** Team match: the team a room member plays (null: not known yet / deathmatch). */
   teamOf(memberId: string): 'blue' | 'red' | null;
+  /** The host's match is under way (changing the bot setting restarts it: asked first). */
+  readonly netMatchInProgress: boolean;
   startMultiplayer(session: NetSession): Promise<void>;
   leaveMultiplayer(reason?: 'closed' | 'left'): void;
   onNetRoom: ((room: RoomInfo) => void) | null;
@@ -41,6 +43,11 @@ export class MultiplayerPanel implements LobbyRoomSource {
   private noticeListeners: ((text: string) => void)[] = [];
   private statusListeners: ((ok: boolean) => void)[] = [];
   private checks = 0;
+  /** The bot setting the open confirmation would switch to (null: no confirmation open). */
+  private confirmFor: boolean | null = null;
+  /** A bot setting sent to the relay and not answered yet (the switch waits for the room's answer). */
+  private sentBots: boolean | null = null;
+  private sentTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     menu: MainMenu,
@@ -63,6 +70,14 @@ export class MultiplayerPanel implements LobbyRoomSource {
             <option value="duel">${MODE_LABEL.duel}</option>
           </select>
         </label>
+        <label class="field mp-bots-field">
+          <span class="field-label">봇</span>
+          <select class="select mp-bots">
+            <option value="on">허용 — 빈 자리를 봇이 채움</option>
+            <option value="off">비허용 — 사람만</option>
+          </select>
+        </label>
+        <p class="field-hint mp-bots-duel" hidden>1대1은 봇 없이 두 사람만 경기합니다.</p>
         <div class="mp-actions">
           <button type="button" class="btn btn-primary mp-quick">빠른 참가</button>
           <button type="button" class="btn mp-create">방 만들기</button>
@@ -79,12 +94,23 @@ export class MultiplayerPanel implements LobbyRoomSource {
           <ul class="mp-rooms"></ul>
           <p class="field-hint mp-list-note"></p>
         </div>
-        <p class="field-hint">빈 자리는 봇이 채웁니다. 방장의 브라우저가 경기를 진행하며, 방장이 나가면 다른 사람이 이어받고 경기는 새로 시작합니다. 맵은 방장이 고른 맵입니다.</p>
+        <p class="field-hint">봇을 허용한 방은 빈 자리를 봇이 채웁니다(새 방을 만들 때의 설정, 빠른 참가로 들어간 방은 그 방의 설정). 방장의 브라우저가 경기를 진행하며, 방장이 나가면 다른 사람이 이어받고 경기는 새로 시작합니다. 맵은 방장이 고른 맵입니다.</p>
       </div>
       <div class="mp-room" hidden>
         <div class="mp-room-head">
           <div><span class="field-label">방 코드</span> <b class="mp-room-code"></b></div>
           <div class="mp-room-mode muted"></div>
+        </div>
+        <div class="mp-room-bots">
+          <span class="mp-room-bots-text"></span>
+          <button type="button" class="btn mp-bots-toggle" hidden></button>
+        </div>
+        <div class="mp-confirm" role="alertdialog" aria-labelledby="mp-confirm-text" hidden>
+          <p class="mp-confirm-text" id="mp-confirm-text"></p>
+          <div class="mp-confirm-actions">
+            <button type="button" class="btn mp-confirm-cancel">취소</button>
+            <button type="button" class="btn btn-primary mp-confirm-ok">확인 — 다시 시작</button>
+          </div>
         </div>
         <ol class="mp-members"></ol>
         <p class="field-hint mp-room-hint">아래 플레이 버튼으로 경기에 들어갑니다. 친구에게 방 코드를 알려 주세요.</p>
@@ -107,6 +133,28 @@ export class MultiplayerPanel implements LobbyRoomSource {
     });
     nameInput.addEventListener('keydown', (e) => e.stopPropagation());
     this.q('.mp-leave').addEventListener('click', () => this.leave());
+    this.q('.mp-mode').addEventListener('change', () => this.syncBotsField());
+    this.syncBotsField();
+    // Host only (the relay refuses anyone else): the room's answer updates the view. During a match the
+    // change starts it over, so it is asked first; one question at a time, one request at a time.
+    this.q('.mp-bots-toggle').addEventListener('click', () => {
+      const room = this.current;
+      if (!this.canSwitchBots(room) || this.confirmFor !== null || this.sentBots !== null) return;
+      const want = room!.bots === false;
+      if (this.game.netMatchInProgress) this.openConfirm(want);
+      else this.sendBots(want);
+    });
+    this.q('.mp-confirm-ok').addEventListener('click', () => {
+      const want = this.confirmFor;
+      this.closeConfirm();
+      if (want === null || !this.canSwitchBots(this.current) || (this.current!.bots !== false) === want) return;
+      this.sendBots(want);
+    });
+    this.q('.mp-confirm-cancel').addEventListener('click', () => this.closeConfirm());
+    this.q('.mp-confirm').addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if ((e as KeyboardEvent).key === 'Escape') this.closeConfirm();
+    });
     this.q('.mp-refresh').addEventListener('click', () => void this.refreshRooms());
     this.q('.mp-rooms').addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest<HTMLButtonElement>('.mp-room-join');
@@ -186,7 +234,7 @@ export class MultiplayerPanel implements LobbyRoomSource {
     const full = r.players >= r.capacity;
     return `<li class="mp-room-row">
       <b class="mp-room-row-code">${escape(r.code)}</b>
-      <span class="mp-room-row-info">${MODE_LABEL[r.mode]} · ${escape(this.game.mapNameOf(r.map))}</span>
+      <span class="mp-room-row-info">${MODE_LABEL[r.mode]} · ${escape(this.game.mapNameOf(r.map))}${r.mode !== 'duel' && r.bots === false ? ' · 봇 없음' : ''}</span>
       <span class="mp-room-row-count${full ? ' full' : ''}">${r.players}/${r.capacity}명</span>
       <button type="button" class="btn mp-room-join" data-code="${escape(r.code)}"${full ? ' disabled' : ''}>${full ? '가득 참' : '참가'}</button>
     </li>`;
@@ -232,12 +280,13 @@ export class MultiplayerPanel implements LobbyRoomSource {
       /* storage blocked */
     }
     const mode = this.q<HTMLSelectElement>('.mp-mode').value as RoomMode;
+    const bots = mode !== 'duel' && this.q<HTMLSelectElement>('.mp-bots').value !== 'off';
     this.setBusy(true, '연결 중…');
     try {
       const s = this.session ?? new NetSession();
       this.session = s;
       if (!s.connected) await s.connect(name);
-      const room = how === 'quick' ? await s.quick(mode, this.game.mapId) : how === 'create' ? await s.create(mode, this.game.mapId) : await s.join(code!);
+      const room = how === 'quick' ? await s.quick(mode, this.game.mapId, bots) : how === 'create' ? await s.create(mode, this.game.mapId, bots) : await s.join(code!);
       this.showRoom(room);
       this.q('.mp-server').textContent = '멀티플레이 서버에 연결됨';
       await this.game.startMultiplayer(s);
@@ -260,6 +309,10 @@ export class MultiplayerPanel implements LobbyRoomSource {
 
   private showRoom(room: RoomInfo | null): void {
     const before = this.current;
+    // An answer to the request in flight, or another room / no room: nothing is waited for any more.
+    if (this.sentBots !== null && (!room || room.code !== before?.code || (room.bots !== false) === this.sentBots)) this.settleBots();
+    // The question no longer applies: not the host now, out of the room, or the setting already is what was asked.
+    if (this.confirmFor !== null && (!this.canSwitchBots(room) || room!.code !== before?.code || (room!.bots !== false) === this.confirmFor)) this.closeConfirm();
     this.current = room ? { ...room, members: [...room.members] } : null;
     const inRoom = !!room;
     this.q('.mp-lobby').hidden = inRoom;
@@ -275,6 +328,7 @@ export class MultiplayerPanel implements LobbyRoomSource {
       }
       this.q('.mp-room-code').textContent = room.code;
       this.q('.mp-room-mode').textContent = `${MODE_LABEL[room.mode]} · ${this.game.mapName} · ${room.members.length}/${room.capacity}명`;
+      this.showBots(room, room.hostId === me);
       this.q('.mp-members').innerHTML = room.members
         .map((m) => {
           const team = room.mode === 'team' || room.mode === 'duel' ? this.game.teamOf(m.id) : null;
@@ -284,6 +338,67 @@ export class MultiplayerPanel implements LobbyRoomSource {
     }
     this.offerRejoin();
     for (const l of this.roomListeners) l(this.current);
+  }
+
+  /** This player hosts `room`, a deathmatch / team room: the bot setting is its to change. */
+  private canSwitchBots(room: RoomInfo | null): boolean {
+    return !!room && !!this.session && room.hostId === this.session.id && room.mode !== 'duel';
+  }
+
+  /** Asks before restarting the match: 확인 switches (and restarts), 취소 leaves the setting and the match as they are. */
+  private openConfirm(want: boolean): void {
+    this.confirmFor = want;
+    this.q('.mp-confirm-text').textContent = want
+      ? '경기 중입니다. 봇을 켜면 빈 자리를 봇이 채우고 경기가 처음부터 다시 시작됩니다. 바꿀까요?'
+      : '경기 중입니다. 봇을 끄면 빈 자리의 봇이 빠지고 경기가 처음부터 다시 시작됩니다. 바꿀까요?';
+    this.q('.mp-confirm').hidden = false;
+    this.q<HTMLButtonElement>('.mp-bots-toggle').disabled = true;
+    this.q<HTMLButtonElement>('.mp-confirm-cancel').focus();
+  }
+
+  private closeConfirm(): void {
+    this.confirmFor = null;
+    this.q('.mp-confirm').hidden = true;
+    this.q<HTMLButtonElement>('.mp-bots-toggle').disabled = this.sentBots !== null;
+  }
+
+  /** One request to the relay; the switch stays off until the room comes back with it (or a few seconds pass). */
+  private sendBots(want: boolean): void {
+    const s = this.session;
+    if (!s) return;
+    this.sentBots = want;
+    this.q<HTMLButtonElement>('.mp-bots-toggle').disabled = true;
+    if (this.sentTimer) clearTimeout(this.sentTimer);
+    this.sentTimer = setTimeout(() => this.settleBots(), 5000);
+    s.setBots(want);
+  }
+
+  /** The relay answered (or never will): the switch is usable again. */
+  private settleBots(): void {
+    this.sentBots = null;
+    if (this.sentTimer) clearTimeout(this.sentTimer);
+    this.sentTimer = null;
+    this.q<HTMLButtonElement>('.mp-bots-toggle').disabled = this.confirmFor !== null;
+  }
+
+  /** The bot choice before entering a room: none for 1대1. */
+  private syncBotsField(): void {
+    const duel = this.q<HTMLSelectElement>('.mp-mode').value === 'duel';
+    this.q('.mp-bots-field').hidden = duel;
+    this.q('.mp-bots-duel').hidden = !duel;
+  }
+
+  /** The room's bot setting, as the relay has it; the host can switch it (1대1: always none, nothing to switch). */
+  private showBots(room: RoomInfo, host: boolean): void {
+    const box = this.q('.mp-room-bots');
+    const text = this.q('.mp-room-bots-text');
+    const toggle = this.q<HTMLButtonElement>('.mp-bots-toggle');
+    const on = room.mode !== 'duel' && room.bots !== false;
+    box.dataset.bots = room.mode === 'duel' ? 'duel' : on ? 'on' : 'off';
+    text.textContent = room.mode === 'duel' ? '봇: 없음 (1대1은 두 사람만)' : on ? '봇: 허용 — 빈 자리를 봇이 채웁니다' : '봇: 비허용 — 사람만 경기합니다';
+    toggle.hidden = !host || room.mode === 'duel';
+    toggle.textContent = on ? '봇 끄기' : '봇 켜기';
+    if (room.mode !== 'duel' && !host) text.textContent += ' (방장만 바꿀 수 있음)';
   }
 
   private setBusy(on: boolean, note = ''): void {

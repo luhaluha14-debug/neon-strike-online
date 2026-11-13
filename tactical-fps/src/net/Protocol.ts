@@ -11,8 +11,16 @@ export const MP_SERVICE = 'grid-mp';
 /** 'duel': 1대1, two players only (no bots fight). */
 export type RoomMode = 'deathmatch' | 'team' | 'duel';
 
-/** Humans per room (bots fill the rest of the match). */
+/** Humans per room (bots fill the rest of the match, when the room allows bots). */
 export const ROOM_CAPACITY: Record<RoomMode, number> = { deathmatch: 8, team: 10, duel: 2 };
+
+/**
+ * Does a room of `mode` fill its empty places with bots? Chosen by the host for deathmatch and team rooms
+ * (default: yes; `requested` absent = an older client = yes). 1대1 never has bots, whatever is asked.
+ */
+export function roomBots(mode: RoomMode, requested: boolean | undefined): boolean {
+  return mode !== 'duel' && requested !== false;
+}
 
 export const NAME_MAX = 16;
 /** Room codes: 5 characters without look-alikes (0/O, 1/I/L). */
@@ -33,6 +41,11 @@ export interface RoomInfo {
   hostId: string;
   members: MemberInfo[];
   capacity: number;
+  /**
+   * Empty places are played by bots (the relay keeps it; only the host changes it). Always false for 1대1.
+   * Absent from an older relay: bots, as before.
+   */
+  bots?: boolean;
 }
 
 /** A room in the public list (`GET /mp/rooms`): counts only, no player names. */
@@ -42,17 +55,21 @@ export interface RoomSummary {
   map: string;
   players: number;
   capacity: number;
+  bots?: boolean;
 }
 
 /** Client → relay. */
 export type ClientMessage =
   | { t: 'hello'; v: number; name: string }
-  | { t: 'quick'; mode: RoomMode; map: string }
-  | { t: 'create'; mode: RoomMode; map: string }
+  /** `bots`: for a room this creates (an existing room keeps its own); absent = bots. */
+  | { t: 'quick'; mode: RoomMode; map: string; bots?: boolean }
+  | { t: 'create'; mode: RoomMode; map: string; bots?: boolean }
   | { t: 'join'; code: string }
   | { t: 'leave' }
   /** Host only: the map the room plays now (after a map change). */
   | { t: 'map'; map: string }
+  /** Host only, deathmatch / team rooms: empty places played by bots or not. */
+  | { t: 'bots'; bots: boolean }
   /** Game payload. Non-hosts can only reach the host; the host reaches one member or all. */
   | { t: 'relay'; to?: string; d: unknown }
   | { t: 'ping'; n: number };

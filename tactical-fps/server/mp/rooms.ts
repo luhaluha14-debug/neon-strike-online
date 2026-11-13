@@ -1,5 +1,5 @@
 import { randomInt } from 'node:crypto';
-import { CODE_ALPHABET, CODE_LENGTH, MP_PROTOCOL, ROOM_CAPACITY, cleanName, validCode, type ClientMessage, type MemberInfo, type RoomInfo, type RoomMode, type RoomSummary, type ServerMessage } from '../../src/net/Protocol';
+import { CODE_ALPHABET, CODE_LENGTH, MP_PROTOCOL, ROOM_CAPACITY, cleanName, roomBots, validCode, type ClientMessage, type MemberInfo, type RoomInfo, type RoomMode, type RoomSummary, type ServerMessage } from '../../src/net/Protocol';
 
 // Rooms of the multiplayer relay, without sockets (so it can be tested
 // directly): who is connected, who is in which room, who hosts it, and where
@@ -21,6 +21,8 @@ interface Room {
   mode: RoomMode;
   map: string;
   hostId: string;
+  /** Empty places are played by bots (deathmatch / team, the host's choice; never in 1대1). */
+  bots: boolean;
   /** In join order (the next host is the longest-standing member). */
   members: Client[];
 }
@@ -79,11 +81,12 @@ export class Rooms {
       case 'create': {
         if (!c.name) return err('name');
         if (!MODES.includes(m.mode) || typeof m.map !== 'string' || !MAP_ID.test(m.map)) return err('bad_request');
+        if (m.bots !== undefined && typeof m.bots !== 'boolean') return err('bad_request');
         const out = this.leave(c);
         let room = m.t === 'quick' ? [...this.rooms.values()].find((r) => r.mode === m.mode && r.members.length < ROOM_CAPACITY[r.mode]) : undefined;
         if (!room) {
           if (this.rooms.size >= MAX_ROOMS) return [...out, errorTo(id, 'server_full')];
-          room = { code: this.newCode(), mode: m.mode, map: m.map, hostId: id, members: [] };
+          room = { code: this.newCode(), mode: m.mode, map: m.map, hostId: id, bots: roomBots(m.mode, m.bots), members: [] };
           this.rooms.set(room.code, room);
         }
         return [...out, ...this.enter(c, room)];
@@ -107,6 +110,15 @@ export class Rooms {
         room.map = m.map;
         return room.members.map((x) => ({ to: x.id, msg: { t: 'room', room: info(room) } }));
       }
+      case 'bots': {
+        const room = c.room;
+        if (!room) return err('no_room');
+        if (room.hostId !== id) return err('not_host');
+        // 1대1 is two players, never bots: there is nothing to choose.
+        if (typeof m.bots !== 'boolean' || room.mode === 'duel') return err('bad_request');
+        room.bots = m.bots;
+        return room.members.map((x) => ({ to: x.id, msg: { t: 'room', room: info(room) } }));
+      }
       case 'relay': {
         const room = c.room;
         if (!room) return err('no_room');
@@ -123,7 +135,7 @@ export class Rooms {
   /** Rooms for the public list: open rooms first, then fuller ones (counts only, no names). */
   list(): RoomSummary[] {
     return [...this.rooms.values()]
-      .map((r) => ({ code: r.code, mode: r.mode, map: r.map, players: r.members.length, capacity: ROOM_CAPACITY[r.mode] }))
+      .map((r) => ({ code: r.code, mode: r.mode, map: r.map, players: r.members.length, capacity: ROOM_CAPACITY[r.mode], bots: r.bots }))
       .sort((a, b) => Number(a.players >= a.capacity) - Number(b.players >= b.capacity) || b.players - a.players);
   }
 
@@ -169,7 +181,7 @@ export class Rooms {
 }
 
 function info(r: Room): RoomInfo {
-  return { code: r.code, mode: r.mode, map: r.map, hostId: r.hostId, members: r.members.map((m) => ({ id: m.id, name: m.name ?? '' })), capacity: ROOM_CAPACITY[r.mode] };
+  return { code: r.code, mode: r.mode, map: r.map, hostId: r.hostId, members: r.members.map((m) => ({ id: m.id, name: m.name ?? '' })), capacity: ROOM_CAPACITY[r.mode], bots: r.bots };
 }
 
 function errorTo(to: string, error: Extract<ServerMessage, { t: 'error' }>['error']): Outbox[number] {

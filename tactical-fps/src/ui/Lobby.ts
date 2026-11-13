@@ -219,7 +219,7 @@ export class Lobby {
     this.q('.lobby-room').hidden = !room;
     if (room) {
       this.q('.lobby-room-code').textContent = room.code;
-      this.q('.lobby-room-meta').textContent = `${ROOM_MODE[room.mode]} · ${room.members.length}/${room.capacity}명`;
+      this.q('.lobby-room-meta').textContent = `${ROOM_MODE[room.mode]} · ${room.members.length}/${room.capacity}명 · ${room.mode === 'duel' ? '봇 없음 (1대1)' : room.bots === false ? '봇 비허용' : '봇 허용'}`;
       const play = this.q<HTMLButtonElement>('.lobby-room-play');
       play.textContent = paused ? '계속하기' : '경기 입장';
       play.disabled = !ready;
