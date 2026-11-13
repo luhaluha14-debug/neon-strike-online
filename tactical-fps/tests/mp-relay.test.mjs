@@ -71,8 +71,9 @@ test('rooms: the public list has every room with its player count (no names), op
   const b = hi('Bravo');
   rooms.handle(b, { t: 'join', code: 'AAAAA' });
   assert.deepEqual(rooms.list(), [
-    { code: 'AAAAA', mode: 'team', map: 'seoul', players: 2, capacity: 10 },
-    { code: 'BBBBB', mode: 'deathmatch', map: 'warehouse', players: 8, capacity: 8 },
+    // Phase 26-B: each room says whether it fills empty places with bots (yes unless the host said no).
+    { code: 'AAAAA', mode: 'team', map: 'seoul', players: 2, capacity: 10, bots: true },
+    { code: 'BBBBB', mode: 'deathmatch', map: 'warehouse', players: 8, capacity: 8, bots: true },
   ]);
   assert.ok(!JSON.stringify(rooms.list()).includes('Alpha'), 'no player names in the public list');
   rooms.handle(a, { t: 'leave' });
@@ -204,7 +205,7 @@ test('server: health, game page, hello / quick join / relay over real sockets, h
   guest.send({ t: 'join', code: room.code.toLowerCase() });
   const groom = (await guest.next((m) => m.t === 'room')).room;
   assert.deepEqual(groom.members.map((m) => m.name), ['Host', 'Guest']);
-  assert.deepEqual((await fetch(`http://${url}${M.MP_PATH}/rooms`).then((r) => r.json())).rooms, [{ code: room.code, mode: 'team', map: 'seoul', players: 2, capacity: 10 }]);
+  assert.deepEqual((await fetch(`http://${url}${M.MP_PATH}/rooms`).then((r) => r.json())).rooms, [{ code: room.code, mode: 'team', map: 'seoul', players: 2, capacity: 10, bots: true }]);
   assert.equal((await host.next((m) => m.t === 'joined')).member.name, 'Guest');
   guest.send({ t: 'relay', d: { k: 'state', x: 1 } });
   assert.deepEqual(await host.next((m) => m.t === 'relay'), { t: 'relay', from: guest.id, d: { k: 'state', x: 1 } });

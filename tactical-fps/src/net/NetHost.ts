@@ -12,7 +12,7 @@ import type { PlayerCombat, PlayerDamageEvent } from '../player/PlayerCombat';
 import type { PlayerController } from '../player/PlayerController';
 import type { WeaponDefinition } from '../weapons/WeaponDefinition';
 import { DEFAULT_LOADOUT, WEAPONS } from '../weapons/weapons';
-import { r2, r3, v3, validV3, isToHost, type EntityState, type ToClient, type ToHost, type V3 } from './GameMessages';
+import { r2, r3, v3, validV3, isToHost, type EntityState, type TeamWaitMsg, type ToClient, type ToHost, type V3 } from './GameMessages';
 import { LagCompensation } from './LagCompensation';
 import { bombState, matchState, teamMatchState } from './Mirror';
 import type { NetSession } from './NetSession';
@@ -53,6 +53,10 @@ export interface HostGame {
   readonly localTeam: 'blue' | 'red';
   /** Who plays which team changed (the room view shows it). */
   netTeamsChanged(): void;
+  /** Seats nobody plays out of the match / a taken seat back in (a room without bots). */
+  syncBench(): void;
+  /** A team room without bots waiting for players (sent to the members with the match state). */
+  readonly teamWaitState: TeamWaitMsg | null;
   readonly squad: BotSquad | null;
   readonly match: Match | null;
   readonly teamMatch: TeamMatch | null;
@@ -346,6 +350,8 @@ export class NetHost {
       rp.botName = pick.name;
       pick.remote = rp;
       pick.order = null;
+      // A room without bots: the seat was out of the match; it is back in before it changes hands.
+      this.game.syncBench();
       pick.name = rp.name;
       // The member's own record starts here; the AI's kills and deaths before the hand-over are not the member's.
       // 1대1: the same player back after a drop gets its own record of this match back.
@@ -375,6 +381,9 @@ export class NetHost {
     rp.botRecord = null;
     this.lag.forget(bot.id);
     rp.bot = null;
+    // A room without bots: nobody plays the seat now, it leaves the match.
+    this.game.syncBench();
+    this.sendMatch();
     this.game.netTeamsChanged();
   }
 
@@ -425,7 +434,7 @@ export class NetHost {
     const ms = tm ? teamMatchState(tm, (id) => this.wire(id), this.nameOf) : m ? matchState(m, (id) => this.wire(id), this.nameOf) : null;
     if (!ms) return;
     const bomb = this.game.bomb ? bombState(this.game.bomb, (id) => this.wire(id)) : null;
-    this.send({ k: 'match', t: r3(this.now()), m: ms, bomb, who: tm ? this.teams() : undefined }, to);
+    this.send({ k: 'match', t: r3(this.now()), m: ms, bomb, who: tm ? this.teams() : undefined, tw: tm ? this.game.teamWaitState : undefined }, to);
   }
 
   /** Team match: each room member's team (the host plays BLUE as 'local'), for the room view. */
@@ -440,7 +449,7 @@ export class NetHost {
     const tm = this.game.teamMatch;
     const m = this.game.match;
     const b = this.game.bomb;
-    return [tm?.phase, tm?.round, tm?.feed.length, m?.feed.length, m?.over, b?.state, b?.carrier, b?.planting?.id, b?.defusing?.id].join('|');
+    return [tm?.phase, tm?.round, tm?.feed.length, m?.feed.length, m?.over, b?.state, b?.carrier, b?.planting?.id, b?.defusing?.id, this.game.teamWaitState?.join()].join('|');
   }
 
   private entities(): EntityState[] {
@@ -449,6 +458,8 @@ export class NetHost {
     const c = this.game.combat;
     if (p && c) out.push(entity(this.wire('local'), p, c, this.game.netAiming, c.team ?? ''));
     for (const b of this.game.squad?.bots ?? []) {
+      // A seat out of the match (a room without bots) is nobody: not shown to the members.
+      if (b.benched) continue;
       out.push(entity(b.id, b.controller, b.combat, (b.remote ? b.remote.aiming : b.mode === 'engage') && b.alive, b.team ?? ''));
     }
     return out;

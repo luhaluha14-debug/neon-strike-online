@@ -51,7 +51,11 @@ export type ToClient =
   /** Match / round / bomb state, a few times a second and on changes. */
   /** You were credited with a kill (once per kill: `id` is unique for the host's session). */
   | { k: 'kill'; id: string }
-  | { k: 'match'; t: number; m: MatchState | TeamMatchState; bomb: BombStateMsg | null; who?: [member: string, team: 'blue' | 'red'][] }
+  /**
+   * `tw`: a team room without bots waiting for players ('join' before its first round, 'rejoin' after a team
+   * emptied) and the team that has nobody; absent / null: not waiting (and from an older host).
+   */
+  | { k: 'match'; t: number; m: MatchState | TeamMatchState; bomb: BombStateMsg | null; who?: [member: string, team: 'blue' | 'red'][]; tw?: TeamWaitMsg | null }
   /** Put your character here (spawn, round start, correction). `loadout`: catalog ids of the gear (team match). */
   | { k: 'spawn'; sp: number; p: V3; yaw: number; alive: boolean; hp: number; armor: number; loadout: string[] | null; grenades: { flash: number; smoke: number } | null; round: boolean }
   /** You were hit (direction for the HUD; hp / death follow in snapshots). */
@@ -83,4 +87,14 @@ export function isToClient(d: unknown): d is ToClient {
 /** A finite [x, y, z]. */
 export function validV3(v: unknown, limit = 1e5): v is V3 {
   return Array.isArray(v) && v.length === 3 && v.every((n) => typeof n === 'number' && Number.isFinite(n) && Math.abs(n) < limit);
+}
+
+/** A team room without bots waiting: why, and the team with no players. */
+export type TeamWaitMsg = [kind: 'join' | 'rejoin', short: 'blue' | 'red'];
+
+/** A `tw` from the host, checked (anything else: not waiting). */
+export function teamWaitOf(raw: unknown): TeamWaitMsg | null {
+  if (!Array.isArray(raw) || raw.length !== 2) return null;
+  const [kind, short] = raw;
+  return (kind === 'join' || kind === 'rejoin') && (short === 'blue' || short === 'red') ? [kind, short] : null;
 }

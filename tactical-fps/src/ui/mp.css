@@ -137,3 +137,44 @@
 .mp-rejoin[hidden] {
   display: none;
 }
+
+/* The room's bot setting (Phase 26-B): what the relay has; the host's switch next to it. */
+.mp-room-bots {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 6px 0;
+  font-size: 12.5px;
+}
+.mp-room-bots[data-bots='off'] .mp-room-bots-text {
+  color: var(--c-accent, #e8a044);
+}
+.mp-room-bots .btn {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+/* Asked before a bot setting change restarts the match (Phase 26-B). */
+.mp-confirm {
+  margin: 6px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--c-accent, #e8a044);
+  border-radius: 6px;
+  background: rgba(232, 160, 68, 0.08);
+  font-size: 12.5px;
+}
+.mp-confirm[hidden] {
+  display: none;
+}
+.mp-confirm p {
+  margin: 0 0 6px;
+}
+.mp-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.mp-confirm-actions .btn {
+  padding: 4px 10px;
+  font-size: 12px;
+}

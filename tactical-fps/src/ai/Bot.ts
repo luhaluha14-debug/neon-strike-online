@@ -169,6 +169,11 @@ export class Bot {
    * position, view and use key come from that player (`apply`, each tick).
    */
   remote: RemoteControl | null = null;
+  /**
+   * Multiplayer host, a room without bots: nobody plays this seat, so it is out of the match altogether
+   * (no AI, no body, never hit, not counted): BotSquad.setBenched. A member taking the seat brings it back.
+   */
+  benched = false;
   /** Called after every spawn (multiplayer host: tells the remote player where it starts). */
   onSpawn: ((at: THREE.Vector3, yaw: number) => void) | null = null;
   /** Goal the current path was searched for (NaN = none). */

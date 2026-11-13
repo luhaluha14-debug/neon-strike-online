@@ -145,6 +145,13 @@ export class PlayerCombat implements Damageable {
     this.protection = 0;
   }
 
+  /** Out of the match (an empty seat in a room without bots): not alive, so never hit, until the next reset. */
+  bench(): void {
+    this.dead = true;
+    this.deadTime = 0;
+    this.protection = 0;
+  }
+
   /**
    * Alive at full health with fresh spawn protection (called on every
    * (re)spawn). Armour is removed unless `keepArmor` (team match survivor).

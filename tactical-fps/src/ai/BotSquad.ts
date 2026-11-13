@@ -104,10 +104,32 @@ export class BotSquad {
     });
   }
 
+  /**
+   * A seat out of the match (multiplayer host, a room without bots, nobody playing it) or back in.
+   * Benched: not alive, no AI, no body, skipped by every spawn below. Back in: the caller places it.
+   */
+  setBenched(b: Bot, on: boolean): void {
+    if (b.benched === on) return;
+    b.benched = on;
+    if (on) {
+      b.combat.bench();
+      b.order = null;
+      b.useKey = false;
+    }
+    const model = this.models[this.bots.indexOf(b)];
+    if (model) model.object.visible = !on;
+  }
+
+  /** A seat just back in (deathmatch): a spawn point away from `avoid`. */
+  spawnFree(b: Bot, avoid: readonly THREE.Vector3[]): void {
+    if (!b.benched) this.respawn(b, avoid);
+  }
+
   /** Puts every bot at a spawn point, spread out and away from `avoid`. */
   spawnAll(avoid: readonly THREE.Vector3[]): void {
     const taken = [...avoid];
     for (const b of this.bots) {
+      if (b.benched) continue;
       this.respawn(b, taken);
       taken.push(b.position);
     }
@@ -115,20 +137,22 @@ export class BotSquad {
 
   /** One simulation tick for every bot; dead bots come back after the respawn delay. */
   step(dt: number, player: Combatant): void {
-    const everyone: Combatant[] = [player, ...this.bots];
-    for (const b of this.bots) {
-      b.step(dt, everyone, this.bots);
+    const active = this.bots.filter((b) => !b.benched);
+    const everyone: Combatant[] = [player, ...active];
+    for (const b of active) {
+      b.step(dt, everyone, active);
       if (this.respawns && b.combat.respawnDue) this.respawn(b, everyone.filter((c) => c !== b && c.alive).map((c) => c.position));
     }
   }
 
   /** A tick with every bot holding still (team match before / after a round). */
   hold(dt: number): void {
-    for (const b of this.bots) b.hold(dt);
+    for (const b of this.bots) if (!b.benched) b.hold(dt);
   }
 
   /** Puts a bot at a given spot (team match round start): full health, fresh magazine, nothing in mind. */
   spawnAt(b: Bot, at: THREE.Vector3, yaw: number): void {
+    if (b.benched) return;
     b.spawn(at, yaw);
     this.models[this.bots.indexOf(b)]?.reset();
   }
@@ -136,6 +160,7 @@ export class BotSquad {
   /** Per frame: bodies walk / aim / fall from their bot's state. */
   updateVisuals(dt: number): void {
     this.bots.forEach((b, i) => {
+      if (b.benched) return;
       const c = b.controller;
       _pose.feet.copy(c.position);
       _pose.yaw = c.yaw;
