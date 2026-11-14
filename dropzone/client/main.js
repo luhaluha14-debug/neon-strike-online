@@ -513,7 +513,7 @@ class Session {
       this.planeMesh = pm;
       this.planePrev = { x: this.match.plane.x, z: this.match.plane.z };
       this.rig.yaw = this.match.plane.yaw; this.rig.pitch = -0.25;
-      this.hud.banner('수송기 탑승 중 · M 지도를 클릭해 목적지를 찍으세요', 'zone', 5);
+      this.hud.banner(app.touch ? '수송기 탑승 중 · 지도 버튼을 눌러 목적지를 찍으세요' : '수송기 탑승 중 · M 지도를 클릭해 목적지를 찍으세요', 'zone', 5);
     } else this.hud.banner('자기장이 곧 줄어듭니다 · 무기를 찾으세요', 'zone', 4);
     this.applySettings();
   }
@@ -774,6 +774,7 @@ class Session {
   onDisconnect() {
     if (this.state !== 'playing') return;
     this.state = 'ended';
+    this.disconnected = true;
     this.hud.banner('서버와 연결이 끊어졌습니다', '', 4);
     setTimeout(() => { if (this.app.session === this) this.showResult(false); }, 1500);
   }
@@ -910,7 +911,7 @@ class Session {
       case 'kill': {
         const v = m.byId.get(e.id), k = e.by !== null ? m.byId.get(e.by) : null;
         const nm = (p) => `<b class="${p === me ? 'me' : ''}">${escapeHtml(p.name)}</b>`;
-        const how = e.cause === 'zone' ? '자기장' : e.cause === 'fall' ? '낙하' : e.cause === 'vehicle' ? '차량' : THROWABLES[e.cause] ? THROWABLES[e.cause].name : (WEAPONS[e.cause] ? WEAPONS[e.cause].name : e.cause);
+        const how = e.cause === 'zone' ? '자기장' : e.cause === 'fall' ? '낙하' : e.cause === 'vehicle' ? '차량' : e.cause === 'bleed' ? '출혈' : THROWABLES[e.cause] ? THROWABLES[e.cause].name : (WEAPONS[e.cause] ? WEAPONS[e.cause].name : e.cause);
         hud.feed(k && k !== v ? `${nm(k)}<span class="w">${how}${e.head ? ' ✦' : ''}</span>${nm(v)}` : `${nm(v)}<span class="w">${how}</span>`);
         if (k === me && v !== me) hud.banner(`${v.name} 처치${e.head ? ' · 헤드샷' : ''}`, '', 1.8);
         if (isMe) this.onDeath(k);
@@ -1089,6 +1090,7 @@ class Session {
     const total = team ? new Set(m.players.map((o) => o.team)).size : m.players.length;
     $('resTitle').textContent = won ? (team ? '우리 팀 우승!' : '최후의 생존자') : place <= 5 ? '아깝습니다!' : '다음엔 더 잘할 수 있어요';
     $('resPlace').innerHTML = `#${place} <span>/ ${total}${team ? ' 팀' : ''}</span>`;
+    if (this.disconnected) { $('resTitle').textContent = '서버와 연결이 끊어졌습니다'; $('resPlace').innerHTML = '<span>다시 하기를 누르면 다시 연결합니다</span>'; }
     const alive = me.alive ? m.time : me.deathT;
     $('resStats').innerHTML = [
       [me.kills, '처치'], [Math.round(me.dmgDealt), '피해량'], [`${Math.floor(alive / 60)}:${String(Math.floor(alive % 60)).padStart(2, '0')}`, '생존 시간']
