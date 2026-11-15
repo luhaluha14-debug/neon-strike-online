@@ -16,6 +16,7 @@ import { r2, r3, v3, validV3, isToHost, type EntityState, type TeamWaitMsg, type
 import { LagCompensation } from './LagCompensation';
 import { bombState, matchState, teamMatchState } from './Mirror';
 import type { NetSession } from './NetSession';
+import { catalogClaimVerifier, type SkinClaims, type SkinClaimVerifier } from '../skins/SkinClaims';
 
 // The room host's side of a multiplayer match. The host's game runs the
 // whole match as in single player; each other member plays one of its bots
@@ -68,6 +69,9 @@ export interface HostGame {
   readonly mapId: string;
   /** The host player is aiming down the sights (body pose on the others' screens). */
   readonly netAiming: boolean;
+  /** Weapon in the host player's hands, and the host player's equipped weapon skins (cosmetic). */
+  readonly netWeaponId: string;
+  readonly netSkinClaims: Record<string, string>;
   /** A round fired by a remote player, resolved here: the host's own effects for it. */
   showNetShot(bot: Bot, weapon: WeaponDefinition, origin: THREE.Vector3, dir: THREE.Vector3, result: HitscanResult): void;
 }
@@ -78,6 +82,8 @@ class RemotePlayer implements RemoteControl {
   /** The AI's own record on the seat while this member plays it (given back when the member leaves). */
   botRecord: SeatRecord | null = null;
   aiming = false;
+  /** Weapon skins the member says it wears, as the check let them through (SkinClaims: registered, fitting). */
+  looks: SkinClaims = {};
   spawnSeq = 0;
   latest: Extract<ToHost, { k: 'st' }> | null = null;
   /** The host just put the character somewhere (spawn / correction): reports start from there. */
@@ -206,9 +212,22 @@ export class NetHost {
       case 'throw':
         this.throwGrenade(rp, d);
         break;
+      case 'looks':
+        rp.looks = this.skinVerifier.verify(d.s);
+        break;
       default:
         break;
     }
+  }
+
+  /** How a member's skin claim is checked (catalog only for now; an account server could verify ownership). */
+  skinVerifier: SkinClaimVerifier = catalogClaimVerifier;
+
+  /** The skin id shown on `bot`'s weapon: the member playing it, on the weapon it holds now; AI seats none. */
+  skinOf(bot: Bot): string | undefined {
+    const rp = bot.remote instanceof RemotePlayer ? bot.remote : null;
+    const w = rp?.latest?.w;
+    return rp && w ? rp.looks[w] : undefined;
   }
 
   /** Name of the member that last left (1대1: who may come back), and the record it left with. */
@@ -456,11 +475,11 @@ export class NetHost {
     const out: EntityState[] = [];
     const p = this.game.player;
     const c = this.game.combat;
-    if (p && c) out.push(entity(this.wire('local'), p, c, this.game.netAiming, c.team ?? ''));
+    if (p && c) out.push(entity(this.wire('local'), p, c, this.game.netAiming, c.team ?? '', this.skinVerifier.verify(this.game.netSkinClaims)[this.game.netWeaponId]));
     for (const b of this.game.squad?.bots ?? []) {
       // A seat out of the match (a room without bots) is nobody: not shown to the members.
       if (b.benched) continue;
-      out.push(entity(b.id, b.controller, b.combat, (b.remote ? b.remote.aiming : b.mode === 'engage') && b.alive, b.team ?? ''));
+      out.push(entity(b.id, b.controller, b.combat, (b.remote ? b.remote.aiming : b.mode === 'engage') && b.alive, b.team ?? '', this.skinOf(b)));
     }
     return out;
   }
@@ -529,9 +548,12 @@ export class NetHost {
   }
 }
 
-function entity(id: string, c: PlayerController, combat: PlayerCombat, aiming: boolean, team: string): EntityState {
+function entity(id: string, c: PlayerController, combat: PlayerCombat, aiming: boolean, team: string, skin?: string): EntityState {
   const flags = (combat.alive ? 1 : 0) | (c.grounded ? 2 : 0) | (aiming ? 4 : 0) | (c.crouching ? 8 : 0);
-  return [id, r2(c.position.x), r2(c.position.y), r2(c.position.z), r3(c.yaw), r3(c.pitch), r2(c.height), r2(c.velocity.x), r2(c.velocity.z), flags, Math.round(combat.health), Math.round(combat.armor), r2(combat.deadTime), team];
+  const e: EntityState = [id, r2(c.position.x), r2(c.position.y), r2(c.position.z), r3(c.yaw), r3(c.pitch), r2(c.height), r2(c.velocity.x), r2(c.velocity.z), flags, Math.round(combat.health), Math.round(combat.armor), r2(combat.deadTime), team];
+  // Only when there is one (the default look is no field: snapshots stay as small as before).
+  if (skin) e.push(skin);
+  return e;
 }
 
 function fxMessage(by: string, weaponId: string, origin: THREE.Vector3, result: HitscanResult): ToClient {

@@ -7,7 +7,7 @@ import { RARITIES, SKIN_CATEGORIES, type SkinCategory, type SkinDef } from './ty
 // `assetId` in skins/SkinLooks.ts.
 
 /** Weapons a weapon skin may target (ids from weapons/weapons.ts). */
-export const SKIN_WEAPON_TARGETS = ['ar01', 'sr01', 'smg01', 'sg01', 'pis01'] as const;
+export const SKIN_WEAPON_TARGETS = ['ar01', 'sr01', 'smg01', 'sg01', 'pis01', 'smg02'] as const;
 /** The knife's weapon id. */
 export const KNIFE_TARGET = 'karambit';
 /** Gloves and characters belong to the player. */
@@ -20,6 +20,7 @@ export const TARGET_NAME: Record<string, string> = {
   smg01: 'SMG-01',
   sg01: 'SG-01',
   pis01: 'PIS-01',
+  smg02: 'SMG-02',
   karambit: 'M9 총검',
   player: '플레이어',
 };
@@ -53,6 +54,8 @@ export const SKIN_CATALOG: readonly SkinDef[] = [
   factory('weapon', 'smg01', 'SMG-01 기본', [0x1d1e20, 0x2a2b2d]),
   factory('weapon', 'sg01', 'SG-01 기본', [0x1d1e20, 0x2a2b2d]),
   factory('weapon', 'pis01', 'PIS-01 기본', [0x1d1e20, 0x2a2b2d]),
+  // Phase 26-C: SMG-02 (UMP45-type, its own GLB materials: RiflePolymer / RifleMetal).
+  factory('weapon', 'smg02', 'SMG-02 기본', [0x1d1e20, 0x111213]),
   factory('knife', KNIFE_TARGET, 'M9 총검 기본', [0x1d1e20, 0xb7bcc2]),
   factory('gloves', PLAYER_TARGET, '전술 장갑 기본', [0x1f2022, 0x34363a]),
   factory('character', PLAYER_TARGET, '전투복 기본', [0x3b3f34, 0x575c4a]),
@@ -73,6 +76,9 @@ export const SKIN_CATALOG: readonly SkinDef[] = [
   weapon('sg01.patina', 'sg01', '브론즈 파티나', '청동빛 리시버와 검정 폴리머.', 750, 'rare', [0x6e5a3a, 0x1a1b1d]),
   weapon('pis01.fde', 'pis01', 'FDE 프레임', '사막색 프레임과 검정 슬라이드.', 250, 'common', [0x8a7553, 0x1a1b1d]),
   weapon('pis01.two_tone', 'pis01', '스테인리스 투톤', '무광 스테인리스 슬라이드와 검정 프레임.', 600, 'uncommon', [0x9da1a5, 0x161718]),
+  // SMG-02
+  weapon('smg02.coyote', 'smg02', '코요테 탄 폴리머', '코요테 탄 폴리머 몸체와 검정 금속 부품.', 450, 'common', [0x7d6a4f, 0x1a1b1d]),
+  weapon('smg02.gunmetal', 'smg02', '건메탈 그레이', '짙은 회색 폴리머와 건메탈 마감 금속.', 700, 'uncommon', [0x3e4144, 0x6a6e72]),
 
   // Knife (M9 총검)
   {

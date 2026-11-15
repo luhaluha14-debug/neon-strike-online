@@ -74,6 +74,7 @@ import { LoadoutService } from '../economy/LoadoutService';
 import { findSkin, PLAYER_TARGET } from '../economy/SkinCatalog';
 import type { AccountState, MatchResult, SkinDef } from '../economy/types';
 import { armsAppearance, bodyAppearance, SkinRenderer } from '../skins/SkinRenderer';
+import { ownClaims, shownAsset } from '../skins/SkinClaims';
 import { errorMessage, GridStore } from '../ui/GridStore';
 import { FirstPersonArms } from '../weapons/view/FirstPersonArms';
 import { killBy, type KillEvent, type ScoreLine } from '../game/Match';
@@ -1851,6 +1852,8 @@ export class Game implements HostGame, ClientGame {
     this.viewModel.setEffectsDetail(this.perfPriority ? 'low' : this.quality);
     this.impacts.update(frameTime, this.camera);
     this.blood.update(frameTime, this.camera);
+    // Host: the room members' weapon skins on the characters they play (checked by NetHost; AI seats: default).
+    if (this.netHost && this.squad) for (const b of this.squad.bots) this.squad.setWeaponSkin(b, shownAsset(this.netHost.skinOf(b)));
     this.squad?.updateVisuals(frameTime);
     this.fx.update(frameTime, this.camera);
     this.pigeons?.update(frameTime);
@@ -2002,6 +2005,8 @@ export class Game implements HostGame, ClientGame {
     this.body.applyLook(bodyAppearance(asset('character')));
     // Re-dress the weapon in hand only when its skin changed (no new view otherwise).
     if (this.shownDef && this.weaponSkinAsset(this.shownDef) !== this.shownSkin) this.showWeaponModel(this.shownDef);
+    // In a room: the host hears the new loadout (a host shows its own from the next snapshot on).
+    this.netClient?.sendLooks();
   }
 
   /**
@@ -2948,6 +2953,11 @@ export class Game implements HostGame, ClientGame {
 
   get netAiming(): boolean {
     return this.scoped || (this.inputState.aim && this.input.active);
+  }
+
+  /** This player's equipped weapon skins (owned ones only: LoadoutService), for the room. Cosmetic. */
+  get netSkinClaims(): Record<string, string> {
+    return ownClaims(this.account);
   }
 
   get netWeaponId(): string {

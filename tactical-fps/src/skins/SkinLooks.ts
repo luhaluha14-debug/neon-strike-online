@@ -49,6 +49,8 @@ export const WEAPON_MATERIAL_ROLES: Record<string, Partial<Record<'body' | 'acce
   smg01: { body: ['SMG_Polymer'], accent: ['SMG_Metal'], metal: ['SMG_Barrel'] },
   sg01: { body: ['SMG_Polymer'], accent: ['SMG_Metal'], metal: ['SMG_Barrel'] },
   pis01: { body: ['SMG_Polymer'], accent: ['SMG_Metal'], metal: ['SMG_Barrel'] },
+  // smg02.glb: polymer body and grip parts, metal receiver / barrel parts (rubber and the bore keep their look).
+  smg02: { body: ['RiflePolymer'], metal: ['RifleMetal'] },
   karambit: { body: ['Grip_DarkRubber'], accent: ['Guard_DarkMetal'], metal: ['Blade_DarkSteel', 'Blade_GrindSteel'] },
 };
 
@@ -74,6 +76,9 @@ export const SKIN_LOOKS: Record<string, SkinLook> = {
   'finish:sg01.patina': { kind: 'weapon', body: polymer(0x1a1b1d), accent: steel(0x6e5a3a, 0.5) },
   'finish:pis01.fde': { kind: 'weapon', body: polymer(0x8a7553), accent: cerakote(0x1a1b1d) },
   'finish:pis01.two_tone': { kind: 'weapon', body: polymer(0x161718), accent: steel(0x9da1a5, 0.35) },
+  // SMG-02
+  'finish:smg02.coyote': { kind: 'weapon', body: polymer(0x7d6a4f), metal: cerakote(0x1a1b1d) },
+  'finish:smg02.gunmetal': { kind: 'weapon', body: polymer(0x3e4144), metal: steel(0x6a6e72, 0.45) },
   // Knife
   'finish:karambit.satin': { kind: 'weapon', body: polymer(0x55585c), metal: steel(0xa9adb2, 0.3) },
   'finish:karambit.oxide': { kind: 'weapon', body: polymer(0x4b4f36), metal: steel(0x202224, 0.55), accent: cerakote(0x1a1b1d) },

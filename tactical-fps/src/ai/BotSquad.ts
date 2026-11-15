@@ -120,6 +120,11 @@ export class BotSquad {
     if (model) model.object.visible = !on;
   }
 
+  /** The weapon skin shown on `b`'s rifle (cosmetic; undefined: the default look). */
+  setWeaponSkin(b: Bot, assetId: string | undefined): void {
+    this.models[this.bots.indexOf(b)]?.setWeaponSkin(assetId);
+  }
+
   /** A seat just back in (deathmatch): a spawn point away from `avoid`. */
   spawnFree(b: Bot, avoid: readonly THREE.Vector3[]): void {
     if (!b.benched) this.respawn(b, avoid);
