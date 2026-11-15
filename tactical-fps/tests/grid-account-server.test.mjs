@@ -174,10 +174,11 @@ test('migrations apply once, also when two servers start together', { skip: skip
   }
 });
 
-test('the catalog the server sells from is the shared one (32 skins: 8 default looks + 24 on sale, valid)', { skip: skip() }, () => {
-  assert.equal(M.SKIN_CATALOG.length, 32);
-  assert.equal(M.SKIN_CATALOG.filter((s) => s.isDefault).length, 8);
-  assert.equal(onSale().length, 24);
+// Phase 26-C added SMG-02: its default look and two skins (35 = 9 default looks + 26 on sale).
+test('the catalog the server sells from is the shared one (35 skins: 9 default looks + 26 on sale, valid)', { skip: skip() }, () => {
+  assert.equal(M.SKIN_CATALOG.length, 35);
+  assert.equal(M.SKIN_CATALOG.filter((s) => s.isDefault).length, 9);
+  assert.equal(onSale().length, 26);
   assert.deepEqual(M.validateCatalog(M.SKIN_CATALOG), []);
 });
 

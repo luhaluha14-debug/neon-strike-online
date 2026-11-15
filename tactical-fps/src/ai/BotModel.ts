@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { FirstPersonBody, type BodyState } from '../player/FirstPersonBody';
 import { getArmTextures } from '../weapons/view/ArmTextures';
+import { dressStandIn } from '../skins/StandInSkin';
 
 /** FirstPersonBody keeps its hips this far behind the eyes (first-person trick); a third-person body undoes it. */
 const BODY_BACK = 0.18;
@@ -30,6 +31,10 @@ export interface BotBody {
   update(dt: number, pose: BotPose): void;
   onShot(): void;
   onHit(direction: THREE.Vector3): void;
+  /** The weapon skin shown on the rifle in the hands (undefined: the default look). Cosmetic only. */
+  setWeaponSkin(assetId: string | undefined): void;
+  /** The weapon skin shown now (tests / change detection). */
+  readonly weaponSkin: string | undefined;
   reset(): void;
   dispose(): void;
 }
@@ -182,7 +187,12 @@ export class BotModel implements BotBody {
   private flinch = 0;
   private flinchSide = 0;
 
+  private readonly kit: BotKit;
+  private rifle: THREE.Group | null = null;
+  weaponSkin: string | undefined = undefined;
+
   constructor(kit: BotKit) {
+    this.kit = kit;
     this.object = this.lower.object;
     this.object.name = 'BotModel';
     const k = kit;
@@ -221,6 +231,7 @@ export class BotModel implements BotBody {
     sp.add(a);
     // Rifle: stock in the right shoulder, barrel along -Z.
     const r = buildBotRifle(k, this.geometries);
+    this.rifle = r;
     r.position.set(0.1, 0.03, 0);
     a.add(r);
     this.muzzle.position.set(0.1, 0.03, RIFLE_MUZZLE_Z);
@@ -307,6 +318,11 @@ export class BotModel implements BotBody {
   }
 
   /** Snap the legs to the current yaw (after a teleport). */
+  setWeaponSkin(assetId: string | undefined): void {
+    if (assetId === this.weaponSkin || !this.rifle) return;
+    this.weaponSkin = dressStandIn(this.rifle, this.kit.gun, this.kit.dark, assetId);
+  }
+
   reset(): void {
     this.lower.reset();
     this.raise = 0;

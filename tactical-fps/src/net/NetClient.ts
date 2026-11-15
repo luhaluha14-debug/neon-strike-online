@@ -23,6 +23,8 @@ export interface ClientGame {
   readonly netWeaponId: string;
   readonly netAiming: boolean;
   readonly netUse: boolean;
+  /** This player's equipped weapon skins, for the host (cosmetic). */
+  readonly netSkinClaims: Record<string, string>;
   /** The host's mode / map: switch to it (loads the map if needed); resolves when ready to play. */
   netMode(mode: 'deathmatch' | 'team' | 'duel', map: string): Promise<void>;
   netYou(id: string, team: string | null): void;
@@ -94,6 +96,8 @@ export class NetClient {
         this.myId = d.id;
         this.team = d.team;
         this.game.netYou(d.id, d.team);
+        // Seated (a new host too): it hears which skins this player wears.
+        this.sendLooks();
         break;
       case 'snap': {
         const sample = d.t - this.local();
@@ -194,6 +198,11 @@ export class NetClient {
 
   dispose(): void {
     this.puppets.dispose();
+  }
+
+  /** Tells the host this player's weapon skins (on being seated, and whenever the loadout changes). */
+  sendLooks(): void {
+    if (this.myId) this.send({ k: 'looks', s: this.game.netSkinClaims });
   }
 
   private send(m: ToHost): void {

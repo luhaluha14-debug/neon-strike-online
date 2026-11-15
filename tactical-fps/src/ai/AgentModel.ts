@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { loadGltfScene, loadedGltfScene } from '../weapons/view/GltfWeaponView';
 import { PLAYER_CONFIG } from '../config';
 import { buildBotRifle, liftCharacterMaterial, RIFLE_MUZZLE_Z, type BotBody, type BotKit, type BotPose } from './BotModel';
+import { dressStandIn } from '../skins/StandInSkin';
 
 // Blender character models for the bots ("봇 외형: 요원 모델"):
 // BLUE wears the operator, RED (and free-for-all bots) the opposing force.
@@ -61,7 +62,11 @@ export class AgentModel implements BotBody {
   }
 
   /** `template`: the loaded file scene (shared; cloned here, geometry and materials stay shared). */
+  private readonly kit: BotKit;
+  weaponSkin: string | undefined = undefined;
+
   constructor(template: THREE.Object3D, kit: BotKit) {
+    this.kit = kit;
     this.object.name = 'AgentModel';
     const file = template.clone(true);
     file.position.set(-FILE_CENTRE.x, -FILE_CENTRE.y, -FILE_CENTRE.z);
@@ -132,6 +137,11 @@ export class AgentModel implements BotBody {
     this.flinch = 1;
     const right = Math.cos(this.bodyYaw) * direction.x - Math.sin(this.bodyYaw) * direction.z;
     this.flinchSide = right > 0 ? -1 : 1;
+  }
+
+  setWeaponSkin(assetId: string | undefined): void {
+    if (assetId === this.weaponSkin) return;
+    this.weaponSkin = dressStandIn(this.rifle, this.kit.gun, this.kit.dark, assetId);
   }
 
   reset(): void {

@@ -45,7 +45,8 @@ test('catalog: valid (unique ids, whole prices, known targets, one free unsold d
   assert.deepEqual(M.validateCatalog(M.SKIN_CATALOG), []);
   const cats = new Set(M.SKIN_CATALOG.map((s) => s.category));
   assert.deepEqual([...cats].sort(), ['character', 'gloves', 'knife', 'weapon']);
-  assert.deepEqual(M.allSlots().sort(), ['character:player', 'gloves:player', 'knife:karambit', 'weapon:ar01', 'weapon:pis01', 'weapon:sg01', 'weapon:smg01', 'weapon:sr01']);
+  // Phase 26-C: SMG-02 has its own slot.
+  assert.deepEqual(M.allSlots().sort(), ['character:player', 'gloves:player', 'knife:karambit', 'weapon:ar01', 'weapon:pis01', 'weapon:sg01', 'weapon:smg01', 'weapon:smg02', 'weapon:sr01']);
   // The checker catches bad data.
   const bad = [
     { ...M.SKIN_CATALOG[8], price: -5 },

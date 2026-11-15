@@ -25,6 +25,11 @@ export type EntityState = [
   /** Seconds dead (death fall). */
   deadTime: number,
   team: string,
+  /**
+   * Phase 26-C: the skin on the weapon this character holds (a skin id the host checked: registered and
+   * fitting that weapon; ownership is not provable without an account server). Absent: the default look.
+   */
+  skin?: string,
 ];
 
 /** Client → host. */
@@ -38,7 +43,9 @@ export type ToHost =
   | { k: 'buy'; id: string; n: number }
   | { k: 'throw'; kind: GrenadeKind; eye: V3; dir: V3; carry: V3 }
   /** "출격 확정" from a member: ignored (only the host may end the buy time). */
-  | { k: 'ready' };
+  | { k: 'ready' }
+  /** The member's equipped weapon skins (weapon id → skin id), cosmetic; the host checks them (SkinClaims). */
+  | { k: 'looks'; s: Record<string, string> };
 
 /** Host → clients. */
 export type ToClient =
