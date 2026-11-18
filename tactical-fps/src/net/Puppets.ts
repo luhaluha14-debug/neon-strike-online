@@ -3,7 +3,8 @@ import { AgentModel } from '../ai/AgentModel';
 import { BotKit, BotModel, type BotBody, type BotPose } from '../ai/BotModel';
 import type { BotLook } from '../ai/BotSquad';
 import type { EntityState } from './GameMessages';
-import { shownAsset } from '../skins/SkinClaims';
+import { heldAsset, shownAsset } from '../skins/SkinClaims';
+import { WEAPONS } from '../weapons/weapons';
 
 // A multiplayer client's view of everyone else: the bodies of the other
 // players and of the host's bots, drawn where the host's snapshots put them,
@@ -102,8 +103,11 @@ export class Puppets {
       _pose.aiming = (flags & 4) !== 0 && p.alive;
       _pose.alive = p.alive;
       _pose.deadTime = eb[12];
-      // The weapon skin the host shows on this character (checked again here: a registered weapon skin).
-      p.model.setWeaponSkin(shownAsset(eb[14]));
+      // The weapon this character holds and its skin, as the host shows them (both checked again here: a known
+      // weapon, a registered weapon / knife skin); anything else is the stand-in rifle / the default look.
+      const w = typeof eb[15] === 'string' && WEAPONS[eb[15]] ? eb[15] : undefined;
+      // (An older host sends no weapon: the stand-in rifle in its skin, as before.)
+      p.model.setWeapon(w, w ? heldAsset(eb[14], w) : shownAsset(eb[14]));
       p.model.update(dt, _pose);
     }
   }

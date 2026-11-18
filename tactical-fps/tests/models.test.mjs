@@ -154,6 +154,9 @@ test('요원 모델 look: BLUE operator, RED terrorist; right height, on the fee
         bottom: +(box.min.y - b.position.y).toFixed(2),
         centre: +Math.hypot((box.min.x + box.max.x) / 2 - b.position.x, (box.min.z + box.max.z) / 2 - b.position.z).toFixed(2),
         muzzleAhead: +fwd.toFixed(2),
+        // Phase 27: the weapon in the hands is the real model (its own muzzle), else the stand-in rifle.
+        real: m.held.real,
+        category: b.weapons.weapon.def.category,
         muzzleHeight: +(muzzle.y - b.position.y).toFixed(2),
         capsule: b.height,
       };
@@ -165,7 +168,10 @@ test('요원 모델 look: BLUE operator, RED terrorist; right height, on the fee
     assert.ok(x.top > 1.7 && x.top < 1.85, `height on the capsule (${x.top})`);
     assert.ok(Math.abs(x.bottom) < 0.08, `feet on the ground (${x.bottom})`);
     assert.ok(x.centre < 0.7, `drawn where the bot is (${x.centre} m off incl. the rifle)`);
-    assert.ok(x.muzzleAhead > 1, `rifle points along the aim (${x.muzzleAhead} m ahead)`);
+    // The muzzle is ahead along the aim by the held weapon's own reach: the stand-in rifle reaches 1 m+, the
+    // real AR-01 carbine (Phase 27) about 0.5 m past its grip (≈ 0.95 m), a pistol or a knife less.
+    const reach = !x.real ? 1 : x.category === 'melee' ? 0.4 : x.category === 'pistol' ? 0.55 : 0.85;
+    assert.ok(x.muzzleAhead > reach, `weapon points along the aim (${x.muzzleAhead} m ahead, ${x.real ? x.category : 'stand-in'})`);
     assert.ok(x.muzzleHeight > 1.1 && x.muzzleHeight < 1.5, `rifle at hand height (${x.muzzleHeight})`);
     assert.equal(x.capsule, 1.8, 'hit capsule unchanged');
   }

@@ -9,6 +9,9 @@ import type { AccountState, EconomyError, SkinCategory, SkinDef } from '../econo
 import type { MainMenu } from './MainMenu';
 import './grid.css';
 
+/** What an item is for: its weapon, or (a knife item that is a model of its own, Phase 27) the knife it replaces. */
+const targetLabel = (s: SkinDef): string => (s.assetId.startsWith('model:') ? `${TARGET_NAME[s.targets[0]] ?? ''} 대체 모델` : (TARGET_NAME[s.targets[0]] ?? ''));
+
 const CATEGORY_LABEL: Record<SkinCategory, string> = { weapon: '총기', character: '캐릭터', knife: '칼', gloves: '장갑' };
 const CATEGORY_ORDER: readonly SkinCategory[] = ['weapon', 'character', 'knife', 'gloves'];
 const RARITY_LABEL: Record<SkinDef['rarity'], string> = { standard: '기본', common: '일반', uncommon: '고급', rare: '희귀', epic: '영웅' };
@@ -208,7 +211,7 @@ export class GridStore {
             return `<button type="button" class="grid-card ${owned ? 'owned' : short ? 'short' : ''}" role="listitem" data-skin="${s.skinId}">
               ${art(s, this.previews.get(s.skinId))}
               <span class="gc-name">${s.name}</span>
-              <span class="gc-target">${TARGET_NAME[s.targets[0]] ?? ''}</span>
+              <span class="gc-target">${targetLabel(s)}</span>
               <span class="gc-row"><span class="gc-rarity r-${s.rarity}">${RARITY_LABEL[s.rarity]}</span><span class="gc-price">${owned ? '보유 중' : formatCr(s.price)}</span></span>
             </button>`;
           })
@@ -241,7 +244,7 @@ export class GridStore {
       <div class="gd-panel">
         <div class="gd-art">${art(s, this.previews.get(s.skinId), true)}</div>
         <div class="gd-info">
-          <div class="eyebrow">${CATEGORY_LABEL[s.category]} · ${TARGET_NAME[s.targets[0]] ?? ''}</div>
+          <div class="eyebrow">${CATEGORY_LABEL[s.category]} · ${targetLabel(s)}</div>
           <h3 class="gd-name">${s.name}</h3>
           <p class="gd-desc">${s.description}</p>
           <div class="gd-rarity gc-rarity r-${s.rarity}">${RARITY_LABEL[s.rarity]}</div>

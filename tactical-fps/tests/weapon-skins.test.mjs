@@ -255,22 +255,38 @@ const wear = (p, skinId, target) =>
     },
     [skinId, target],
   );
+/**
+ * The body colour of the weapon a character shows: of the skinned materials on the meshes in view, the body
+ * part (Phase 27: the real model is in the hands, so the AR-01's polymer / the SR-01's olive stock; the
+ * stand-in rifle's own when it shows), or null when nothing skinned is in view.
+ */
+const installBodyColour = (page) =>
+  page.evaluate(() => {
+    window.__bodyColour = (root) => {
+      const shown = (o) => {
+        for (let p = o; p && p !== root.parent; p = p.parent) if (!p.visible) return false;
+        return true;
+      };
+      const found = [];
+      root.traverse((o) => o.isMesh && shown(o) && o.material.name?.includes('@finish:') && found.push(o.material));
+      const body = found.find((m) => /^(M4_Polymer|Stock_Olive|SMG_Polymer|RiflePolymer)@/.test(m.name)) ?? found[0];
+      return body ? body.color.getHexString() : null;
+    };
+  });
 /** The host's view of the character a member plays: the skin on its rifle and the rifle's body colour. */
 const hostSees = (host) =>
   host.evaluate(() => {
     const g = window.game;
     const i = g.squad.bots.findIndex((b) => b.remote);
     const m = i >= 0 ? g.squad['models'][i] : null;
-    let body = null;
-    m?.object.traverse((o) => o.isMesh && o.material.name?.includes('@finish:') && (body = o.material.color.getHexString()));
+    const body = m ? window.__bodyColour(m.object) : null;
     return { skin: m?.weaponSkin ?? null, body };
   });
 /** A member's view of another character (by wire id; the host's own is its session id). */
 const memberSees = (p, id) =>
   p.evaluate((id) => {
     const pp = window.game.netClient.puppets.all.get(id);
-    let body = null;
-    pp?.model.object.traverse((o) => o.isMesh && o.material.name?.includes('@finish:') && (body = o.material.color.getHexString()));
+    const body = pp ? window.__bodyColour(pp.model.object) : null;
     return { here: !!pp, skin: pp?.model.weaponSkin ?? null, body };
   }, id);
 
@@ -278,6 +294,7 @@ test('7–9. a room: each sees the other’s skin on the weapon held; a forged c
   const host = await openGame(env, { mode: 'deathmatch', width: 480, height: 270 });
   const member = await openGame(env, { mode: 'training', width: 480, height: 270 });
   const third = await openGame(env, { mode: 'training', width: 480, height: 270 });
+  for (const p of [host, member, third]) await installBodyColour(p);
   const all = [host, member, third];
   for (const p of all) p.setDefaultTimeout(60000);
   try {

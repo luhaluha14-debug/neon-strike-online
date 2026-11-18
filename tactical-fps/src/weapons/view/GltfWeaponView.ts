@@ -40,6 +40,7 @@ export class GltfWeaponView implements WeaponView {
   readonly magazine?: THREE.Object3D;
   readonly reloadGrab?: THREE.Object3D;
   readonly gripAnchor = new THREE.Object3D();
+  private hinges: { o: THREE.Object3D; rest: number; dir: 1 | -1 }[] = [];
   readonly supportAnchor: THREE.Object3D | null;
   readonly rightHand: HandGripProfile;
   readonly armPose?: ArmPose;
@@ -116,6 +117,11 @@ export class GltfWeaponView implements WeaponView {
     this.parts.handle = part('ChargingHandle') ?? part('Charging_Handle');
     this.parts.shell = part('Shell');
     this.parts.cover = part('FeedCover');
+    // Butterfly knife: the two handles, each hinged on its own pin (the node origin) about the file's Z.
+    this.hinges = (['Handle_Safe', 'Handle_Bite'] as const).flatMap((name, i) => {
+      const o = find(name);
+      return o ? [{ o, rest: o.rotation.z, dir: i === 0 ? 1 : -1 }] : [];
+    });
     // Ejection port: the file's own node, else the fit's point (model space).
     const portNode = find('Ejection_Port') ?? find('Dust_Cover');
     if (portNode) {
@@ -181,6 +187,14 @@ export class GltfWeaponView implements WeaponView {
     // Belt-fed reload: the feed cover swings up on its front hinge while the belt is laid in.
     if (this.parts.cover) this.parts.cover.o.rotation.x = this.parts.cover.restX - (state.reload === null ? 0 : coverOpen(state.reload)) * COVER_ANGLE;
     if (this.parts.shell) shellInsert(this.parts.shell, state);
+    // Butterfly knife drawn: the handles swing from closed (over the blade) to open, the safe one over the spine,
+    // the bite one over the edge; the inspect flips them shut and open again.
+    if (this.hinges.length) {
+      const draw = 1 - (1 - Math.min(1, Math.max(0, state.equip))) ** 3;
+      const flip = state.inspect === null ? 0 : Math.sin(Math.PI * state.inspect) ** 2;
+      const closed = Math.max(1 - draw, flip);
+      for (const h of this.hinges) h.o.rotation.z = h.rest + h.dir * Math.PI * closed;
+    }
   }
 
   dispose(): void {

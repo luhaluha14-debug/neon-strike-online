@@ -3,6 +3,8 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { FirstPersonBody, type BodyState } from '../player/FirstPersonBody';
 import { getArmTextures } from '../weapons/view/ArmTextures';
 import { dressStandIn } from '../skins/StandInSkin';
+import { HeldWeapon } from '../weapons/view/ThirdPersonWeapons';
+import { liftCharacterMaterial } from './CharacterLight';
 
 /** FirstPersonBody keeps its hips this far behind the eyes (first-person trick); a third-person body undoes it. */
 const BODY_BACK = 0.18;
@@ -31,10 +33,16 @@ export interface BotBody {
   update(dt: number, pose: BotPose): void;
   onShot(): void;
   onHit(direction: THREE.Vector3): void;
-  /** The weapon skin shown on the rifle in the hands (undefined: the default look). Cosmetic only. */
+  /** The weapon skin shown on the stand-in rifle (undefined: the default look). Cosmetic only. */
   setWeaponSkin(assetId: string | undefined): void;
   /** The weapon skin shown now (tests / change detection). */
   readonly weaponSkin: string | undefined;
+  /**
+   * Phase 27: the weapon in the hands — its real model (third-person template) in its skin; the stand-in rifle
+   * until the file has loaded or for an unknown weapon. Cheap to call every frame (acts on a change only).
+   */
+  setWeapon(weaponId: string | undefined, assetId: string | undefined): void;
+  readonly held: HeldWeapon;
   reset(): void;
   dispose(): void;
 }
@@ -52,17 +60,8 @@ export const TEAM_KIT: Record<string, { fabric: number; gear: number; helmet: nu
   red: { fabric: 0x9c8462, gear: 0x5b4934, helmet: 0x66553d, pants: 0x8c7757, marker: 0xd8392b },
 };
 
-/**
- * Characters never go pitch black: a small constant light on the body's own colour (both teams
- * alike), so a figure in a dark doorway still has a readable shape against the wall behind it.
- * Not a glow and not an outline; it shows only where the body itself is in view (depth tested).
- */
-export const CHARACTER_LIFT = 0.11;
-export function liftCharacterMaterial(m: THREE.MeshStandardMaterial, k = CHARACTER_LIFT): void {
-  if (m.userData.lifted || m.emissive.getHex() !== 0) return;
-  m.emissive.copy(m.color).multiplyScalar(k);
-  m.userData.lifted = true;
-}
+// The light floor every character material has (src/ai/CharacterLight.ts).
+export { CHARACTER_LIFT, liftCharacterMaterial } from './CharacterLight';
 
 /** Shared materials / geometry of every bot body in a squad (built once per kit). */
 export class BotKit {
@@ -111,6 +110,8 @@ export class BotKit {
 
 /** Where the barrel of buildBotRifle ends (rifle space, -Z forward). */
 export const RIFLE_MUZZLE_Z = -0.74;
+/** The pistol grip of buildBotRifle in rifle space: where a held weapon's own grip goes. */
+export const RIFLE_GRIP = new THREE.Vector3(0, -0.07, -0.04);
 
 /**
  * The bots' rifle (AR-01 stand-in for third person): pivot at the stock
@@ -189,7 +190,8 @@ export class BotModel implements BotBody {
 
   private readonly kit: BotKit;
   private rifle: THREE.Group | null = null;
-  weaponSkin: string | undefined = undefined;
+  private standInSkin: string | undefined = undefined;
+  readonly held: HeldWeapon;
 
   constructor(kit: BotKit) {
     this.kit = kit;
@@ -236,6 +238,19 @@ export class BotModel implements BotBody {
     a.add(r);
     this.muzzle.position.set(0.1, 0.03, RIFLE_MUZZLE_Z);
     a.add(this.muzzle);
+    const standIn = [...r.children];
+    this.held = new HeldWeapon(
+      r,
+      RIFLE_GRIP,
+      (visible, asset) => {
+        for (const c of standIn) c.visible = visible;
+        if (visible) this.setWeaponSkin(asset);
+      },
+      (p) => (p ? this.muzzle.position.copy(r.position).add(p) : this.muzzle.position.set(0.1, 0.03, RIFLE_MUZZLE_Z)),
+      // The rifle hand rests on the chest (stock shouldered): a pistol or a knife is held out at the support
+      // hand instead, at arm's length in front of the plate carrier.
+      new THREE.Vector3(-0.01, -0.07, -0.4),
+    );
     // Arms from the shoulders to the hands on the rifle (grip, handguard).
     this.limb(a, [0.2, 0, 0.02], [0.24, -0.22, -0.05], 0.05, k.fabric);
     this.limb(a, [0.24, -0.22, -0.05], [0.11, -0.06, -0.06], 0.042, k.fabric);
@@ -319,8 +334,16 @@ export class BotModel implements BotBody {
 
   /** Snap the legs to the current yaw (after a teleport). */
   setWeaponSkin(assetId: string | undefined): void {
-    if (assetId === this.weaponSkin || !this.rifle) return;
-    this.weaponSkin = dressStandIn(this.rifle, this.kit.gun, this.kit.dark, assetId);
+    if (assetId === this.standInSkin || !this.rifle) return;
+    this.standInSkin = dressStandIn(this.rifle, this.kit.gun, this.kit.dark, assetId);
+  }
+
+  get weaponSkin(): string | undefined {
+    return this.held.real ? this.held.assetId : this.standInSkin;
+  }
+
+  setWeapon(weaponId: string | undefined, assetId: string | undefined): void {
+    this.held.set(weaponId, assetId);
   }
 
   reset(): void {
@@ -331,6 +354,7 @@ export class BotModel implements BotBody {
   }
 
   dispose(): void {
+    this.held.dispose();
     this.object.removeFromParent();
     this.lower.dispose();
     this.geometries.forEach((g) => g.dispose());
