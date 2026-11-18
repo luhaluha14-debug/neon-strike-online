@@ -17,7 +17,7 @@ export class SkinRenderer {
   private readonly cache = new Map<string, THREE.Material>();
 
   /** Dresses a freshly created weapon view of `weaponId` in `assetId` (no-op for the default look or unknown assets). */
-  dressWeapon(view: WeaponView, weaponId: string, assetId: string | undefined): number {
+  dressWeapon(view: Pick<WeaponView, 'object'>, weaponId: string, assetId: string | undefined): number {
     const look = lookOf(assetId, 'weapon');
     const roles = WEAPON_MATERIAL_ROLES[weaponId];
     if (!look || !roles || !assetId) return 0;

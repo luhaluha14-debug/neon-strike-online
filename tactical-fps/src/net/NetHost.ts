@@ -223,6 +223,14 @@ export class NetHost {
   /** How a member's skin claim is checked (catalog only for now; an account server could verify ownership). */
   skinVerifier: SkinClaimVerifier = catalogClaimVerifier;
 
+  /** The weapon `bot` holds now: the member's report for a seat someone plays (a known weapon only), else its own. */
+  weaponOf(bot: Bot): string {
+    const rp = bot.remote instanceof RemotePlayer ? bot.remote : null;
+    const w = rp?.latest?.w;
+    if (rp) return w && WEAPONS[w] ? w : '';
+    return bot.weapons.weapon.def.id;
+  }
+
   /** The skin id shown on `bot`'s weapon: the member playing it, on the weapon it holds now; AI seats none. */
   skinOf(bot: Bot): string | undefined {
     const rp = bot.remote instanceof RemotePlayer ? bot.remote : null;
@@ -475,11 +483,11 @@ export class NetHost {
     const out: EntityState[] = [];
     const p = this.game.player;
     const c = this.game.combat;
-    if (p && c) out.push(entity(this.wire('local'), p, c, this.game.netAiming, c.team ?? '', this.skinVerifier.verify(this.game.netSkinClaims)[this.game.netWeaponId]));
+    if (p && c) out.push(entity(this.wire('local'), p, c, this.game.netAiming, c.team ?? '', this.skinVerifier.verify(this.game.netSkinClaims)[this.game.netWeaponId], this.game.netWeaponId));
     for (const b of this.game.squad?.bots ?? []) {
       // A seat out of the match (a room without bots) is nobody: not shown to the members.
       if (b.benched) continue;
-      out.push(entity(b.id, b.controller, b.combat, (b.remote ? b.remote.aiming : b.mode === 'engage') && b.alive, b.team ?? '', this.skinOf(b)));
+      out.push(entity(b.id, b.controller, b.combat, (b.remote ? b.remote.aiming : b.mode === 'engage') && b.alive, b.team ?? '', this.skinOf(b), this.weaponOf(b)));
     }
     return out;
   }
@@ -548,11 +556,12 @@ export class NetHost {
   }
 }
 
-function entity(id: string, c: PlayerController, combat: PlayerCombat, aiming: boolean, team: string, skin?: string): EntityState {
+function entity(id: string, c: PlayerController, combat: PlayerCombat, aiming: boolean, team: string, skin?: string, weapon?: string): EntityState {
   const flags = (combat.alive ? 1 : 0) | (c.grounded ? 2 : 0) | (aiming ? 4 : 0) | (c.crouching ? 8 : 0);
   const e: EntityState = [id, r2(c.position.x), r2(c.position.y), r2(c.position.z), r3(c.yaw), r3(c.pitch), r2(c.height), r2(c.velocity.x), r2(c.velocity.z), flags, Math.round(combat.health), Math.round(combat.armor), r2(combat.deadTime), team];
-  // Only when there is one (the default look is no field: snapshots stay as small as before).
-  if (skin) e.push(skin);
+  // The weapon in the hands (Phase 27), and before it the skin ('' for the default look).
+  if (weapon) e.push(skin ?? '', weapon);
+  else if (skin) e.push(skin);
   return e;
 }
 

@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { loadGltfScene, loadedGltfScene } from '../weapons/view/GltfWeaponView';
 import { PLAYER_CONFIG } from '../config';
-import { buildBotRifle, liftCharacterMaterial, RIFLE_MUZZLE_Z, type BotBody, type BotKit, type BotPose } from './BotModel';
+import { buildBotRifle, liftCharacterMaterial, RIFLE_GRIP, RIFLE_MUZZLE_Z, type BotBody, type BotKit, type BotPose } from './BotModel';
+import { HeldWeapon } from '../weapons/view/ThirdPersonWeapons';
 import { dressStandIn } from '../skins/StandInSkin';
 
 // Blender character models for the bots ("봇 외형: 요원 모델"):
@@ -30,7 +31,6 @@ const FILE_CENTRE = new THREE.Vector3(0.95, 0, 0.05);
 /** The hands in bot space (feet at the origin, facing -Z). */
 const HANDS = new THREE.Vector3(0.11, 1.23, -0.47);
 /** Pistol grip of buildBotRifle in rifle space. */
-const RIFLE_GRIP = new THREE.Vector3(0, -0.07, -0.04);
 /** How far the back of the figure reaches behind the feet (lifts the body when it lies on its back). */
 const BACK_DEPTH = 0.2;
 const DEATH_FALL = 0.5;
@@ -63,7 +63,8 @@ export class AgentModel implements BotBody {
 
   /** `template`: the loaded file scene (shared; cloned here, geometry and materials stay shared). */
   private readonly kit: BotKit;
-  weaponSkin: string | undefined = undefined;
+  private standInSkin: string | undefined = undefined;
+  readonly held: HeldWeapon;
 
   constructor(template: THREE.Object3D, kit: BotKit) {
     this.kit = kit;
@@ -78,8 +79,18 @@ export class AgentModel implements BotBody {
     this.rifleRest.copy(HANDS).sub(RIFLE_GRIP);
     this.rifle.position.copy(this.rifleRest);
     this.muzzle.position.set(0, 0, RIFLE_MUZZLE_Z);
+    const standIn = [...this.rifle.children];
     this.rifle.add(this.muzzle);
     this.object.add(this.rifle);
+    this.held = new HeldWeapon(
+      this.rifle,
+      RIFLE_GRIP,
+      (visible, asset) => {
+        for (const c of standIn) c.visible = visible;
+        if (visible) this.setWeaponSkin(asset);
+      },
+      (p) => (p ? this.muzzle.position.copy(p) : this.muzzle.position.set(0, 0, RIFLE_MUZZLE_Z)),
+    );
     this.object.traverse((o) => {
       const m = o as THREE.Mesh;
       if (!m.isMesh) return;
@@ -140,8 +151,16 @@ export class AgentModel implements BotBody {
   }
 
   setWeaponSkin(assetId: string | undefined): void {
-    if (assetId === this.weaponSkin) return;
-    this.weaponSkin = dressStandIn(this.rifle, this.kit.gun, this.kit.dark, assetId);
+    if (assetId === this.standInSkin) return;
+    this.standInSkin = dressStandIn(this.rifle, this.kit.gun, this.kit.dark, assetId);
+  }
+
+  get weaponSkin(): string | undefined {
+    return this.held.real ? this.held.assetId : this.standInSkin;
+  }
+
+  setWeapon(weaponId: string | undefined, assetId: string | undefined): void {
+    this.held.set(weaponId, assetId);
   }
 
   reset(): void {
@@ -155,6 +174,7 @@ export class AgentModel implements BotBody {
 
   /** Only this model's own geometry (the rifle); the character's geometry and materials belong to the loaded file. */
   dispose(): void {
+    this.held.dispose();
     this.object.removeFromParent();
     this.geometries.forEach((g) => g.dispose());
   }

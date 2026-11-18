@@ -230,10 +230,18 @@ test('sync: another device saved a newer record → this change is refused as a 
 
 test('looks: every sold skin has a look of its own kind for real file materials; unknown or failed assets fall back to the factory look', async () => {
   const L = await vite.ssrLoadModule('/src/skins/SkinLooks.ts');
+  const K = await vite.ssrLoadModule('/src/weapons/knifeModels.ts');
   const kindFor = { weapon: 'weapon', knife: 'weapon', gloves: 'arms', character: 'outfit' };
   for (const s of M.SKIN_CATALOG) {
     if (s.isDefault) {
       assert.equal(s.assetId, 'default');
+      continue;
+    }
+    // Phase 27: a knife item that is a model of its own (no colour look): its model file, for the knife only.
+    if (s.assetId.startsWith('model:')) {
+      assert.equal(s.category, 'knife', s.skinId);
+      assert.ok(K.knifeViewSpec(s.assetId)?.url, `${s.skinId}: model ${s.assetId}`);
+      assert.equal(L.lookOf(s.assetId, 'weapon'), null, `${s.skinId}: never recolours a weapon`);
       continue;
     }
     const look = L.lookOf(s.assetId, kindFor[s.category]);

@@ -61,6 +61,16 @@ export function ownClaims(a: AccountState | null): SkinClaims {
   return out;
 }
 
+/**
+ * The look a character holding `weaponId` shows for a snapshot's skin id (Phase 27): only a registered skin of
+ * that very weapon (a knife skin or knife item on the knife); anything else — unknown, another weapon's — is
+ * the default look.
+ */
+export function heldAsset(skinId: unknown, weaponId: string): string | undefined {
+  const s = typeof skinId === 'string' && skinId ? findSkin(skinId) : undefined;
+  return skinFits(s, weaponId) ? s.assetId : undefined;
+}
+
 /** A skin id as shown on a character in a snapshot (the host already checked it): its look, or the default. */
 export function shownAsset(skinId: unknown): string | undefined {
   const s = typeof skinId === 'string' && skinId ? findSkin(skinId) : undefined;

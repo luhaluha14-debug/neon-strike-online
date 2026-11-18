@@ -149,6 +149,13 @@ test('weapon switch spam: one model at a time, shared geometry intact, each file
     '/weapons/pis02_rig.glb': 1,
     '/weapons/lmg01_rig.glb': 1,
     '/weapons/lmg02.glb': 1,
+    // Phase 27: the knife items' models and the lighter third-person files (characters' weapons).
+    '/weapons/karambit.glb': 1,
+    '/weapons/butterfly.glb': 1,
+    '/weapons/tp/ar01.glb': 1,
+    '/weapons/tp/sr01.glb': 1,
+    '/weapons/tp/m9_bayonet.glb': 1,
+    '/weapons/tp/lmg02.glb': 1,
   });
 });
 

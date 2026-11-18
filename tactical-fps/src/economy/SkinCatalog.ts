@@ -124,6 +124,36 @@ export const SKIN_CATALOG: readonly SkinDef[] = [
     tradable: true,
   },
 
+  // Knife models (Phase 27): the same knife (weapon data unchanged), another model in first and third person.
+  {
+    skinId: 'karambit.claw',
+    name: '카람빗',
+    description: '곡선형 클로 블레이드와 손가락 링, G10 손잡이의 카람빗. 공격력·사거리·속도는 기본 칼과 같습니다.',
+    category: 'knife',
+    targets: [KNIFE_TARGET],
+    price: 1500,
+    rarity: 'epic',
+    assetId: 'model:karambit',
+    preview: [0x6b6f72, 0x3b3f34],
+    onSale: true,
+    isDefault: false,
+    tradable: true,
+  },
+  {
+    skinId: 'karambit.butterfly',
+    name: '버터플라이 나이프',
+    description: '꺼낼 때 두 손잡이가 핀을 축으로 펼쳐지는 발리송. 공격력·사거리·속도는 기본 칼과 같습니다.',
+    category: 'knife',
+    targets: [KNIFE_TARGET],
+    price: 1800,
+    rarity: 'epic',
+    assetId: 'model:butterfly',
+    preview: [0x8a8d90, 0x1a1b1d],
+    onSale: true,
+    isDefault: false,
+    tradable: true,
+  },
+
   // Gloves
   ...(
     [

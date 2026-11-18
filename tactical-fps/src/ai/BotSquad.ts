@@ -125,6 +125,11 @@ export class BotSquad {
     this.models[this.bots.indexOf(b)]?.setWeaponSkin(assetId);
   }
 
+  /** The weapon `b`'s character holds in third person, and its skin (cosmetic; cheap when nothing changed). */
+  setWeapon(b: Bot, weaponId: string | undefined, assetId: string | undefined): void {
+    this.models[this.bots.indexOf(b)]?.setWeapon(weaponId, assetId);
+  }
+
   /** A seat just back in (deathmatch): a spawn point away from `avoid`. */
   spawnFree(b: Bot, avoid: readonly THREE.Vector3[]): void {
     if (!b.benched) this.respawn(b, avoid);

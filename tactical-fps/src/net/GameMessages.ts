@@ -30,6 +30,11 @@ export type EntityState = [
    * fitting that weapon; ownership is not provable without an account server). Absent: the default look.
    */
   skin?: string,
+  /**
+   * Phase 27: the weapon this character holds now (a weapon id; '' / absent / unknown: the stand-in rifle).
+   * With it, `skin` is always present ('' for the default look).
+   */
+  weapon?: string,
 ];
 
 /** Client → host. */

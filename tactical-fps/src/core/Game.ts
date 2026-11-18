@@ -144,6 +144,8 @@ const VOLUME_OPTIONS: readonly { value: number; label: string }[] = [
   { value: 1, label: '100%' },
 ];
 import { loadRenderScale, RENDER_SCALE_OPTIONS, saveRenderScale, saveSettings, type Settings } from './Settings';
+import { KNIFE_MODEL_VIEWS, knifeViewSpec } from '../weapons/knifeModels';
+import { thirdPersonViews } from '../weapons/view/ThirdPersonWeapons';
 
 const _muzzleWorld = new THREE.Vector3();
 const _specEye = new THREE.Vector3();
@@ -679,7 +681,9 @@ export class Game implements HostGame, ClientGame {
   async start(): Promise<void> {
     // Weapon GLBs download alongside the map; the game is ready once both are in.
     // Every weapon model (the team match buy menu can issue any of them).
-    this.weaponModels = preloadWeaponViews(Object.values(WEAPONS).map((d) => d.view));
+    // With the knife items' models (small) and the lighter third-person files: ready before anyone shows them.
+    const views = [...Object.values(WEAPONS).map((d) => d.view), ...Object.values(KNIFE_MODEL_VIEWS)];
+    this.weaponModels = preloadWeaponViews([...views, ...thirdPersonViews(views)]);
     // Bot character models (small): in before the first match is set up.
     this.agentModels = preloadAgentModels();
     // The lobby's figure is the operator file the bots preload: it appears once that is in.
@@ -1852,8 +1856,15 @@ export class Game implements HostGame, ClientGame {
     this.viewModel.setEffectsDetail(this.perfPriority ? 'low' : this.quality);
     this.impacts.update(frameTime, this.camera);
     this.blood.update(frameTime, this.camera);
-    // Host: the room members' weapon skins on the characters they play (checked by NetHost; AI seats: default).
-    if (this.netHost && this.squad) for (const b of this.squad.bots) this.squad.setWeaponSkin(b, shownAsset(this.netHost.skinOf(b)));
+    // Every character shows the weapon it holds (Phase 27). Host: the room members' weapons and skins on the
+    // characters they play (checked by NetHost; AI seats: their own weapon, default look).
+    if (this.squad) {
+      const host = this.netHost;
+      for (const b of this.squad.bots) {
+        if (host) this.squad.setWeapon(b, host.weaponOf(b), shownAsset(host.skinOf(b)));
+        else this.squad.setWeapon(b, b.weapons.weapon.def.id, undefined);
+      }
+    }
     this.squad?.updateVisuals(frameTime);
     this.fx.update(frameTime, this.camera);
     this.pigeons?.update(frameTime);
@@ -1973,10 +1984,12 @@ export class Game implements HostGame, ClientGame {
    * GLB models show their procedural fallback until the file has loaded.
    */
   private showWeaponModel(def: WeaponDefinition, holster = 0): void {
-    const spec = def.view;
+    const skin = this.weaponSkinAsset(def);
+    // A knife item may be its own model (카람빗 / 버터플라이, Phase 27): the same file other players see.
+    const spec = (def.category === 'melee' ? knifeViewSpec(skin) : undefined) ?? def.view;
     this.shownSpec = spec;
     this.shownDef = def;
-    this.shownSkin = this.weaponSkinAsset(def);
+    this.shownSkin = skin;
     const view = createWeaponView(spec);
     this.skins.dressWeapon(view, def.id, this.shownSkin);
     this.viewModel.setView(view, spec.pose, holster, def.category);
@@ -2016,7 +2029,7 @@ export class Game implements HostGame, ClientGame {
    */
   private async renderSkinPreviews(skins: readonly SkinDef[], onPreview: (skinId: string, url: string) => void): Promise<void> {
     await this.weaponModels;
-    const list = skins.map((s) => ({ id: s.skinId, view: (s.category === 'weapon' || s.category === 'knife' ? WEAPONS[s.targets[0]] : WEAPONS.pis01).view }));
+    const list = skins.map((s) => ({ id: s.skinId, view: (s.category === 'knife' ? knifeViewSpec(s.assetId) : undefined) ?? (s.category === 'weapon' || s.category === 'knife' ? WEAPONS[s.targets[0]] : WEAPONS.pis01).view }));
     await renderWeaponThumbnails(this.renderer, this.viewModel.scene.environment, list, onPreview, (id, view) => {
       const s = findSkin(id);
       if (!s) return;
