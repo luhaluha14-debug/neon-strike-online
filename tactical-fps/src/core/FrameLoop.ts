@@ -27,6 +27,11 @@ export function parseFrameLimit(value: unknown): FrameLimit | null {
 
 export class FrameLoop {
   private limit: FrameLimit = 'max';
+  /**
+   * A lower cap on top of the chosen limit (Phase 28 battery saver on a phone: 30), null = none. Kept apart
+   * from the limit so the player's own setting is never changed or saved by it.
+   */
+  private powerCap: number | null = null;
   private running = false;
   private handle = 0;
   /** Time budget carried between refreshes so the average rate matches the cap. */
@@ -44,6 +49,23 @@ export class FrameLoop {
     this.budget = 0;
   }
 
+  /** The battery saver's cap (null: none). */
+  setPowerCap(fps: number | null): void {
+    if (fps === this.powerCap) return;
+    this.powerCap = fps;
+    this.budget = 0;
+  }
+
+  get cap(): number | null {
+    return this.powerCap;
+  }
+
+  /** Frames per second the loop draws at most now ('max': the display's rate). */
+  get effectiveLimit(): number | 'max' {
+    if (this.powerCap === null) return this.limit;
+    return this.limit === 'max' ? this.powerCap : Math.min(this.limit, this.powerCap);
+  }
+
   start(): void {
     if (this.running) return;
     this.running = true;
@@ -59,12 +81,13 @@ export class FrameLoop {
   private tick = (now: number): void => {
     if (!this.running) return;
     this.handle = requestAnimationFrame(this.tick);
-    if (this.limit === 'max') {
+    const limit = this.effectiveLimit;
+    if (limit === 'max') {
       this.last = now;
       this.callback(now);
       return;
     }
-    const interval = 1000 / this.limit;
+    const interval = 1000 / limit;
     // Never bank more than one frame, so a hitch doesn't cause a burst.
     this.budget = Math.min(this.budget + (now - this.last), interval * 2);
     this.last = now;

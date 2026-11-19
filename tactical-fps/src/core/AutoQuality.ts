@@ -79,7 +79,11 @@ export function initialQuality(d: DeviceInfo, state: AutoState): QualityLevel {
   return atMost(state.level ?? guessQuality(d), state.ceiling);
 }
 
-export type AutoDecision = { kind: 'lower'; level: QualityLevel } | { kind: 'remember'; state: AutoState };
+/**
+ * 'floor' (Phase 28, only with `belowLow`): still too slow at the lowest level, the game may draw fewer
+ * pixels for the rest of the session (a phone getting hot); nothing is stored.
+ */
+export type AutoDecision = { kind: 'lower'; level: QualityLevel } | { kind: 'remember'; state: AutoState } | { kind: 'floor' };
 
 /**
  * Measures one automatic session. `frame(dt, measuring)` each frame with the real frame time;
@@ -96,6 +100,12 @@ export class AutoQualityMonitor {
   private fast = 0;
   private sinceChange = Infinity;
   private raised = false;
+
+  /**
+   * Phase 28, touch controls: below the lowest level there is one more step (the game's render scale),
+   * taken on the same rule (three slow windows, the minimum gap). Off: nothing below low, as before.
+   */
+  belowLow = false;
 
   constructor(level: QualityLevel, state: AutoState) {
     this.level = level;
@@ -151,6 +161,11 @@ export class AutoQualityMonitor {
       this.sinceChange = 0;
       this.restart();
       return { kind: 'lower', level: this.level };
+    }
+    if (this.belowLow && this.slow >= AUTO_QUALITY.slowWindows && this.level === 'low' && this.sinceChange >= AUTO_QUALITY.minGap) {
+      this.sinceChange = 0;
+      this.restart();
+      return { kind: 'floor' };
     }
     if (this.fast >= AUTO_QUALITY.fastWindows && !this.raised) {
       this.fast = 0;

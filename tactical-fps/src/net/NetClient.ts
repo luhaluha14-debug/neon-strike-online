@@ -43,6 +43,8 @@ export interface ClientGame {
 const _muzzle = new THREE.Vector3();
 
 export class NetClient {
+  /** When the last snapshot from the host arrived (performance.now ms; Phase 28 network status), -1: none yet. */
+  lastSnapAt = -1;
   /** This player's character id in the host's match (null until the host assigns one). */
   myId: string | null = null;
   team: string | null = null;
@@ -100,6 +102,7 @@ export class NetClient {
         this.sendLooks();
         break;
       case 'snap': {
+        this.lastSnapAt = performance.now();
         const sample = d.t - this.local();
         // The fastest snapshot shows the clock difference best; drift slowly toward later ones.
         this.offset = this.offset === null || sample > this.offset ? sample : this.offset + (sample - this.offset) * 0.002;

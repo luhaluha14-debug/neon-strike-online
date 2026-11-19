@@ -7,7 +7,7 @@
 const KEY = 'tactical-fps.touch-layout.v1';
 
 /** Controls that can be placed: the move stick's home position and every button. */
-export const LAYOUT_IDS = ['stick', 'fire', 'aim', 'reload', 'jump', 'crouch', 'weapon', 'use', 'utility', 'pause', 'board', 'buy'] as const;
+export const LAYOUT_IDS = ['stick', 'fire', 'aim', 'reload', 'jump', 'crouch', 'weapon', 'use', 'utility', 'pause', 'board', 'buy', 'fire2'] as const;
 export type LayoutId = (typeof LAYOUT_IDS)[number];
 
 export const LAYOUT_LABELS: Record<LayoutId, string> = {
@@ -23,6 +23,7 @@ export const LAYOUT_LABELS: Record<LayoutId, string> = {
   pause: '일시정지',
   board: '점수판',
   buy: '구매',
+  fire2: '왼쪽 발사 (설정에서 켬)',
 };
 
 export interface Placement {

@@ -1,4 +1,4 @@
-import { MP_PATH, MP_PROTOCOL, MP_SERVICE, type ClientMessage, type MemberInfo, type MpError, type RoomInfo, type RoomMode, type RoomSummary, type ServerMessage } from './Protocol';
+import { MP_PATH, MP_PROTOCOL, MP_SERVICE, type ClientMessage, type MatchPool, type MemberInfo, type MpError, type PartyInfo, type Platform, type RoomInfo, type RoomMode, type RoomSummary, type ServerMessage } from './Protocol';
 
 // The browser's connection to the multiplayer relay: sign in with a name,
 // get into a room (quick join, a new room, or a room code), then exchange
@@ -74,7 +74,21 @@ export class NetSession {
   id: string | null = null;
   name = '';
   room: RoomInfo | null = null;
+  /** The platform this session told the relay (Phase 28): the controls in use when it connected / last changed outside a room. */
+  platform: Platform = 'pc';
+  /** The party this player is in (null: none). */
+  party: PartyInfo | null = null;
+  /** Round trip to the relay (ms; Phase 28 network status), null until measured. */
+  rtt: number | null = null;
+  private pingAt = 0;
   handlers: NetHandlers = {};
+  /** The party changed (formed, someone joined / left, a new leader, or no party any more). */
+  onParty: ((party: PartyInfo | null) => void) | null = null;
+  /**
+   * The party leader took this player into a room it did not ask for (a new room, or another one than it is
+   * in): the caller starts (or restarts) the online match there.
+   */
+  onPulled: ((room: RoomInfo) => void) | null = null;
   private ws: WebSocket | null = null;
   private pending: { want: ServerMessage['t'][]; resolve: (m: ServerMessage) => void; reject: (e: NetError) => void } | null = null;
   private closing = false;
@@ -88,8 +102,9 @@ export class NetSession {
   }
 
   /** Opens the connection and signs in with `name`. The free relay may take up to a minute to wake up. */
-  async connect(name: string, url = relayUrl(), timeoutMs = 75_000): Promise<void> {
+  async connect(name: string, url = relayUrl(), timeoutMs = 75_000, platform: Platform = this.platform): Promise<void> {
     if (this.connected) return;
+    this.platform = platform;
     this.closing = false;
     const ws = new WebSocket(url);
     this.ws = ws;
@@ -110,18 +125,44 @@ export class NetSession {
     ws.onmessage = (e) => this.receive(e.data);
     ws.onclose = () => this.onClose();
     ws.onerror = null;
-    const welcome = await this.request({ t: 'hello', v: MP_PROTOCOL, name }, ['welcome']);
+    const welcome = await this.request({ t: 'hello', v: MP_PROTOCOL, name, platform: this.platform }, ['welcome']);
     this.id = (welcome as Extract<ServerMessage, { t: 'welcome' }>).id;
     this.name = name;
   }
 
   /** `bots`: for the room this creates when no open one is found (an existing room keeps its own setting). */
-  quick(mode: RoomMode, map: string, bots = true): Promise<RoomInfo> {
-    return this.enter({ t: 'quick', mode, map, bots });
+  quick(mode: RoomMode, map: string, bots = true, pool: MatchPool = 'mixed'): Promise<RoomInfo> {
+    return this.enter({ t: 'quick', mode, map, bots, pool });
   }
 
-  create(mode: RoomMode, map: string, bots = true): Promise<RoomInfo> {
-    return this.enter({ t: 'create', mode, map, bots });
+  create(mode: RoomMode, map: string, bots = true, pool: MatchPool = 'mixed'): Promise<RoomInfo> {
+    return this.enter({ t: 'create', mode, map, bots, pool });
+  }
+
+  /**
+   * The controls changed: the relay hears it outside a room (a room keeps the platform each player entered
+   * with; the change counts from the next room). Returns whether it was sent.
+   */
+  setPlatform(p: Platform): boolean {
+    if (p === this.platform || this.room) return false;
+    this.platform = p;
+    this.raw({ t: 'platform', platform: p });
+    return true;
+  }
+
+  async createParty(): Promise<PartyInfo> {
+    const m = (await this.request({ t: 'party_create' }, ['party'])) as Extract<ServerMessage, { t: 'party' }>;
+    return m.party!;
+  }
+
+  async joinParty(code: string): Promise<PartyInfo> {
+    const m = (await this.request({ t: 'party_join', code }, ['party'])) as Extract<ServerMessage, { t: 'party' }>;
+    return m.party!;
+  }
+
+  leaveParty(): void {
+    if (!this.party) return;
+    this.raw({ t: 'party_leave' });
   }
 
   join(code: string): Promise<RoomInfo> {
@@ -145,6 +186,13 @@ export class NetSession {
     this.raw({ t: 'leave' });
   }
 
+  /** Measures the round trip to the relay (answered by a pong); at most one in flight, every couple of seconds. */
+  ping(now = performance.now()): void {
+    if (!this.connected || now - this.pingAt < 2000) return;
+    this.pingAt = now;
+    this.raw({ t: 'ping', n: now });
+  }
+
   /** Game message: to the host (members), or to `to` / everyone (host). */
   send(data: unknown, to?: string): void {
     if (!this.room) return;
@@ -154,6 +202,7 @@ export class NetSession {
   close(): void {
     this.closing = true;
     this.room = null;
+    this.party = null;
     this.id = null;
     this.ws?.close();
     this.ws = null;
@@ -198,16 +247,29 @@ export class NetSession {
       return;
     }
     const p = this.pending;
+    let answer = false;
     if (p && (p.want.includes(m.t) || m.t === 'error')) {
       this.pending = null;
+      answer = true;
       if (m.t === 'error') p.reject(new NetError(m.error));
       else p.resolve(m);
-      if (m.t !== 'room') return;
+      if (m.t !== 'room' && m.t !== 'party') return;
     }
     switch (m.t) {
-      case 'room':
+      case 'room': {
+        const before = this.room;
         this.room = m.room;
+        // Not asked for, and a room this player was not in: its party leader took it there.
+        if (!answer && (!before || before.code !== m.room.code)) {
+          this.onPulled?.(m.room);
+          break;
+        }
         this.handlers.room?.(m.room);
+        break;
+      }
+      case 'party':
+        this.party = m.party;
+        this.onParty?.(m.party);
         break;
       case 'joined':
         if (this.room && !this.room.members.some((x) => x.id === m.member.id)) this.room.members.push(m.member);
@@ -224,6 +286,12 @@ export class NetSession {
       case 'relay':
         this.handlers.message?.(m.from, m.d);
         break;
+      case 'pong': {
+        const rtt = performance.now() - m.n;
+        // A little smoothing: one slow answer does not make the line jump.
+        if (rtt >= 0 && rtt < 60_000) this.rtt = this.rtt === null ? rtt : this.rtt * 0.6 + rtt * 0.4;
+        break;
+      }
       case 'error':
         console.warn('[mp] relay error', m.error);
         break;
@@ -237,6 +305,8 @@ export class NetSession {
     this.ws = null;
     this.id = null;
     this.room = null;
+    this.party = null;
+    this.onParty?.(null);
     this.pending?.reject(new NetError('closed'));
     this.pending = null;
     if (unexpected) this.handlers.closed?.();

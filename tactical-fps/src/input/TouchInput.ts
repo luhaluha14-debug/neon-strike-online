@@ -24,12 +24,32 @@ const DEAD_ZONE = 0.14;
 /** Left part of the screen where a touch starts the move stick. */
 const STICK_ZONE = 0.42;
 
-type Act = 'fire' | 'aim' | 'reload' | 'jump' | 'crouch' | 'weapon' | 'use' | 'utility' | 'pause' | 'board' | 'buy';
+type Act = 'fire' | 'fire2' | 'aim' | 'reload' | 'jump' | 'crouch' | 'weapon' | 'use' | 'utility' | 'pause' | 'board' | 'buy';
+
+/** Phase 28: holding 무기 this long opens the weapon picker (a tap is the next weapon, as before). */
+export const WEAPON_PICK_HOLD = 0.3;
+/** A press is a hold only once the game has also seen it down for this many frames (not a slow tap). */
+export const HOLD_FRAMES = 3;
+/** Holding 앉기 this long makes it a hold (stand up on release); a tap still toggles. */
+export const CROUCH_HOLD = 0.35;
+/** The default cluster never shrinks below this to fit a small or oddly shaped screen. */
+const MIN_FIT = 0.7;
+
+/** What the game tells the reload button (Phase 28): ammo low / empty, reloading and how far. */
+export interface TouchWeaponState {
+  magazine: number;
+  magazineSize: number;
+  reloading: boolean;
+  /** 0..1 while reloading. */
+  progress: number;
+  /** A gun (a knife has no magazine). */
+  gun: boolean;
+}
 
 type Finger =
   | { kind: 'stick'; ox: number; oy: number }
   | { kind: 'look'; x: number; y: number }
-  | { kind: 'button'; act: Act; x: number; y: number };
+  | { kind: 'button'; act: Act; x: number; y: number; at: number; frames: number };
 
 /** What the game has right now, for the buttons that only make sense then. */
 export interface TouchContext {
@@ -83,6 +103,15 @@ export class TouchInput {
   /** The stick's home centre (px) when the layout places it. */
   private stickHome: { x: number; y: number } | null = null;
   private resizeObserver: ResizeObserver | null = null;
+  /** Phase 28 weapon picker (long press on 무기): its element, the finger holding it, the chip under it. */
+  private readonly picker: HTMLElement;
+  private pickerFinger = -1;
+  private pickerChoice = -1;
+  /** 앉기 pressed and that press turned crouch on (a long hold then stands up on release). */
+  private crouchPressOn = false;
+  private weaponKey = '';
+  /** The default cluster's fit to the screen (1 = as set; smaller on a screen it would not fit). */
+  fit = 1;
   private lastW = 0;
   private lastH = 0;
 
@@ -104,6 +133,8 @@ export class TouchInput {
       <div class="tc-cluster">
         ${b('fire', '발사')}${b('aim', '조준')}${b('reload', '장전')}${b('jump', '점프')}${b('crouch', '앉기')}${b('weapon', '무기')}${b('use', '사용')}${b('utility', '투척')}
       </div>
+      ${b('fire2', '발사')}
+      <div class="tc-picker" hidden role="listbox" aria-label="무기 선택"></div>
 `;
     parent.appendChild(this.root);
     // Portrait: a notice over everything (menus too), until the phone is turned.
@@ -113,6 +144,9 @@ export class TouchInput {
     this.rotate.innerHTML = '<div class="tc-rotate-icon" aria-hidden="true"></div><div class="tc-rotate-title">가로 화면으로 돌려 주세요</div><div class="tc-rotate-sub">GRID는 가로 화면에서 플레이합니다.</div>';
     document.body.appendChild(this.rotate);
     this.stickBase = this.root.querySelector('.tc-stick')!;
+    this.picker = this.root.querySelector('.tc-picker')!;
+    for (const el of this.root.querySelectorAll<HTMLButtonElement>('[data-act]')) this.buttons.set(el.dataset.act as Act, el);
+    this.showLeftFire(false);
     this.stickKnob = this.root.querySelector('.tc-knob')!;
     this.root.addEventListener('pointerdown', this.onDown);
     this.root.addEventListener('pointermove', this.onMove);
@@ -156,6 +190,7 @@ export class TouchInput {
     this.resetAll();
     // The screen may have changed shape while the controls were hidden.
     if (this.layout && (innerWidth !== this.lastW || innerHeight !== this.lastH)) this.applyLayout(this.layout);
+    this.fitToScreen();
   }
 
   stop(): void {
@@ -175,7 +210,65 @@ export class TouchInput {
     st.setProperty('--tc-buttons-x', `${s.buttonsX * 100}vw`);
     st.setProperty('--tc-buttons-y', `${s.buttonsY * 100}vh`);
     if (!s.fireToggle) this.setFireOn(false);
+    this.showLeftFire(s.leftFire === 1);
     this.applyLayout(this.layout);
+    this.fitToScreen();
+  }
+
+  /**
+   * Keeps the default cluster on the screen and clear of the top bar and the stick's side (Phase 28): on a
+   * short or narrow screen it is drawn smaller (down to 70 %), never cut off or over the other controls.
+   * Measured only on a change or a resize, never per frame. Placed controls are kept inside by their layout.
+   */
+  fitToScreen(): void {
+    const st = this.root.style;
+    st.setProperty('--tc-fit', '1');
+    this.fit = 1;
+    const wasHidden = this.root.hidden;
+    this.root.hidden = false;
+    const ins = safeInsets();
+    const top = this.root.querySelector('.tc-top')!.getBoundingClientRect();
+    let need = 1;
+    for (const el of this.root.querySelectorAll<HTMLElement>('.tc-cluster .tc-btn')) {
+      if (el.classList.contains('placed')) continue;
+      const hid = el.hidden;
+      el.hidden = false;
+      const r = el.getBoundingClientRect();
+      el.hidden = hid;
+      if (r.width === 0) continue;
+      // Room above (below the top bar) and to the left (the stick's part of the screen).
+      const bottom = innerHeight - ins.bottom;
+      const right = innerWidth - ins.right;
+      const upRoom = bottom - Math.max(top.bottom + 6, ins.top);
+      const upNeed = bottom - r.top;
+      if (upNeed > upRoom) need = Math.min(need, upRoom / upNeed);
+      const leftRoom = right - innerWidth * STICK_ZONE;
+      const leftNeed = right - r.left;
+      if (leftNeed > leftRoom) need = Math.min(need, leftRoom / leftNeed);
+    }
+    this.fit = Math.max(MIN_FIT, Math.min(1, need));
+    st.setProperty('--tc-fit', this.fit.toFixed(3));
+    this.root.hidden = wasHidden;
+  }
+
+  /** The reload button shows the ammo: low (pulses), empty, reloading with its progress (changes only). */
+  setWeaponState(w: TouchWeaponState): void {
+    const low = w.gun && w.magazineSize > 0 && w.magazine > 0 && w.magazine / w.magazineSize <= 0.25;
+    const empty = w.gun && w.magazine === 0;
+    const p = w.reloading ? Math.round(w.progress * 10) / 10 : 0;
+    const key = `${low ? 1 : 0}${empty ? 1 : 0}${w.reloading ? 1 : 0}${p}`;
+    if (key === this.weaponKey) return;
+    this.weaponKey = key;
+    const el = this.button('reload');
+    el.classList.toggle('low', low && !w.reloading);
+    el.classList.toggle('empty', empty && !w.reloading);
+    el.classList.toggle('busy', w.reloading);
+    el.style.setProperty('--p', String(p));
+  }
+
+  /** The weapon picker is open (tests). */
+  get pickerOpen(): boolean {
+    return !this.picker.hidden;
   }
 
   /** The element of each placeable control. */
@@ -251,6 +344,7 @@ export class TouchInput {
       this.resetAll();
       this.root.hidden = false;
       for (const id of LAYOUT_IDS) if (id !== 'stick') this.button(id).hidden = false;
+      this.showLeftFire(this.settings.leftFire === 1);
     } else {
       this.root.hidden = !this.active;
       const c = this.context;
@@ -273,6 +367,12 @@ export class TouchInput {
   /** Adds the touch state to `out` (after the keyboard / mouse wrote theirs). Consumes the look delta. */
   poll(out: InputState): void {
     if (!this.active) return;
+    // Held buttons: one more frame seen down; 무기 held long enough opens the picker.
+    for (const f of this.fingers.values()) if (f.kind === 'button') f.frames++;
+    if (this.pickerFinger >= 0 && this.picker.hidden) {
+      const f = this.fingers.get(this.pickerFinger);
+      if (f && f.kind === 'button' && this.isHold(f, WEAPON_PICK_HOLD)) this.openPicker();
+    }
     const held = (a: Act) => [...this.fingers.values()].some((f) => f.kind === 'button' && f.act === a);
     if (this.moveX !== 0 || this.moveY !== 0) {
       out.moveX = this.moveX;
@@ -292,7 +392,7 @@ export class TouchInput {
     this.pendingPitch -= dp;
     out.lookYaw += dy;
     out.lookPitch += dp;
-    out.fire ||= held('fire') || this.latched.has('fire') || this.fireOn;
+    out.fire ||= held('fire') || held('fire2') || this.latched.has('fire') || this.fireOn;
     out.aim ||= this.aimOn;
     out.crouch ||= this.crouchOn;
     out.jump ||= held('jump') || this.latched.has('jump');
@@ -323,6 +423,8 @@ export class TouchInput {
     this.moveX = this.moveY = this.yaw = this.pitch = 0;
     this.pendingYaw = this.pendingPitch = 0;
     this.aimOn = this.crouchOn = false;
+    this.crouchPressOn = false;
+    this.closePicker();
     this.setFireOn(false);
     this.clearLatches();
     for (const el of this.root.querySelectorAll('.tc-btn.on, .tc-btn.down')) el.classList.remove('on', 'down');
@@ -348,8 +450,17 @@ export class TouchInput {
 
   // --- internals -----------------------------------------------------------------------
 
+  private readonly buttons = new Map<Act, HTMLButtonElement>();
+
   private button(act: Act): HTMLButtonElement {
-    return this.root.querySelector<HTMLButtonElement>(`[data-act="${act}"]`)!;
+    return this.buttons.get(act)!;
+  }
+
+  /** 왼쪽 발사 is on the screen (and in the layout editor) only while the setting is on. */
+  private showLeftFire(on: boolean): void {
+    const el = this.button('fire2');
+    if (on && !el.isConnected) this.root.insertBefore(el, this.picker);
+    else if (!on && el.isConnected) el.remove();
   }
 
   private radius(): number {
@@ -394,6 +505,7 @@ export class TouchInput {
     // placed layout is fitted to the new shape.
     this.resetAll();
     if (this.layout) this.applyLayout(this.layout);
+    this.fitToScreen();
   };
 
   private onDown = (e: PointerEvent): void => {
@@ -405,8 +517,9 @@ export class TouchInput {
     let finger: Finger;
     if (btn && !btn.hidden) {
       const act = btn.dataset.act as Act;
-      finger = { kind: 'button', act, x: e.clientX, y: e.clientY };
-      this.press(act, btn);
+      finger = { kind: 'button', act, x: e.clientX, y: e.clientY, at: e.timeStamp || performance.now(), frames: 0 };
+      this.fingers.set(e.pointerId, finger);
+      this.press(act, btn, e.pointerId);
     } else {
       // A tap on the minimap: its zoom.
       const mm = document.querySelector<HTMLElement>('.minimap');
@@ -456,8 +569,13 @@ export class TouchInput {
       this.stickKnob.style.transform = `translate(${ux * mag * r}px, ${uy * mag * r}px)`;
       return;
     }
-    // Look: a free drag, or a drag on the fire button while it is held.
-    if (f.kind === 'look' || (f.kind === 'button' && f.act === 'fire')) {
+    // The weapon picker: the chip under the finger is the choice.
+    if (f.kind === 'button' && f.act === 'weapon' && e.pointerId === this.pickerFinger && !this.picker.hidden) {
+      this.pickAt(e.clientX, e.clientY);
+      return;
+    }
+    // Look: a free drag, or a drag on a fire button while it is held.
+    if (f.kind === 'look' || (f.kind === 'button' && (f.act === 'fire' || f.act === 'fire2'))) {
       const k = LOOK_RAD_PER_PX * this.settings.lookSensitivity * (this.zoomed ? this.settings.adsSensitivity : 1);
       this.yaw -= (e.clientX - f.x) * k;
       this.pitch -= (e.clientY - f.y) * k;
@@ -483,6 +601,13 @@ export class TouchInput {
       this.moveX = this.moveY = 0;
       this.placeStick(null);
     } else if (f.kind === 'button') {
+      if (f.act === 'weapon' && id === this.pickerFinger) this.releaseWeapon();
+      // 앉기 held long after turning crouch on: a hold, so letting go stands up.
+      if (f.act === 'crouch' && this.crouchPressOn && this.isHold(f, CROUCH_HOLD) && this.crouchOn) {
+        this.crouchOn = false;
+        this.button('crouch').classList.remove('on');
+      }
+      if (f.act === 'crouch') this.crouchPressOn = false;
       // Still held by another finger (two thumbs on one button): stays down.
       if (![...this.fingers.values()].some((g) => g.kind === 'button' && g.act === f.act)) {
         this.button(f.act).classList.remove('down');
@@ -491,9 +616,63 @@ export class TouchInput {
     }
   }
 
-  private press(act: Act, el: HTMLElement): void {
+  /** Down for `seconds` and seen by the game for a few frames: a hold, not a tap (however slow its delivery). */
+  private isHold(f: { at: number; frames: number }, seconds: number): boolean {
+    return f.frames >= HOLD_FRAMES && performance.now() - f.at >= seconds * 1000;
+  }
+
+  /** 무기 let go: a pick from the open picker, or (a tap) the next weapon. */
+  private releaseWeapon(): void {
+    const open = !this.picker.hidden;
+    this.pickerFinger = -1;
+    if (open) {
+      if (this.pickerChoice >= 0) this.slot = this.pickerChoice;
+    } else this.cycle = 1;
+    this.closePicker();
+  }
+
+  /** The picker's chips: one per weapon slot, as the HUD's weapon strip shows them. */
+  private openPicker(): void {
+    const slots = [...document.querySelectorAll<HTMLElement>('.hud .loadout [data-slot]')];
+    if (slots.length < 2) return;
+    this.picker.innerHTML = slots
+      .map((s) => `<span class="tc-pick${s.classList.contains('active') ? ' current' : ''}" role="option" data-pick="${s.dataset.slot}">${escapeText(s.textContent?.trim() || `무기 ${Number(s.dataset.slot) + 1}`)}</span>`)
+      .join('');
+    // Above the 무기 button, kept on the screen.
+    const b = this.button('weapon').getBoundingClientRect();
+    this.picker.hidden = false;
+    const r = this.picker.getBoundingClientRect();
+    const x = Math.min(innerWidth - r.width - 6, Math.max(6, b.left + b.width / 2 - r.width / 2));
+    const y = Math.max(6, b.top - r.height - 10);
+    this.picker.style.left = `${x}px`;
+    this.picker.style.top = `${y}px`;
+    this.pickerChoice = -1;
+  }
+
+  private closePicker(): void {
+    this.pickerFinger = -1;
+    this.pickerChoice = -1;
+    if (!this.picker.hidden) {
+      this.picker.hidden = true;
+      this.picker.replaceChildren();
+    }
+  }
+
+  private pickAt(x: number, y: number): void {
+    let choice = -1;
+    for (const chip of this.picker.querySelectorAll<HTMLElement>('[data-pick]')) {
+      const r = chip.getBoundingClientRect();
+      const on = x >= r.left - 6 && x <= r.right + 6 && y >= r.top - 10 && y <= r.bottom + 10;
+      chip.classList.toggle('hover', on);
+      if (on) choice = Number(chip.dataset.pick);
+    }
+    this.pickerChoice = choice;
+  }
+
+  private press(act: Act, el: HTMLElement, pointerId = -1): void {
     el.classList.add('down');
     switch (act) {
+      case 'fire2':
       case 'fire':
         // 발사 버튼 고정: a tap toggles firing; otherwise firing lasts while the button is held.
         if (this.settings.fireToggle) this.setFireOn(!this.fireOn);
@@ -505,10 +684,13 @@ export class TouchInput {
         break;
       case 'crouch':
         this.crouchOn = !this.crouchOn;
+        this.crouchPressOn = this.crouchOn;
         el.classList.toggle('on', this.crouchOn);
         break;
       case 'weapon':
-        this.cycle = 1;
+        // A tap (let go soon) is the next weapon; held, the picker opens and the lift picks.
+        if (this.pickerFinger >= 0) break;
+        this.pickerFinger = pointerId;
         break;
       case 'pause':
         this.cb.onPause();
@@ -523,4 +705,8 @@ export class TouchInput {
         this.latched.add(act);
     }
   }
+}
+
+function escapeText(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 }

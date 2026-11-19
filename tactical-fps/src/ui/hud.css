@@ -615,3 +615,58 @@ body {
 .hud.reload-done .ammo-note {
   color: var(--c-text, #f2f2f0);
 }
+
+/* Phase 28: network status (online) and a short notice line. */
+.hud .net-status {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(10, 12, 15, 0.55);
+  color: #d9dde3;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.hud .net-bars {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 10px;
+}
+.hud .net-bars i {
+  width: 3px;
+  background: rgba(255, 255, 255, 0.25);
+}
+.hud .net-bars i:nth-child(1) { height: 4px; }
+.hud .net-bars i:nth-child(2) { height: 7px; }
+.hud .net-bars i:nth-child(3) { height: 10px; }
+.hud .net-status[data-level='1'] .net-bars i:nth-child(-n + 1),
+.hud .net-status[data-level='2'] .net-bars i:nth-child(-n + 2),
+.hud .net-status[data-level='3'] .net-bars i:nth-child(-n + 3) {
+  background: #7fd0a0;
+}
+.hud .net-status[data-level='1'] .net-bars i:nth-child(1) {
+  background: #e7b04f;
+}
+.hud .net-status.stalled {
+  color: #f0a06a;
+}
+.hud .hud-notice {
+  position: absolute;
+  top: 22%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 12px;
+  border-radius: 4px;
+  background: rgba(10, 12, 15, 0.7);
+  color: #f2f4f7;
+  font-size: 13px;
+  pointer-events: none;
+  white-space: nowrap;
+}
