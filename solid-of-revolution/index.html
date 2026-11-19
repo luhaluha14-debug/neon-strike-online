@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f3f5f2">
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}[hidden]{display:none!important}img{max-width:100%}</style>
+<title>회전체 개념과 퀴즈</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Do+Hyeon&family=IBM+Plex+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: one centered worksheet card, textbook drafting look (회전축 = 일점쇄선) */
+:root {
+  --paper: #f3f5f2;
+  --sheet: #ffffff;
+  --ink: #1c2433;
+  --muted: #5d6676;
+  --line: #d7dce2;
+  --accent: #2547c9;
+  --accent-soft: #e6ebfb;
+  --axis: #c8432b;
+  --shape: #dfe6fb;
+  --ok: #1d8a4e;
+  --ok-soft: #e2f4ea;
+  --bad: #c3352b;
+  --bad-soft: #fbe6e3;
+  --display: "Do Hyeon", "IBM Plex Sans KR", sans-serif;
+  --body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #12161e; --sheet: #1a202b; --ink: #e8ebf1; --muted: #9aa3b2; --line: #2e3646;
+    --accent: #8ea6ff; --accent-soft: #232d48; --axis: #ff8a70; --shape: #2a3557;
+    --ok: #5fd08f; --ok-soft: #1a3326; --bad: #ff7d72; --bad-soft: #3a1f1e; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #12161e; --sheet: #1a202b; --ink: #e8ebf1; --muted: #9aa3b2; --line: #2e3646;
+  --accent: #8ea6ff; --accent-soft: #232d48; --axis: #ff8a70; --shape: #2a3557;
+  --ok: #5fd08f; --ok-soft: #1a3326; --bad: #ff7d72; --bad-soft: #3a1f1e; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--paper);
+  background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 24px 24px;
+  background-position: -1px -1px;
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 16px;
+  line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 32px 48px;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+button { touch-action: manipulation; }
+.wrap { max-width: 680px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+header { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+h1 { font-family: var(--display); font-weight: 400; font-size: 2.4rem; line-height: 1.1; margin: 0; text-wrap: balance; }
+h1 small { display: block; font-family: var(--body); font-size: .85rem; color: var(--muted); font-weight: 500; letter-spacing: .02em; margin-top: 6px; }
+.modes { display: flex; gap: 6px; }
+.chip {
+  font: 500 .85rem var(--body); padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--sheet); color: var(--ink); cursor: pointer;
+}
+.chip[aria-pressed="true"] { background: var(--ink); color: var(--sheet); border-color: var(--ink); }
+.card { background: var(--sheet); border: 1px solid var(--line); border-radius: 14px; padding: 24px; display: flex; flex-direction: column; gap: 18px; box-shadow: 0 1px 0 var(--line); }
+.meta { display: flex; align-items: center; gap: 12px; font-family: var(--mono); font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.bar { flex: 1; height: 6px; background: var(--accent-soft); border-radius: 3px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--accent); transition: width .3s ease; }
+.tag { font-family: var(--body); font-size: .75rem; letter-spacing: .06em; padding: 2px 8px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+.q { font-size: 1.2rem; font-weight: 700; margin: 0; text-wrap: balance; }
+figure { margin: 0; display: flex; justify-content: center; }
+figure svg { width: 200px; max-width: 100%; height: auto; }
+figure .shape { fill: var(--shape); stroke: var(--accent); stroke-width: 2; }
+figure .axis { stroke: var(--axis); stroke-width: 1.6; stroke-dasharray: 10 3 2 3; }
+figure text { fill: var(--axis); font: italic 600 14px var(--body); }
+figure .lab { fill: var(--muted); font: 500 11px var(--mono); font-style: normal; }
+.opts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.opts.ox { grid-template-columns: 1fr 1fr; }
+.opt {
+  display: flex; align-items: center; gap: 10px; text-align: left; min-width: 0;
+  font: 500 1rem var(--body); color: var(--ink); background: var(--sheet);
+  border: 1.5px solid var(--line); border-radius: 10px; padding: 12px 14px; cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+@media (hover: hover) { .opt:hover:not(:disabled) { border-color: var(--accent); } }
+.opt:active:not(:disabled) { transform: scale(.99); }
+.opt:focus-visible, .chip:focus-visible, .btn:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.opt .k { font-family: var(--mono); font-size: .75rem; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 6px; flex: none; }
+.opts.ox .opt { justify-content: center; font-family: var(--display); font-size: 2rem; padding: 14px; }
+.opts.ox .opt .k { display: none; }
+.opt:disabled { cursor: default; }
+.opt.right { border-color: var(--ok); background: var(--ok-soft); }
+.opt.wrong { border-color: var(--bad); background: var(--bad-soft); }
+.explain { border-left: 3px solid var(--ok); background: var(--ok-soft); padding: 12px 14px; border-radius: 0 8px 8px 0; }
+.explain.bad { border-left-color: var(--bad); background: var(--bad-soft); }
+.explain b { display: block; font-size: .95rem; margin-bottom: 2px; }
+.explain p { margin: 0; color: var(--ink); font-size: .95rem; }
+.actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.btn { font: 700 1rem var(--body); padding: 10px 20px; border-radius: 10px; border: 0; background: var(--accent); color: var(--sheet); cursor: pointer; }
+.btn.ghost { background: transparent; color: var(--ink); border: 1.5px solid var(--line); }
+.score { font-family: var(--display); font-size: 4rem; line-height: 1; margin: 0; font-variant-numeric: tabular-nums; }
+.score span { font-size: 1.6rem; color: var(--muted); }
+.grade { margin: 0; font-size: 1.05rem; color: var(--muted); }
+.review { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.review li { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font-size: .95rem; }
+.review li b { display: block; }
+.review .ans { color: var(--ok); font-weight: 700; }
+.hint { font-size: .8rem; color: var(--muted); text-align: center; margin: 0; }
+#quiz, .learn { display: flex; flex-direction: column; gap: 16px; }
+.tabs { display: flex; gap: 4px; background: var(--sheet); border: 1px solid var(--line); border-radius: 12px; padding: 4px; }
+.tab { font: 700 .95rem var(--body); border: 0; background: transparent; color: var(--muted); padding: 8px 16px; border-radius: 8px; cursor: pointer; }
+.tab[aria-selected="true"] { background: var(--accent); color: var(--sheet); }
+.tab:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.quizbar { display: flex; align-items: center; justify-content: flex-end; gap: 10px; font-size: .85rem; color: var(--muted); }
+.eyebrow { font: 700 .75rem var(--body); letter-spacing: .08em; color: var(--accent); }
+h2 { font-family: var(--display); font-weight: 400; font-size: 1.7rem; line-height: 1.2; margin: -10px 0 0; text-wrap: balance; }
+h3 { font-family: var(--display); font-weight: 400; font-size: 1.3rem; margin: 0; }
+.card p { margin: 0; }
+.lead { font-size: 1.05rem; max-width: 60ch; }
+.pair { display: flex; align-items: center; justify-content: center; gap: 12px; }
+.pair figure svg, .pair .solid { width: 150px; }
+.pair.sm { gap: 4px; }
+.pair.sm figure svg, .pair.sm .solid { width: 96px; }
+.arrow { font-size: 1.8rem; color: var(--muted); display: flex; flex-direction: column; align-items: center; line-height: 1; }
+.arrow small { font-size: .7rem; margin-top: 4px; }
+.solid, .net svg { height: auto; max-width: 100%; }
+.solid .face, .net .face { fill: var(--shape); stroke: var(--accent); stroke-width: 2; }
+.solid .edge, .net .edge { fill: none; stroke: var(--accent); stroke-width: 2; }
+.solid .back, .net .back { fill: none; stroke: var(--accent); stroke-width: 1.4; stroke-dasharray: 4 4; opacity: .7; }
+.solid .axis { stroke: var(--axis); stroke-width: 1.6; stroke-dasharray: 10 3 2 3; }
+.net .lab { fill: var(--muted); font: 500 11px var(--mono); }
+.terms { margin: 0; display: grid; gap: 10px; }
+.terms div { display: grid; grid-template-columns: 5em 1fr; gap: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.terms dt { font-weight: 700; }
+.terms dd { margin: 0; color: var(--muted); }
+.types { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.type, .net { border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.type p, .net p { font-size: .9rem; color: var(--muted); }
+.note { font-size: .92rem; background: var(--accent-soft); border-radius: 8px; padding: 10px 14px; }
+.note b { color: var(--accent); margin-right: 6px; }
+.props { margin: 0; padding-left: 1.3em; display: flex; flex-direction: column; gap: 8px; }
+.props em { font-style: normal; font-weight: 700; color: var(--accent); }
+.tablebox { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: .92rem; min-width: 380px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+th { font-size: .8rem; color: var(--muted); font-weight: 700; }
+td:first-child { font-weight: 700; }
+.nets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.net svg { width: 100%; }
+.f { font-family: var(--mono); color: var(--accent); white-space: nowrap; }
+@media (max-width: 620px) { .nets { grid-template-columns: 1fr; } .net svg { width: 160px; align-self: center; } }
+@media (hover: none) { .hint { display: none; } }
+@media (max-width: 480px) {
+  body { padding-block: 20px 32px; }
+  header { flex-direction: column; align-items: stretch; }
+  h1 small .sub { display: none; }
+  .tabs { width: 100%; }
+  .tab { flex: 1; padding: 10px; }
+  .quizbar { justify-content: space-between; }
+  .actions .btn { flex: 1; padding: 14px; }
+  .opt { padding: 14px; min-height: 52px; }
+  .q { font-size: 1.1rem; }
+  h2 { font-size: 1.5rem; }
+  .terms div { grid-template-columns: 1fr; gap: 2px; }
+  .tablebox table, .tablebox tbody, .tablebox tr, .tablebox td { display: block; min-width: 0; }
+  .tablebox thead { display: none; }
+  .tablebox tr { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; margin-bottom: 8px; }
+  .tablebox td { border: 0; padding: 3px 0; display: flex; justify-content: space-between; gap: 12px; }
+  .tablebox td:first-child { font-family: var(--display); font-weight: 400; font-size: 1.15rem; }
+  .tablebox td[data-label]::before { content: attr(data-label); color: var(--muted); font-size: .8rem; font-weight: 500; }
+  .types { grid-template-columns: 1fr; }
+  h1 { font-size: 2rem; }
+  .card { padding: 18px; }
+  .opts { grid-template-columns: 1fr; }
+  .opts.ox { grid-template-columns: 1fr 1fr; }
+}
+@media (prefers-reduced-motion: reduce) { .bar i { transition: none; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1>회전체<small>개념을 정리하고 퀴즈로 확인해요<span class="sub"> · 회전축은 빨간 일점쇄선(─·─)</span></small></h1>
+    <nav class="tabs" role="tablist" aria-label="보기 선택">
+      <button class="tab" id="tab-learn" role="tab" data-view="learn" aria-selected="true">개념 정리</button>
+      <button class="tab" id="tab-quiz" role="tab" data-view="quiz" aria-selected="false">퀴즈</button>
+    </nav>
+  </header>
+
+  <section id="learn" class="learn">
+    <article class="card">
+      <span class="eyebrow">1 · 정의</span>
+      <h2>회전체란?</h2>
+      <p class="lead"><b>평면도형을 한 직선을 축으로 하여 한 바퀴(360°) 돌릴 때 생기는 입체도형</b>을 회전체라고 해요.</p>
+      <div class="pair">
+        <div class="slot" data-fig="tri"></div>
+        <span class="arrow" aria-hidden="true">⟳<small>한 바퀴</small></span>
+        <div class="slot" data-solid="cone"></div>
+      </div>
+      <dl class="terms">
+        <div><dt>회전축</dt><dd>도형을 돌릴 때 축이 되는 직선이에요. 그림의 빨간 일점쇄선 <i>l</i>이에요.</dd></div>
+        <div><dt>모선</dt><dd>회전시킬 때 옆면을 만드는 선분이에요. 원기둥·원뿔·원뿔대에 있고, 구에는 없어요.</dd></div>
+        <div><dt>밑면</dt><dd>원기둥·원뿔·원뿔대의 밑면은 원이에요.</dd></div>
+      </dl>
+    </article>
+
+    <article class="card">
+      <span class="eyebrow">2 · 대표적인 회전체</span>
+      <h2>어떤 도형을 돌리면 무엇이 될까?</h2>
+      <div class="types">
+        <div class="type"><div class="pair sm"><div class="slot" data-fig="rect"></div><span class="arrow" aria-hidden="true">→</span><div class="slot" data-solid="cyl"></div></div><h3>원기둥</h3><p>직사각형을 한 변을 축으로 돌려요.</p></div>
+        <div class="type"><div class="pair sm"><div class="slot" data-fig="tri"></div><span class="arrow" aria-hidden="true">→</span><div class="slot" data-solid="cone"></div></div><h3>원뿔</h3><p>직각삼각형을 직각을 낀 한 변을 축으로 돌려요.</p></div>
+        <div class="type"><div class="pair sm"><div class="slot" data-fig="trap"></div><span class="arrow" aria-hidden="true">→</span><div class="slot" data-solid="frus"></div></div><h3>원뿔대</h3><p>두 밑각이 직각인 사다리꼴을 두 직각을 잇는 변을 축으로 돌려요.</p></div>
+        <div class="type"><div class="pair sm"><div class="slot" data-fig="semi"></div><span class="arrow" aria-hidden="true">→</span><div class="slot" data-solid="sph"></div></div><h3>구</h3><p>반원을 지름을 축으로 돌려요.</p></div>
+      </div>
+      <p class="note"><b>주의</b> 도형이 회전축에서 떨어져 있으면 가운데가 빈 입체(속이 빈 원기둥 등)가 생겨요. 사각뿔·정육면체처럼 다각형인 면으로 둘러싸인 다면체는 회전체가 아니에요.</p>
+    </article>
+
+    <article class="card">
+      <span class="eyebrow">3 · 성질</span>
+      <h2>회전체를 자르면?</h2>
+      <ol class="props">
+        <li><b>회전축에 수직인 평면으로 자르면</b> 단면은 항상 <em>원</em>이에요. 원기둥은 어디를 잘라도 크기가 같고, 원뿔·원뿔대는 위치에 따라 원의 크기가 달라져요.</li>
+        <li><b>회전축을 포함하는 평면으로 자르면</b> 단면은 모두 <em>합동</em>이고, 회전축을 대칭축으로 하는 <em>선대칭도형</em>이에요.</li>
+        <li><b>구는 어느 방향으로 잘라도</b> 단면이 <em>원</em>이에요. 구의 중심을 지나게 자를 때 단면이 가장 커요.</li>
+      </ol>
+      <div class="tablebox">
+        <table>
+          <thead><tr><th>회전체</th><th>회전축에 수직인 단면</th><th>회전축을 포함하는 단면</th></tr></thead>
+          <tbody>
+            <tr><td>원기둥</td><td>원 (모두 합동)</td><td>직사각형</td></tr>
+            <tr><td>원뿔</td><td>원 (크기가 다름)</td><td>이등변삼각형</td></tr>
+            <tr><td>원뿔대</td><td>원 (크기가 다름)</td><td>등변사다리꼴</td></tr>
+            <tr><td>구</td><td>원</td><td>원</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </article>
+
+    <article class="card">
+      <span class="eyebrow">4 · 전개도</span>
+      <h2>회전체를 펼치면?</h2>
+      <div class="nets">
+        <div class="net">
+          <svg viewBox="0 0 160 140" role="img" aria-label="원기둥의 전개도">
+            <circle class="face" cx="50" cy="22" r="17"/><rect class="face" x="15" y="40" width="130" height="60"/><circle class="face" cx="50" cy="117" r="17"/>
+            <text class="lab" x="62" y="56">2πr</text><text class="lab" x="56" y="26">r</text>
+          </svg>
+          <h3>원기둥</h3><p>밑면(원) 2개 + 옆면(직사각형). 옆면의 가로 = 밑면의 둘레 <span class="f">2πr</span></p>
+        </div>
+        <div class="net">
+          <svg viewBox="0 0 160 140" role="img" aria-label="원뿔의 전개도">
+            <path class="face" d="M80,10 L40,79 A80,80 0 0 0 120,79 Z"/><circle class="face" cx="80" cy="104" r="14"/>
+            <text class="lab" x="86" y="50">모선</text>
+          </svg>
+          <h3>원뿔</h3><p>밑면(원) 1개 + 옆면(부채꼴). 부채꼴의 호의 길이 = 밑면의 둘레 <span class="f">2πr</span></p>
+        </div>
+        <div class="net">
+          <svg viewBox="0 0 160 140" role="img" aria-label="구">
+            <circle class="face" cx="80" cy="66" r="48"/><path class="edge" d="M32,66 A48,12 0 0 0 128,66"/><path class="back" d="M32,66 A48,12 0 0 1 128,66"/>
+          </svg>
+          <h3>구</h3><p>곡면을 평면으로 펼칠 수 없어서 <b>전개도를 그릴 수 없어요.</b></p>
+        </div>
+      </div>
+    </article>
+
+    <div class="actions"><button class="btn" data-go="quiz">퀴즈로 확인하기</button></div>
+  </section>
+
+  <section id="quiz" hidden>
+    <div class="quizbar">
+      <span>문제 수</span>
+      <div class="modes" role="group" aria-label="문제 수">
+        <button class="chip" id="m10" aria-pressed="true" data-n="10">10문제</button>
+        <button class="chip" id="mall" aria-pressed="false" data-n="all">전체</button>
+      </div>
+    </div>
+    <main class="card" id="card" aria-live="polite"></main>
+    <p class="hint">키보드: 1–4로 선택, Enter로 다음 문제</p>
+  </section>
+</div>
+
+<script>
+const FIG = {
+  rect: `<rect class="shape" x="80" y="20" width="60" height="100"/>`,
+  tri: `<polygon class="shape" points="80,20 80,120 150,120"/>`,
+  semi: `<path class="shape" d="M80,20 A50,50 0 0 1 80,120 Z"/>`,
+  trap: `<polygon class="shape" points="80,30 112,30 150,120 80,120"/>`,
+  ring: `<rect class="shape" x="105" y="20" width="50" height="100"/><text class="lab" x="84" y="74">2cm</text>`,
+  rect35: `<rect class="shape" x="80" y="30" width="54" height="90"/><text class="lab" x="96" y="138">3cm</text><text class="lab" x="140" y="79">5cm</text>`,
+};
+function fig(k) {
+  if (!k) return "";
+  return `<figure><svg viewBox="0 0 180 145" role="img" aria-label="회전축과 평면도형 그림">
+    <line class="axis" x1="80" y1="4" x2="80" y2="136"/>${FIG[k]}<text x="64" y="16">l</text></svg></figure>`;
+}
+
+const BANK = [
+  { t:"모양", q:"직사각형을 한 변을 회전축으로 하여 한 바퀴 돌리면 어떤 회전체가 생길까요?", fig:"rect", o:["원뿔","원기둥","구","원뿔대"], a:1, e:"직사각형을 한 변을 축으로 돌리면 원기둥이 돼요." },
+  { t:"모양", q:"직각삼각형을 직각을 낀 한 변을 회전축으로 하여 돌리면 어떤 회전체가 생길까요?", fig:"tri", o:["원기둥","구","원뿔","원뿔대"], a:2, e:"직각삼각형을 직각을 낀 변을 축으로 돌리면 원뿔이 돼요." },
+  { t:"모양", q:"반원을 지름을 회전축으로 하여 돌리면 어떤 회전체가 생길까요?", fig:"semi", o:["구","원뿔","원기둥","반구"], a:0, e:"반원을 지름을 축으로 한 바퀴 돌리면 구가 돼요." },
+  { t:"모양", q:"두 밑각이 직각인 사다리꼴을 그림처럼 돌리면 어떤 회전체가 생길까요?", fig:"trap", o:["원기둥","원뿔","구","원뿔대"], a:3, e:"두 직각을 잇는 변을 축으로 돌리면 원뿔대가 돼요." },
+  { t:"모양", q:"회전축에서 2cm 떨어진 직사각형을 그림처럼 돌리면 어떤 입체도형이 생길까요?", fig:"ring", o:["원뿔대","속이 빈 원기둥","구","원뿔"], a:1, e:"도형이 축에서 떨어져 있으면 가운데가 비어 있는 원기둥(관 모양)이 생겨요." },
+  { t:"개념", q:"다음 중 회전체가 아닌 것은?", o:["원기둥","원뿔","사각뿔","구"], a:2, e:"사각뿔은 다각형인 면들로 둘러싸인 다면체예요. 평면도형을 회전시켜 만들 수 없어요." },
+  { t:"개념", q:"원뿔이나 원기둥에서 옆면을 만드는 선분을 무엇이라고 할까요?", o:["회전축","모선","높이","반지름"], a:1, e:"옆면을 만드는 선분을 모선이라고 해요." },
+  { t:"OX", q:"구에는 모선이 있다.", ox:true, a:1, e:"구의 옆면은 선분이 아니라 곡선(반원)이 돌아서 만들어지므로 모선이 없어요." },
+  { t:"단면", q:"회전체를 회전축에 수직인 평면으로 자르면 단면은 항상 어떤 모양일까요?", o:["삼각형","직사각형","원","사다리꼴"], a:2, e:"회전축에 수직인 평면으로 자른 단면은 항상 원이에요." },
+  { t:"단면", q:"원뿔을 회전축을 포함하는 평면으로 자르면 단면은 어떤 모양일까요?", o:["이등변삼각형","직각삼각형","원","정사각형"], a:0, e:"원뿔의 회전축을 포함한 단면은 이등변삼각형이에요." },
+  { t:"단면", q:"원기둥을 회전축을 포함하는 평면으로 자르면 단면은 어떤 모양일까요?", o:["원","직사각형","사다리꼴","삼각형"], a:1, e:"원기둥의 회전축을 포함한 단면은 직사각형이에요." },
+  { t:"단면", q:"원뿔대를 회전축을 포함하는 평면으로 자르면 단면은 어떤 모양일까요?", o:["직사각형","원","등변사다리꼴","이등변삼각형"], a:2, e:"원뿔대의 회전축을 포함한 단면은 등변사다리꼴이에요." },
+  { t:"단면", q:"구를 회전축을 포함하는 평면으로 자르면 단면은 어떤 모양일까요?", o:["반원","원","타원","정사각형"], a:1, e:"구는 회전축을 포함하는 평면으로 잘라도 원이 나와요." },
+  { t:"OX", q:"구는 어느 방향의 평면으로 잘라도 단면이 항상 원이다.", ox:true, a:0, e:"구의 단면은 자르는 방향과 상관없이 항상 원이에요." },
+  { t:"OX", q:"회전체를 회전축을 포함하는 평면으로 자른 단면은 모두 합동이다.", ox:true, a:0, e:"회전축을 포함하는 단면은 어느 방향이든 모두 합동이에요." },
+  { t:"OX", q:"원뿔을 회전축에 수직인 평면으로 자르면 단면인 원의 크기는 모두 같다.", ox:true, a:1, e:"원뿔은 꼭짓점에 가까울수록 단면인 원이 작아져요. 크기가 모두 같은 것은 원기둥이에요." },
+  { t:"OX", q:"원기둥을 회전축에 수직인 평면으로 자르면 단면은 항상 합동인 원이다.", ox:true, a:0, e:"원기둥은 어느 높이에서 잘라도 밑면과 합동인 원이 나와요." },
+  { t:"단면", q:"회전체를 회전축을 포함하는 평면으로 자른 단면은 회전축을 대칭축으로 하는 어떤 도형일까요?", o:["점대칭도형","선대칭도형","정다각형","닮은 도형"], a:1, e:"회전축을 포함한 단면은 회전축을 대칭축으로 하는 선대칭도형이에요." },
+  { t:"단면", q:"구를 평면으로 자를 때 단면의 넓이가 가장 큰 경우는?", o:["구의 끝부분을 자를 때","구의 중심을 지나게 자를 때","비스듬히 자를 때","항상 같다"], a:1, e:"구의 중심을 지나는 평면으로 자를 때 단면인 원이 가장 커요." },
+  { t:"계산", q:"그림의 직사각형을 돌려 만든 원기둥을 회전축을 포함하는 평면으로 자르면 단면의 넓이는?", fig:"rect35", o:["15 cm²","30 cm²","45 cm²","60 cm²"], a:1, e:"단면은 가로 3×2=6cm, 세로 5cm인 직사각형이에요. 넓이는 6×5=30cm²예요." },
+  { t:"전개도", q:"원뿔의 전개도에서 옆면은 어떤 모양일까요?", o:["직사각형","삼각형","부채꼴","원"], a:2, e:"원뿔의 옆면을 펼치면 부채꼴이 돼요." },
+  { t:"전개도", q:"원기둥의 전개도에서 옆면은 어떤 모양일까요?", o:["직사각형","부채꼴","사다리꼴","원"], a:0, e:"원기둥의 옆면을 펼치면 직사각형이 돼요." },
+  { t:"계산", q:"밑면의 반지름이 3cm인 원기둥의 전개도에서 옆면인 직사각형의 가로 길이는?", o:["3π cm","6 cm","6π cm","9π cm"], a:2, e:"옆면의 가로는 밑면의 둘레와 같아요. 2π×3 = 6π cm예요." },
+  { t:"계산", q:"밑면의 반지름이 4cm인 원뿔의 전개도에서 부채꼴의 호의 길이는?", o:["4π cm","8π cm","16π cm","8 cm"], a:1, e:"부채꼴의 호의 길이는 밑면의 둘레와 같아요. 2π×4 = 8π cm예요." },
+  { t:"OX", q:"구의 전개도를 그릴 수 있다.", ox:true, a:1, e:"구는 평면으로 펼칠 수 없어서 전개도를 그릴 수 없어요." },
+];
+
+const card = document.getElementById("card");
+let mode = "10", qs = [], i = 0, picked = null, score = 0, wrong = [];
+
+function shuffle(a) { a = a.slice(); for (let k = a.length - 1; k > 0; k--) { const j = Math.floor(Math.random() * (k + 1)); [a[k], a[j]] = [a[j], a[k]]; } return a; }
+function prep(q) {
+  if (q.ox) return { ...q, o: ["O", "X"] };
+  const idx = shuffle(q.o.map((_, n) => n));
+  return { ...q, o: idx.map(n => q.o[n]), a: idx.indexOf(q.a) };
+}
+function start() {
+  const pool = shuffle(BANK);
+  qs = (mode === "10" ? pool.slice(0, 10) : pool).map(prep);
+  i = 0; score = 0; wrong = []; render();
+}
+function render() {
+  picked = null;
+  const q = qs[i];
+  card.innerHTML = `
+    <div class="meta"><span class="tag">${q.t}</span><div class="bar"><i style="width:${(i / qs.length) * 100}%"></i></div><span>${i + 1} / ${qs.length}</span></div>
+    <p class="q">${q.q}</p>
+    ${fig(q.fig)}
+    <div class="opts ${q.ox ? "ox" : ""}">${q.o.map((o, n) => `<button class="opt" id="opt${n}" data-n="${n}"><span class="k">${n + 1}</span><span>${o}</span></button>`).join("")}</div>
+    <div id="fb"></div>`;
+  card.querySelectorAll(".opt").forEach(b => b.onclick = () => choose(+b.dataset.n));
+}
+function choose(n) {
+  if (picked !== null) return;
+  picked = n;
+  const q = qs[i], ok = n === q.a;
+  if (ok) score++; else wrong.push(q);
+  card.querySelectorAll(".opt").forEach((b, k) => {
+    b.disabled = true;
+    if (k === q.a) b.classList.add("right");
+    else if (k === n) b.classList.add("wrong");
+  });
+  const last = i === qs.length - 1;
+  document.getElementById("fb").innerHTML = `
+    <div class="explain ${ok ? "" : "bad"}"><b>${ok ? "정답이에요!" : `아쉬워요. 정답은 ${q.o[q.a]}`}</b><p>${q.e}</p></div>
+    <div class="actions" style="margin-top:14px"><button class="btn" id="next">${last ? "결과 보기" : "다음 문제"}</button></div>`;
+  const nx = document.getElementById("next");
+  nx.onclick = next; nx.focus();
+}
+function next() { if (picked === null) return; i++; i < qs.length ? render() : result(); }
+function result() {
+  picked = "done";
+  const pct = score / qs.length;
+  const msg = pct === 1 ? "만점! 회전체 박사예요." : pct >= .8 ? "아주 잘했어요. 틀린 문제만 다시 보면 완벽해요." : pct >= .5 ? "기본은 잡혔어요. 단면과 전개도를 한 번 더 정리해 봐요." : "성질을 다시 읽고 한 번 더 도전해 봐요.";
+  card.innerHTML = `
+    <div class="meta"><span class="tag">결과</span><div class="bar"><i style="width:100%"></i></div><span>${qs.length} / ${qs.length}</span></div>
+    <p class="score">${score}<span> / ${qs.length}</span></p>
+    <p class="grade">${msg}</p>
+    ${wrong.length ? `<ul class="review">${wrong.map(q => `<li><b>${q.q}</b>정답: <span class="ans">${q.o[q.a]}</span> — ${q.e}</li>`).join("")}</ul>` : ""}
+    <div class="actions">${wrong.length ? `<button class="btn ghost" id="retry">틀린 문제만 다시</button>` : ""}<button class="btn" id="again">새로 시작</button></div>`;
+  document.getElementById("again").onclick = start;
+  const r = document.getElementById("retry");
+  if (r) r.onclick = () => { qs = shuffle(wrong).map(q => q); i = 0; score = 0; wrong = []; render(); };
+}
+document.querySelectorAll(".chip").forEach(c => c.onclick = () => {
+  mode = c.dataset.n;
+  document.querySelectorAll(".chip").forEach(x => x.setAttribute("aria-pressed", x === c));
+  start();
+});
+const SOLID = {
+  cyl: `<path class="face" d="M25,28 V118 A45,10 0 0 0 115,118 V28 Z"/><ellipse class="face" cx="70" cy="28" rx="45" ry="10"/><path class="back" d="M25,118 A45,10 0 0 1 115,118"/>`,
+  cone: `<path class="face" d="M25,118 L70,18 L115,118 A45,10 0 0 1 25,118 Z"/><path class="back" d="M25,118 A45,10 0 0 1 115,118"/>`,
+  frus: `<path class="face" d="M48,30 L25,118 A45,10 0 0 0 115,118 L92,30 Z"/><ellipse class="face" cx="70" cy="30" rx="22" ry="6"/><path class="back" d="M25,118 A45,10 0 0 1 115,118"/>`,
+  sph: `<circle class="face" cx="70" cy="70" r="50"/><path class="edge" d="M20,70 A50,12 0 0 0 120,70"/><path class="back" d="M20,70 A50,12 0 0 1 120,70"/>`,
+};
+document.querySelectorAll("[data-fig]").forEach(s => s.innerHTML = fig(s.dataset.fig));
+document.querySelectorAll("[data-solid]").forEach(s => s.innerHTML =
+  `<svg class="solid" viewBox="0 0 140 145" role="img" aria-label="회전체 그림">${SOLID[s.dataset.solid]}<line class="axis" x1="70" y1="4" x2="70" y2="138"/></svg>`);
+
+document.querySelectorAll(".tablebox table").forEach(t => {
+  const heads = [...t.querySelectorAll("th")].map(th => th.textContent);
+  t.querySelectorAll("tbody tr").forEach(tr => [...tr.children].forEach((td, k) => { if (k) td.dataset.label = heads[k]; }));
+});
+const views = { learn: document.getElementById("learn"), quiz: document.getElementById("quiz") };
+function show(v, scroll) {
+  if (!views[v]) v = "learn";
+  for (const k in views) views[k].hidden = k !== v;
+  document.querySelectorAll(".tab").forEach(t => t.setAttribute("aria-selected", t.dataset.view === v));
+  if (scroll) window.scrollTo(0, 0);
+}
+document.querySelectorAll("[data-view],[data-go]").forEach(b => b.onclick = () => {
+  const v = b.dataset.view || b.dataset.go;
+  try { history.replaceState(null, "", "#" + v); } catch (_) {}
+  show(v, true);
+});
+window.addEventListener("hashchange", () => show(location.hash.slice(1), true));
+show(location.hash.slice(1));
+
+document.addEventListener("keydown", e => {
+  if (views.quiz.hidden) return;
+  if (e.target.closest && e.target.closest(".chip, .tab")) return;
+  if (/^[1-4]$/.test(e.key) && qs[i] && picked === null && +e.key <= qs[i].o.length) choose(+e.key - 1);
+  else if (e.key === "Enter" && typeof picked === "number") { e.preventDefault(); next(); }
+});
+start();
+</script>
+</body>
+</html>
