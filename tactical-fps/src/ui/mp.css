@@ -109,7 +109,7 @@
 }
 .mp-room-row {
   display: grid;
-  grid-template-columns: auto 1fr auto auto;
+  grid-template-columns: auto 1fr auto auto auto;
   align-items: center;
   gap: var(--s-2);
   padding: var(--s-1) var(--s-1) var(--s-1) var(--s-3);
@@ -177,4 +177,75 @@
 .mp-confirm-actions .btn {
   padding: 4px 10px;
   font-size: 12px;
+}
+
+/* Phase 28 crossplay: platform badges, the party box, the pool hint. */
+.mp-platform {
+  display: inline-block;
+  margin-right: var(--s-1);
+  padding: 0 var(--s-1);
+  border-radius: var(--radius);
+  border: 1px solid var(--c-border);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--c-text-2, inherit);
+}
+.mp-platform.mobile {
+  border-color: #7fc8a9;
+  color: #7fc8a9;
+}
+.mp-platform.pc {
+  border-color: #9fb3d9;
+  color: #9fb3d9;
+}
+.mp-party {
+  margin: var(--s-3) 0;
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-bg-2);
+}
+.mp-party-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: var(--s-2);
+}
+.mp-party-none {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  align-items: center;
+}
+.mp-party-none .mp-party-code {
+  width: 8.5em;
+  text-transform: uppercase;
+}
+.mp-party-members {
+  list-style: none;
+  margin: var(--s-2) 0;
+  padding: 0;
+  display: grid;
+  gap: var(--s-1);
+}
+.mp-party-members li {
+  padding: var(--s-1) var(--s-2);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  overflow-wrap: anywhere;
+}
+.mp-party-members li.me {
+  border-color: var(--c-accent);
+}
+.mp-pool-hint.warn {
+  color: var(--c-danger);
+}
+.mp-room-row-pool {
+  color: var(--c-text-2);
+  white-space: nowrap;
+}
+.mp-room-row[data-pool='pc'] .mp-room-row-pool,
+.mp-room-row[data-pool='mobile'] .mp-room-row-pool {
+  color: var(--c-text);
+  font-weight: 600;
 }

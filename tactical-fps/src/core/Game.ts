@@ -30,6 +30,7 @@ import { PlayerController } from '../player/PlayerController';
 import { PlayerCombat, RESPAWN_DELAY, type PlayerDamageEvent } from '../player/PlayerCombat';
 import { Match, BOT_COUNT_OPTIONS, KILL_TARGET_OPTIONS, TIME_LIMIT_OPTIONS, type GameMode } from '../game/Match';
 import { loadMatchSettings, parseMode, parseObjective, saveMatchSettings, type MatchSettings } from '../game/MatchSettings';
+import type { Puppet } from '../net/Puppets';
 import { DEFAULT_TEAM_MATCH, otherTeam, ROUND_TIME_OPTIONS, ROUNDS_TO_WIN_OPTIONS, TeamMatch, TEAMS, type Team } from '../game/TeamMatch';
 import { Hud } from '../ui/Hud';
 import { MatchHud } from '../ui/MatchHud';
@@ -79,7 +80,7 @@ import { errorMessage, GridStore } from '../ui/GridStore';
 import { FirstPersonArms } from '../weapons/view/FirstPersonArms';
 import { killBy, type KillEvent, type ScoreLine } from '../game/Match';
 import { Weapon as WeaponState } from '../weapons/Weapon';
-import { ROOM_CAPACITY, type RoomInfo } from '../net/Protocol';
+import { ROOM_CAPACITY, type Platform, type RoomInfo } from '../net/Protocol';
 import type { NetSession } from '../net/NetSession';
 import { NetHost, type HostGame } from '../net/NetHost';
 import { NetClient, type ClientGame } from '../net/NetClient';
@@ -146,6 +147,9 @@ const VOLUME_OPTIONS: readonly { value: number; label: string }[] = [
 import { loadRenderScale, RENDER_SCALE_OPTIONS, saveRenderScale, saveSettings, type Settings } from './Settings';
 import { KNIFE_MODEL_VIEWS, knifeViewSpec } from '../weapons/knifeModels';
 import { thirdPersonViews } from '../weapons/view/ThirdPersonWeapons';
+import { AIM_ASSIST, assistLook, recoilScaleFor, wrapAngle, type AimCandidate } from '../input/AimAssist';
+import { GyroAim, type GyroStatus } from '../input/GyroAim';
+import { describePlatformStats, loadPlatformStats, recordPlatformMatch } from '../game/PlatformStats';
 
 const _muzzleWorld = new THREE.Vector3();
 const _specEye = new THREE.Vector3();
@@ -172,6 +176,12 @@ const MINIMAP_SIGHT_EVERY = 0.1;
 const MINIMAP_MEMORY = 1.5;
 /** Farthest an enemy is made out for the minimap (m): the bots' sight range. */
 const MINIMAP_SIGHT_RANGE = 70;
+/** Mobile aim assist: enemy aim points checked per frame at most (each a ray against the map). */
+const ASSIST_MAX_POINTS = 24;
+/** Enemy aim points as fractions of the body height: chest and head. */
+const ASSIST_HEIGHTS = [0.72, 0.92] as const;
+const _assistOut = { yaw: 0, pitch: 0 };
+const _assistIn = { yaw: 0, pitch: 0 };
 const _frustum = new THREE.Frustum();
 const _vp = new THREE.Matrix4();
 const _chest = new THREE.Vector3();
@@ -544,11 +554,22 @@ export class Game implements HostGame, ClientGame {
     this.input.touch?.applySettings(this.touchSettings);
     this.applyTouchConveniences();
     // The touch page is bound on every device (its sliders show once the touch controls are on).
-    this.hud.menu.setTouchControls(this.touchSettings, (t) => {
+    this.refreshTouchPage = this.hud.menu.setTouchControls(this.touchSettings, (t) => {
       this.input.touch?.applySettings(t);
       saveTouchSettings(t);
       this.applyTouchConveniences();
+      // Gyro switched on here (a tap): asked for now; off: let go of the sensor.
+      if (t.gyro === 1 && (this.gyro.status === 'off' || this.gyro.status === 'unsupported' || this.gyro.status === 'denied')) {
+        this.gyro.status = 'off';
+        this.enableGyro();
+      } else if (t.gyro === 0) this.gyro.disable();
+      this.showGyroStatus();
+      this.applyPower();
     });
+    this.showGyroStatus();
+    this.hud.menu.setPlatformStats(describePlatformStats(loadPlatformStats()));
+    this.watchBattery();
+    this.loop.setPowerCap(this.powerSaving ? 30 : null);
     // 버튼 배치 편집 (touch controls only).
     this.layoutEditor = new TouchLayoutEditor(document.body);
     this.hud.menu.setTouchLayoutEditor(() => this.openLayoutEditor());
@@ -1648,7 +1669,7 @@ export class Game implements HostGame, ClientGame {
     const rawFrameTime = hiddenDelta ?? this.timer.getDelta();
     const frameTime = Math.min(rawFrameTime, SIM_CONFIG.maxFrameTime);
     // Automatic quality: real frame times of drawn frames in play (not menus, a hidden tab or loading).
-    if (this.autoQuality) this.measureQuality(rawFrameTime, hiddenDelta === undefined && !document.hidden && this.input.active && !!this.player);
+    if (this.autoQuality) this.measureQuality(rawFrameTime, hiddenDelta === undefined && !document.hidden && this.input.active && !!this.player && this.loop.cap === null);
     const player = this.player;
     if (!player) {
       // Between maps: keep the screen alive behind the loading panel.
@@ -1657,6 +1678,14 @@ export class Game implements HostGame, ClientGame {
     }
 
     this.input.poll(this.inputState);
+    // Gyro (touch, mobile aids): the phone's turn since the last frame, on top of the drag (dropped when not in use).
+    const aids = this.mobileAids;
+    const ts = this.touchSettings;
+    this.gyro.take(
+      this.inputState,
+      ts.gyroSensitivity,
+      aids && ts.gyro === 1 && !!this.input.touch?.active && !this.buyMenuOpen && (ts.gyroAdsOnly === 0 || this.inputState.aim),
+    );
     if (this.buyMenuOpen) {
       // Buy menu: nothing reaches the game, including look / clicks that slipped in
       // around the moment the pointer lock was released.
@@ -1693,6 +1722,14 @@ export class Game implements HostGame, ClientGame {
       this.camera.updateProjectionMatrix();
     }
     this.hud.setScoped(this.scoped);
+    // Online (Phase 28): the round trip to the relay and, for a member, how long since the host was last heard.
+    const net = this.net;
+    if (net) {
+      const now = performance.now();
+      net.ping(now);
+      const last = this.netClient?.lastSnapAt ?? -1;
+      this.hud.setNetStatus({ rtt: net.rtt, hostSilentMs: this.netClient && last >= 0 ? now - last : null });
+    } else this.hud.setNetStatus(null);
     const touch = this.input.touch;
     if (touch) {
       // The ADS look speed (and aim smoothing) while scoped or aiming down sights.
@@ -1703,7 +1740,23 @@ export class Game implements HostGame, ClientGame {
         utility: !!tm && (this.buyLoadout.grenades.flash > 0 || this.buyLoadout.grenades.smoke > 0),
         buy: !!tm?.buyOpen && !!this.combat?.alive,
       });
+      // The reload button shows the ammo (low, empty, reloading): written only on a change.
+      const hw = this.weapons?.weapon;
+      if (hw) {
+        const ws = this.touchWeapon;
+        ws.magazine = hw.magazine;
+        ws.magazineSize = hw.def.magazineSize;
+        ws.reloading = hw.status === 'reloading';
+        ws.progress = hw.reloadProgress;
+        ws.gun = hw.usesAmmo;
+        touch.setWeaponState(ws);
+      }
     }
+    // Mobile aids (touch only): a weak aim assist on the player's own look input, a smaller recoil kick.
+    if (aids && ts.aimAssist > 0 && touch?.active && (!combat || combat.alive) && !this.buyMenuOpen && (this.inputState.lookYaw !== 0 || this.inputState.lookPitch !== 0))
+      this.applyAimAssist(player);
+    else this.assistLast.applied = false;
+    if (this.weapons) this.weapons.recoilScale = aids ? recoilScaleFor(ts.recoilAssist) : 1;
     const lookYaw = this.inputState.lookYaw;
     const lookPitch = this.inputState.lookPitch;
     this.weapons?.onLookInput(lookPitch, lookYaw);
@@ -2065,6 +2118,7 @@ export class Game implements HostGame, ClientGame {
     rec.settled = true;
     const result = this.matchResult(rec, outcome);
     if (!result) return;
+    this.recordPlatform(result);
     const hud = rec.mode === 'team' ? this.teamHud : this.matchHud;
     void this.economy
       .submitMatchResult(result)
@@ -2444,11 +2498,17 @@ export class Game implements HostGame, ClientGame {
   }
 
   private measureQuality(dt: number, measuring: boolean): void {
-    const d = this.autoQuality!.frame(dt, measuring);
+    const aq = this.autoQuality!;
+    // Phase 28: a phone still too slow at the lowest level gets one step more (fewer pixels, this session only).
+    aq.belowLow = this.input.touchMode && this.thermalScale > 0.8;
+    const d = aq.frame(dt, measuring);
     if (!d) return;
     if (d.kind === 'lower') {
       this.applyQuality(d.level);
-      saveAutoState(this.autoQuality!.state);
+      saveAutoState(aq.state);
+    } else if (d.kind === 'floor') {
+      this.thermalScale = 0.8;
+      this.applyQuality(this.qualityLevel);
     } else saveAutoState(d.state);
   }
 
@@ -2458,7 +2518,13 @@ export class Game implements HostGame, ClientGame {
    */
   /** Device pixels per CSS pixel for a quality level's cap, times the chosen render scale. */
   private pixelRatio(cap: number): number {
-    return Math.min(window.devicePixelRatio, cap) * this.renderScale;
+    return Math.min(window.devicePixelRatio, cap) * this.renderScale * this.powerScale;
+  }
+
+  /** Session-only pixel scale for a hot / slow phone (auto quality below low) and the battery saver. */
+  private thermalScale = 1;
+  private get powerScale(): number {
+    return this.thermalScale * (this.powerSaving ? 0.75 : 1);
   }
 
   private applyQuality(level: QualityLevel): void {
@@ -2546,7 +2612,16 @@ export class Game implements HostGame, ClientGame {
     this.inputState.fire = this.inputState.aim = false;
     document.documentElement.classList.toggle('touch', on);
     this.showInputModeInfo();
+    this.onPlatformChange?.();
   }
+
+  /** The platform this player plays on (Phase 28 crossplay): the controls in use, touch = mobile. */
+  get platform(): Platform {
+    return this.input.touchMode ? 'mobile' : 'pc';
+  }
+
+  /** Set by the multiplayer panel: the controls changed between PC and touch. */
+  onPlatformChange: (() => void) | null = null;
 
   /**
    * 버튼 배치 편집: the menu steps aside, the touch controls show where they are (with the HUD behind,
@@ -2597,7 +2672,168 @@ export class Game implements HostGame, ClientGame {
 
   /** 프레임 안정 우선 (touch setting): decorative effects off while the touch controls are in use. */
   private get perfPriority(): boolean {
-    return this.input.touchMode && this.touchSettings.perfPriority === 1;
+    return this.input.touchMode && (this.touchSettings.perfPriority === 1 || this.powerSaving);
+  }
+
+  // --- Phase 28 mobile aids, power and platform ---------------------------------------------------
+
+  /**
+   * The touch-only aids (aim assist, recoil assist, gyro) apply: touch controls, and in a room only when
+   * this player entered it as a mobile player (a PC-only room never gets them, whatever the controls now).
+   */
+  get mobileAids(): boolean {
+    return this.input.touchMode && (!this.net || this.net.platform === 'mobile');
+  }
+
+  readonly gyro = new GyroAim();
+  /** The weapon state the reload button shows (one object, filled per frame). */
+  private readonly touchWeapon = { magazine: 0, magazineSize: 0, reloading: false, progress: 0, gun: true };
+  /** Battery low and not charging (where the browser tells: navigator.getBattery). */
+  private batteryLow = false;
+  /** Visible enemies' aim points for the aim assist (filled per frame, never reallocated). */
+  private readonly assistPoints: AimCandidate[] = Array.from({ length: ASSIST_MAX_POINTS }, () => ({ yaw: 0, pitch: 0, distance: 0 }));
+  /** Aim assist this frame (tests): candidates checked, and whether the look was changed. */
+  readonly assistLast = { candidates: 0, applied: false };
+  /** Refreshes the touch settings page from the record (after the game changed a value itself). */
+  private refreshTouchPage: (() => void) | null = null;
+
+  /** The battery saver is on: by choice, or by itself on a low battery (touch controls only). */
+  get powerSaving(): boolean {
+    // Also read while the renderer is made, before the input and settings exist (then: not saving).
+    const t = this.touchSettings;
+    if (!t || !this.input?.touchMode) return false;
+    return t.batterySaver === 1 || (t.autoSaver === 1 && this.batteryLow);
+  }
+
+  /** 30 FPS and fewer pixels while saving power; the player's own frame limit is kept as it is. */
+  private applyPower(): void {
+    const saving = this.powerSaving;
+    this.loop.setPowerCap(saving ? 30 : null);
+    if (this.player) this.applyQuality(this.qualityLevel);
+  }
+
+  /** Battery level / charging, where the browser has the Battery API (Chrome on Android; not Safari). */
+  private watchBattery(): void {
+    const nav = navigator as Navigator & { getBattery?: () => Promise<{ level: number; charging: boolean; addEventListener(t: string, f: () => void): void }> };
+    if (typeof nav.getBattery !== 'function') return;
+    void nav
+      .getBattery()
+      .then((b) => {
+        const update = () => {
+          const low = !b.charging && b.level <= 0.2;
+          if (low === this.batteryLow) return;
+          this.batteryLow = low;
+          this.applyPower();
+          if (low && this.touchSettings.autoSaver === 1 && this.input.touchMode) this.hud.showToast('배터리가 적어 배터리 절약을 켰습니다 (30 FPS).');
+        };
+        b.addEventListener('levelchange', update);
+        b.addEventListener('chargingchange', update);
+        update();
+      })
+      .catch(() => {});
+  }
+
+  /** Gyro on (from a tap: the settings switch or 플레이), with the result on the settings page. */
+  private enableGyro(): void {
+    void this.gyro.enable((s) => this.showGyroStatus(s));
+  }
+
+  private showGyroStatus(s: GyroStatus = this.gyro.status): void {
+    const text: Record<GyroStatus, string> = {
+      off: GyroAim.available() ? '꺼짐' : '이 브라우저에는 자이로 센서 기능이 없습니다 — 터치 조작으로 진행합니다.',
+      checking: '센서 확인 중…',
+      on: '작동 중 — 휴대폰을 돌리면 시점이 돕니다.',
+      unsupported: '이 기기·브라우저에서 자이로 센서를 받을 수 없습니다 — 터치 조작으로 진행합니다.',
+      denied: '센서 사용이 허용되지 않았습니다 — 터치 조작으로 진행합니다. (다시 켜면 다시 묻습니다)',
+    };
+    this.hud.menu.setGyroStatus(text[s]);
+    // No sensor: the switch goes back off by itself (the touch controls carry on as before).
+    if ((s === 'unsupported' || s === 'denied') && this.touchSettings.gyro === 1) {
+      this.touchSettings.gyro = 0;
+      saveTouchSettings(this.touchSettings);
+      this.refreshTouchPage?.();
+    }
+  }
+
+  /**
+   * Weak aim assist on this frame's look input (touch only, see AimAssist.ts): the enemies the player
+   * sees now (in view, in range, no wall or smoke between), their chest and head as seen from the eye.
+   */
+  private applyAimAssist(player: PlayerController): void {
+    const map = this.map;
+    const last = this.assistLast;
+    last.candidates = 0;
+    last.applied = false;
+    if (!map) return;
+    const cam = this.camera;
+    cam.updateMatrixWorld();
+    _vp.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+    _frustum.setFromProjectionMatrix(_vp);
+    this.assistCount = 0;
+    const team = this.mode === 'team' || this.mode === 'duel' ? this.localTeam : null;
+    if (this.netClient) {
+      this.assistFrame.map = map;
+      this.assistFrame.player = player;
+      this.assistFrame.team = team;
+      this.netClient.puppets.all.forEach(this.assistPuppet);
+    } else if (this.squad) {
+      for (const b of this.squad.bots) {
+        if (!b.alive || b.benched || (team && b.team === team)) continue;
+        const c = b.controller.position;
+        this.assistConsider(map, player, c.x, c.y, c.z, 1.8);
+      }
+    }
+    if (this.trainingRange) for (const t of this.trainingRange.targets) if (t.alive) this.assistConsider(map, player, t.object.position.x, t.object.position.y, t.object.position.z, 1.8);
+    const n = this.assistCount;
+    last.candidates = n;
+    if (n === 0) return;
+    _assistIn.yaw = this.inputState.lookYaw;
+    _assistIn.pitch = this.inputState.lookPitch;
+    assistLook(_assistIn, this.assistPoints, n, this.touchSettings.aimAssist, _assistOut);
+    last.applied = _assistOut.yaw !== _assistIn.yaw || _assistOut.pitch !== _assistIn.pitch;
+    this.inputState.lookYaw = _assistOut.yaw;
+    this.inputState.lookPitch = _assistOut.pitch;
+  }
+
+  /** Aim points filled this frame (into the preallocated `assistPoints`). */
+  private assistCount = 0;
+  /** This frame's context for `assistPuppet` (one callback made once: nothing allocated per frame). */
+  private readonly assistFrame: { map: NonNullable<Game['map']> | null; player: PlayerController | null; team: Team | null } = { map: null, player: null, team: null };
+  private readonly assistPuppet = (q: Puppet): void => {
+    const f = this.assistFrame;
+    if (!f.map || !f.player || !q.alive || (f.team && q.team === f.team)) return;
+    this.assistConsider(f.map, f.player, q.position.x, q.position.y, q.position.z, q.height);
+  };
+
+  /** One enemy (feet at x, y, z, `h` tall): its aim points that the player can see now become candidates. */
+  private assistConsider(map: NonNullable<Game['map']>, player: PlayerController, x: number, y: number, z: number, h: number): void {
+    const eye = this.camera.position;
+    for (const k of ASSIST_HEIGHTS) {
+      if (this.assistCount >= ASSIST_MAX_POINTS) return;
+      _chest.set(x, y + h * k, z);
+      const dist = _chest.distanceTo(eye);
+      if (dist > AIM_ASSIST.range || dist < 0.3 || !_frustum.containsPoint(_chest)) continue;
+      _rayDir.copy(_chest).sub(eye).normalize();
+      const wall = map.collision.raycast(eye, _rayDir, dist);
+      if (wall !== null && wall < dist - 0.2) continue;
+      if (this.grenades?.sightBlocked(eye, _chest)) continue;
+      const c = this.assistPoints[this.assistCount++];
+      const dx = _chest.x - eye.x;
+      const dy = _chest.y - eye.y;
+      const dz = _chest.z - eye.z;
+      c.yaw = wrapAngle(Math.atan2(-dx, -dz) - player.yaw);
+      c.pitch = Math.atan2(dy, Math.hypot(dx, dz)) - player.pitch;
+      c.distance = dist;
+    }
+  }
+
+  /** A finished match on this platform, for the per-platform record (this browser only). */
+  private recordPlatform(result: MatchResult): void {
+    if (result.outcome !== 'completed' || (result.mode !== 'deathmatch' && result.mode !== 'team')) return;
+    const line = (result.mode === 'team' ? this.teamMatch?.scores : this.match?.scores)?.get('local');
+    const kills = Object.values(result.kills).reduce((a, b) => a + b, 0);
+    const s = recordPlatformMatch(this.net?.platform ?? this.platform, result.mode, { won: result.won, kills, deaths: line?.deaths ?? 0, seconds: result.durationSeconds });
+    this.hud.menu.setPlatformStats(describePlatformStats(s));
   }
 
   private showInputModeInfo(): void {
@@ -2616,6 +2852,8 @@ export class Game implements HostGame, ClientGame {
     this.hud.setPaused(!locked && !this.buyMenuOpen);
     if (locked) {
       this.accumulator = 0;
+      // Gyro chosen earlier (a stored setting): asked for now, from the 플레이 tap (iOS needs a tap to ask).
+      if (this.input.touchMode && this.touchSettings.gyro === 1 && this.gyro.status === 'off') this.enableGyro();
       if (!this.hasStarted) {
         this.hasStarted = true;
         this.hud.setResumeMode(true);
@@ -3023,10 +3261,10 @@ export class Game implements HostGame, ClientGame {
   /** Called when the room changes (lobby view); set by the multiplayer panel. */
   onNetRoom: ((room: RoomInfo) => void) | null = null;
   /** Called when the game leaves multiplayer by itself (connection lost). */
-  onNetEnded: ((reason: 'closed' | 'left') => void) | null = null;
+  onNetEnded: ((reason: 'closed' | 'left' | 'moved') => void) | null = null;
 
   /** Back to single player (the room is left; the connection stays with the panel). */
-  leaveMultiplayer(reason: 'closed' | 'left' = 'left'): void {
+  leaveMultiplayer(reason: 'closed' | 'left' | 'moved' = 'left'): void {
     if (!this.net) return;
     const session = this.net;
     this.net = null;
@@ -3043,7 +3281,8 @@ export class Game implements HostGame, ClientGame {
     this.mode = this.matchSettings.mode;
     this.hud.menu.setMatchLocked(false);
     this.hud.setMapSelectEnabled(!this.loadingMap);
-    if (this.map) this.restartMatch();
+    // Moved to another room by the party leader: that room's match starts next (no single-player round between).
+    if (this.map && reason !== 'moved') this.restartMatch();
     this.onNetEnded?.(reason);
   }
 

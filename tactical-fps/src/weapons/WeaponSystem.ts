@@ -61,6 +61,12 @@ export class WeaponSystem {
   team: string | undefined = undefined;
   /** Seconds left on the cosmetic inspect animation (0 = not inspecting). */
   inspectRemaining = 0;
+  /**
+   * Phase 28 mobile recoil assist: the view follows the weapon's own recoil pattern at this size (1 = as
+   * it is: PC, bots, every other shooter). The pattern, its timing and recovery, the spread, damage and
+   * fire rate are the weapon's; only how far the view is kicked is scaled.
+   */
+  recoilScale = 1;
 
   private lastSlot = 0;
   private reloadWasHeld = false;
@@ -128,8 +134,10 @@ export class WeaponSystem {
 
   /** Call once per rendered frame with the player's raw look input. */
   onLookInput(pitchDelta: number, yawDelta = 0): void {
-    this.recoil.absorbPlayerPitch(pitchDelta);
-    this.recoil.absorbPlayerYaw(yawDelta);
+    // Compensation is measured in the recoil's own (unscaled) size: pulling down by the view's smaller kick counts in full.
+    const k = this.recoilScale;
+    this.recoil.absorbPlayerPitch(pitchDelta / k);
+    this.recoil.absorbPlayerYaw(yawDelta / k);
   }
 
   step(input: WeaponCommand, dt: number): void {
@@ -154,7 +162,7 @@ export class WeaponSystem {
     for (let i = 0; i < r.shots; i++) this.fireRound();
 
     this.recoil.update(dt, _kick);
-    this.owner.addViewKick(_kick.pitch, _kick.yaw);
+    this.owner.addViewKick(_kick.pitch * this.recoilScale, _kick.yaw * this.recoilScale);
   }
 
   /**

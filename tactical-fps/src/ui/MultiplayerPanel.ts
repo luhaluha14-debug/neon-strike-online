@@ -1,10 +1,31 @@
 import { NetError, NetSession, listRooms, relayAvailable } from '../net/NetSession';
-import { NAME_MAX, cleanName, mpErrorMessage, validCode, type RoomInfo, type RoomMode, type RoomSummary } from '../net/Protocol';
+import {
+  NAME_MAX,
+  PARTY_CODE_LENGTH,
+  PARTY_MAX,
+  PLATFORM_LABEL,
+  POOL_LABEL,
+  cleanName,
+  groupPool,
+  mpErrorMessage,
+  poolAllows,
+  validCode,
+  validPartyCode,
+  type MatchPool,
+  type MemberInfo,
+  type PartyInfo,
+  type Platform,
+  type RoomInfo,
+  type RoomMode,
+  type RoomSummary,
+} from '../net/Protocol';
 import type { LobbyRoomSource } from './Lobby';
 import type { MainMenu } from './MainMenu';
 import './mp.css';
 
 const NAME_KEY = 'tactical-fps.mp.name';
+/** The matching pool last chosen (Phase 28), kept on this browser. */
+const POOL_KEY = 'tactical-fps.mp.pool';
 /** A relay that did not answer is asked once more after this long. */
 const RECHECK_MS = 5000;
 const MODE_LABEL: Record<RoomMode, string> = { deathmatch: '데스매치 (개인전)', team: '5대5 라운드전 (팀전)', duel: '1대1 대전 (2명)' };
@@ -20,10 +41,15 @@ export interface MultiplayerGame {
   teamOf(memberId: string): 'blue' | 'red' | null;
   /** The host's match is under way (changing the bot setting restarts it: asked first). */
   readonly netMatchInProgress: boolean;
+  /** The platform this player plays on now (the controls in use: touch = mobile). */
+  readonly platform: Platform;
+  /** Called when the controls change between PC and touch (set by this panel). */
+  onPlatformChange: (() => void) | null;
   startMultiplayer(session: NetSession): Promise<void>;
-  leaveMultiplayer(reason?: 'closed' | 'left'): void;
+  /** 'moved': the party leader took this player into another room (the relay already moved it: nothing is sent). */
+  leaveMultiplayer(reason?: 'closed' | 'left' | 'moved'): void;
   onNetRoom: ((room: RoomInfo) => void) | null;
-  onNetEnded: ((reason: 'closed' | 'left') => void) | null;
+  onNetEnded: ((reason: 'closed' | 'left' | 'moved') => void) | null;
 }
 
 /**
@@ -78,6 +104,32 @@ export class MultiplayerPanel implements LobbyRoomSource {
           </select>
         </label>
         <p class="field-hint mp-bots-duel" hidden>1대1은 봇 없이 두 사람만 경기합니다.</p>
+        <label class="field">
+          <span class="field-label">매칭</span>
+          <select class="select mp-pool">
+            <option value="mixed">${POOL_LABEL.mixed}</option>
+            <option value="mobile">${POOL_LABEL.mobile}</option>
+            <option value="pc">${POOL_LABEL.pc}</option>
+          </select>
+          <span class="field-hint mp-pool-hint"></span>
+        </label>
+        <div class="mp-party">
+          <div class="mp-party-head">
+            <span class="field-label">파티</span>
+            <span class="mp-platform-me muted"></span>
+          </div>
+          <div class="mp-party-none">
+            <button type="button" class="btn mp-party-create">파티 만들기</button>
+            <input class="mp-input mp-party-code" maxlength="${PARTY_CODE_LENGTH}" placeholder="파티 코드" autocomplete="off" spellcheck="false" aria-label="파티 코드" />
+            <button type="button" class="btn mp-party-join">파티 참가</button>
+          </div>
+          <div class="mp-party-in" hidden>
+            <div><span class="field-label">파티 코드</span> <b class="mp-party-code-shown"></b> <span class="mp-party-count muted"></span></div>
+            <ol class="mp-party-members"></ol>
+            <p class="field-hint mp-party-note"></p>
+            <button type="button" class="btn mp-party-leave">파티 나가기</button>
+          </div>
+        </div>
         <div class="mp-actions">
           <button type="button" class="btn btn-primary mp-quick">빠른 참가</button>
           <button type="button" class="btn mp-create">방 만들기</button>
@@ -94,12 +146,14 @@ export class MultiplayerPanel implements LobbyRoomSource {
           <ul class="mp-rooms"></ul>
           <p class="field-hint mp-list-note"></p>
         </div>
+        <p class="field-hint">매칭: 기본은 PC와 모바일이 함께하는 통합 매칭이고, 모바일 전용 · PC 전용을 고를 수 있습니다(플랫폼은 지금 쓰는 조작 방식: 터치 = 모바일). 전용 방에는 방 코드로도 다른 플랫폼이 들어갈 수 없습니다. 파티는 파티장이 방을 고르면 모두 함께 들어가고, PC와 모바일이 섞인 파티는 통합 매칭으로 들어갑니다. 무기 피해·체력·연사·판정·가격·이동은 플랫폼과 관계없이 같습니다.</p>
         <p class="field-hint">봇을 허용한 방은 빈 자리를 봇이 채웁니다(새 방을 만들 때의 설정, 빠른 참가로 들어간 방은 그 방의 설정). 방장의 브라우저가 경기를 진행하며, 방장이 나가면 다른 사람이 이어받고 경기는 새로 시작합니다. 맵은 방장이 고른 맵입니다.</p>
       </div>
       <div class="mp-room" hidden>
         <div class="mp-room-head">
           <div><span class="field-label">방 코드</span> <b class="mp-room-code"></b></div>
           <div class="mp-room-mode muted"></div>
+          <div class="mp-room-pool muted"></div>
         </div>
         <div class="mp-room-bots">
           <span class="mp-room-bots-text"></span>
@@ -124,6 +178,33 @@ export class MultiplayerPanel implements LobbyRoomSource {
     } catch {
       /* storage blocked */
     }
+    const pool = this.q<HTMLSelectElement>('.mp-pool');
+    try {
+      const saved = localStorage.getItem(POOL_KEY);
+      if (saved === 'mixed' || saved === 'pc' || saved === 'mobile') pool.value = saved;
+    } catch {
+      /* storage blocked */
+    }
+    pool.addEventListener('change', () => {
+      try {
+        localStorage.setItem(POOL_KEY, pool.value);
+      } catch {
+        /* storage blocked */
+      }
+      this.syncPool();
+    });
+    this.q('.mp-party-create').addEventListener('click', () => void this.party('create'));
+    this.q('.mp-party-join').addEventListener('click', () => void this.party('join'));
+    this.q('.mp-party-code').addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if ((e as KeyboardEvent).key === 'Enter') void this.party('join');
+    });
+    this.q('.mp-party-leave').addEventListener('click', () => this.session?.leaveParty());
+    game.onPlatformChange = () => {
+      // Outside a room the relay hears the new platform now (the party's view follows); in a room it counts from the next one.
+      this.session?.setPlatform(game.platform);
+      this.syncPool();
+    };
     this.q('.mp-quick').addEventListener('click', () => void this.enter('quick'));
     this.q('.mp-create').addEventListener('click', () => void this.enter('create'));
     this.q('.mp-join-btn').addEventListener('click', () => void this.enter('join'));
@@ -165,18 +246,23 @@ export class MultiplayerPanel implements LobbyRoomSource {
     });
     game.onNetRoom = (room) => this.showRoom(room);
     game.onNetEnded = (reason) => {
+      // Moved by the party leader: the next room is on its way (onPulled).
+      if (reason === 'moved') return;
       this.showRoom(null);
       if (reason === 'closed') {
         // The relay dropped (server restart, network): the room may still be there with the others.
         this.session = null;
+        this.showParty(null);
         const msg = `${mpErrorMessage('closed')} 싱글플레이로 돌아왔습니다.`;
         this.error(msg);
         this.offerRejoin();
         this.tell(msg);
       }
     };
+    this.syncPool();
     menu.onPageShown((page) => {
       if (page === 'multi') {
+        this.syncPool();
         void this.checkServer();
         if (!this.current) void this.refreshRooms();
       }
@@ -232,12 +318,99 @@ export class MultiplayerPanel implements LobbyRoomSource {
 
   private roomRow(r: RoomSummary): string {
     const full = r.players >= r.capacity;
-    return `<li class="mp-room-row">
+    const pool = r.pool ?? 'mixed';
+    // A PC / mobile only room the group (this player, or its whole party) cannot enter: no join button.
+    const shut = !this.groupPlatforms().every((p) => poolAllows(pool, p));
+    const label = full ? '가득 참' : shut ? `${pool === 'pc' ? 'PC' : '모바일'} 전용` : '참가';
+    return `<li class="mp-room-row" data-pool="${pool}">
       <b class="mp-room-row-code">${escape(r.code)}</b>
       <span class="mp-room-row-info">${MODE_LABEL[r.mode]} · ${escape(this.game.mapNameOf(r.map))}${r.mode !== 'duel' && r.bots === false ? ' · 봇 없음' : ''}</span>
+      <span class="mp-room-row-pool">${POOL_LABEL[pool]}</span>
       <span class="mp-room-row-count${full ? ' full' : ''}">${r.players}/${r.capacity}명</span>
-      <button type="button" class="btn mp-room-join" data-code="${escape(r.code)}"${full ? ' disabled' : ''}>${full ? '가득 참' : '참가'}</button>
+      <button type="button" class="btn mp-room-join" data-code="${escape(r.code)}"${full || shut ? ' disabled' : ''}>${label}</button>
     </li>`;
+  }
+
+  /** The platforms that would go into a room: this player's, or its whole party's. */
+  private groupPlatforms(): Platform[] {
+    const p = this.session?.party;
+    if (p) return p.members.map((m) => (m.id === this.session?.id ? this.game.platform : (m.platform ?? 'pc')));
+    return [this.game.platform];
+  }
+
+  /** The pool chosen, and what the group will really get (a mixed party: always mixed; a pool not for this platform: refused). */
+  private syncPool(): void {
+    const sel = this.q<HTMLSelectElement>('.mp-pool');
+    const want = sel.value as MatchPool;
+    const platforms = this.groupPlatforms();
+    const got = groupPool(want, platforms);
+    const hint = this.q('.mp-pool-hint');
+    const me = this.game.platform;
+    this.q('.mp-platform-me').textContent = `내 플랫폼: ${PLATFORM_LABEL[me]}`;
+    if (new Set(platforms).size > 1) hint.textContent = 'PC와 모바일이 함께 있는 파티: 통합 매칭으로 들어갑니다.';
+    else if (!got) hint.textContent = `${PLATFORM_LABEL[me]} 조작으로는 ${POOL_LABEL[want]} 매칭에 들어갈 수 없습니다. 통합 매칭을 고르거나 조작 방식을 바꾸세요.`;
+    else hint.textContent = want === 'mixed' ? 'PC와 모바일 플레이어가 함께 매칭됩니다.' : `${PLATFORM_LABEL[me]} 플레이어끼리만 매칭됩니다.`;
+    hint.classList.toggle('warn', !got);
+  }
+
+  /** Forms a party or joins one by its code (a connection to the relay first). */
+  private async party(how: 'create' | 'join'): Promise<void> {
+    if (this.busy) return;
+    this.error('');
+    const name = cleanName(this.q<HTMLInputElement>('.mp-name').value);
+    if (!name) return this.error(mpErrorMessage('name'));
+    const code = how === 'join' ? validPartyCode(this.q<HTMLInputElement>('.mp-party-code').value) : null;
+    if (how === 'join' && !code) return this.error(`파티 코드는 ${PARTY_CODE_LENGTH}자입니다 (영문·숫자).`);
+    this.setBusy(true, '연결 중…');
+    try {
+      const s = await this.connected(name);
+      const party = how === 'create' ? await s.createParty() : await s.joinParty(code!);
+      this.showParty(party);
+    } catch (err) {
+      this.error(mpErrorMessage(err instanceof NetError ? err.code : 'network'));
+    } finally {
+      this.setBusy(false);
+      this.showParty(this.session?.party ?? null);
+    }
+  }
+
+  /** The session, connected and signed in (with this player's platform), the party and pull hooks set. */
+  private async connected(name: string): Promise<NetSession> {
+    const s = this.session ?? new NetSession();
+    this.session = s;
+    s.onParty = (party) => this.showParty(party);
+    s.onPulled = (room) => void this.pulled(room);
+    if (!s.connected) await s.connect(name, undefined, undefined, this.game.platform);
+    else s.setPlatform(this.game.platform);
+    return s;
+  }
+
+  /** The party leader took this player into a room: into the match there (out of the one it was in first). */
+  private async pulled(room: RoomInfo): Promise<void> {
+    const s = this.session;
+    if (!s) return;
+    if (this.current) this.game.leaveMultiplayer('moved');
+    this.showRoom(room);
+    this.tell(`파티장과 함께 방 ${room.code}에 들어갔습니다.`);
+    await this.game.startMultiplayer(s);
+  }
+
+  private showParty(party: PartyInfo | null): void {
+    const me = this.session?.id;
+    this.q('.mp-party-none').hidden = !!party;
+    this.q('.mp-party-in').hidden = !party;
+    const leader = !party || party.leaderId === me;
+    // In a party only the leader picks the room.
+    for (const sel of ['.mp-quick', '.mp-create', '.mp-join-btn']) this.q<HTMLButtonElement>(sel).disabled = this.busy || !leader;
+    if (party) {
+      this.q('.mp-party-code-shown').textContent = party.code;
+      this.q('.mp-party-count').textContent = `${party.members.length}/${PARTY_MAX}명`;
+      this.q('.mp-party-members').innerHTML = party.members.map((m) => memberRow(m, party.leaderId, me, '파티장')).join('');
+      this.q('.mp-party-note').textContent = leader
+        ? '파티장입니다. 빠른 참가 · 방 만들기 · 코드 참가를 누르면 파티 전원이 함께 들어갑니다.'
+        : '파티장이 방을 고르면 함께 들어갑니다 (방 선택은 파티장만).';
+    }
+    this.syncPool();
   }
 
   private q<T extends HTMLElement = HTMLElement>(sel: string): T {
@@ -281,12 +454,11 @@ export class MultiplayerPanel implements LobbyRoomSource {
     }
     const mode = this.q<HTMLSelectElement>('.mp-mode').value as RoomMode;
     const bots = mode !== 'duel' && this.q<HTMLSelectElement>('.mp-bots').value !== 'off';
+    const pool = this.q<HTMLSelectElement>('.mp-pool').value as MatchPool;
     this.setBusy(true, '연결 중…');
     try {
-      const s = this.session ?? new NetSession();
-      this.session = s;
-      if (!s.connected) await s.connect(name);
-      const room = how === 'quick' ? await s.quick(mode, this.game.mapId, bots) : how === 'create' ? await s.create(mode, this.game.mapId, bots) : await s.join(code!);
+      const s = await this.connected(name);
+      const room = how === 'quick' ? await s.quick(mode, this.game.mapId, bots, pool) : how === 'create' ? await s.create(mode, this.game.mapId, bots, pool) : await s.join(code!);
       this.showRoom(room);
       this.q('.mp-server').textContent = '멀티플레이 서버에 연결됨';
       await this.game.startMultiplayer(s);
@@ -298,7 +470,8 @@ export class MultiplayerPanel implements LobbyRoomSource {
         this.offerRejoin();
       }
       if (code === 'not_found' || code === 'full') void this.refreshRooms();
-      if (this.session && !this.session.room) {
+      // No room and no party to keep the connection for: closed.
+      if (this.session && !this.session.room && !this.session.party) {
         this.session.close();
         this.session = null;
       }
@@ -328,11 +501,14 @@ export class MultiplayerPanel implements LobbyRoomSource {
       }
       this.q('.mp-room-code').textContent = room.code;
       this.q('.mp-room-mode').textContent = `${MODE_LABEL[room.mode]} · ${this.game.mapName} · ${room.members.length}/${room.capacity}명`;
+      const pcs = room.members.filter((m) => m.platform === 'pc').length;
+      const phones = room.members.filter((m) => m.platform === 'mobile').length;
+      this.q('.mp-room-pool').textContent = `매칭: ${POOL_LABEL[room.pool ?? 'mixed']} · PC ${pcs} · 모바일 ${phones}`;
       this.showBots(room, room.hostId === me);
       this.q('.mp-members').innerHTML = room.members
         .map((m) => {
           const team = room.mode === 'team' || room.mode === 'duel' ? this.game.teamOf(m.id) : null;
-          return `<li class="${m.id === me ? 'me' : ''}"${team ? ` data-team="${team}"` : ''}>${team ? `<span class="mp-team ${team}">${TEAM_LABEL[team]}</span> ` : ''}${escape(m.name)}${m.id === room.hostId ? ' <span class="mp-host">방장</span>' : ''}${m.id === me ? ' <span class="muted">(나)</span>' : ''}</li>`;
+          return `<li class="${m.id === me ? 'me' : ''}"${team ? ` data-team="${team}"` : ''} data-platform="${m.platform ?? ''}">${team ? `<span class="mp-team ${team}">${TEAM_LABEL[team]}</span> ` : ''}${escape(m.name)}${platformBadge(m)}${m.id === room.hostId ? ' <span class="mp-host">방장</span>' : ''}${m.id === me ? ' <span class="muted">(나)</span>' : ''}</li>`;
         })
         .join('');
     }
@@ -405,11 +581,22 @@ export class MultiplayerPanel implements LobbyRoomSource {
     this.busy = on;
     for (const b of this.el.querySelectorAll<HTMLButtonElement>('.mp-lobby button')) b.disabled = on;
     if (on) this.q('.mp-server').textContent = note;
+    // A party member waits for its leader: the room buttons stay off.
+    else if (this.session?.party) this.showParty(this.session.party);
   }
 
   private error(msg: string): void {
     this.q('.mp-error').textContent = msg;
   }
+}
+
+function platformBadge(m: MemberInfo): string {
+  // After the name (the name stays the text right after the team mark).
+  return m.platform ? ` <span class="mp-platform ${m.platform}">${PLATFORM_LABEL[m.platform]}</span>` : '';
+}
+
+function memberRow(m: MemberInfo, leaderId: string, me: string | null | undefined, leaderLabel: string): string {
+  return `<li class="${m.id === me ? 'me' : ''}" data-platform="${m.platform ?? ''}">${escape(m.name)}${platformBadge(m)}${m.id === leaderId ? ` <span class="mp-host">${leaderLabel}</span>` : ''}${m.id === me ? ' <span class="muted">(나)</span>' : ''}</li>`;
 }
 
 function escape(s: string): string {

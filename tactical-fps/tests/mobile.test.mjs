@@ -415,7 +415,8 @@ test('9, 10: render scale and quality: applied at once and kept; a phone starts 
     assert.deepEqual(
       { ...r.saved },
       // Phase 25 added the touch conveniences to the record: their defaults (all off) saved alongside.
-      { stickX: 0.22, stickY: 0.3, buttonsX: 0.03, buttonsY: 0.12, buttonScale: 1.25, lookSensitivity: 1.6, adsSensitivity: 0.45, opacity: 0.5, aimSmoothing: 0, fireToggle: 0, fireRepeat: 0, minimapLarge: 0, ammoEmphasis: 0, perfPriority: 0 },
+      // Phase 28 added the mobile aim / recoil assist, gyro, left fire and battery saver: their defaults too.
+      { stickX: 0.22, stickY: 0.3, buttonsX: 0.03, buttonsY: 0.12, buttonScale: 1.25, lookSensitivity: 1.6, adsSensitivity: 0.45, opacity: 0.5, aimSmoothing: 0, fireToggle: 0, fireRepeat: 0, minimapLarge: 0, ammoEmphasis: 0, perfPriority: 0, aimAssist: 0.5, recoilAssist: 0.5, gyro: 0, gyroSensitivity: 1, gyroAdsOnly: 0, leftFire: 0, batterySaver: 0, autoSaver: 1 },
     );
     assert.deepEqual(r.css, ['1.25', '0.5', '22%', '12vh']);
     assert.equal(r.slider, '1.6');
@@ -442,6 +443,15 @@ test('9, 10: render scale and quality: applied at once and kept; a phone starts 
       minimapLarge: 0,
       ammoEmphasis: 0,
       perfPriority: 0,
+      // Phase 28 mobile assists and options: their defaults.
+      aimAssist: 0.5,
+      recoilAssist: 0.5,
+      gyro: 0,
+      gyroSensitivity: 1,
+      gyroAdsOnly: 0,
+      leftFire: 0,
+      batterySaver: 0,
+      autoSaver: 1,
     });
     // Garbage in storage: defaults within limits.
     await page.evaluate(() => localStorage.setItem('tactical-fps.touch.v1', JSON.stringify({ buttonScale: 99, opacity: 'x', lookSensitivity: -3 })));

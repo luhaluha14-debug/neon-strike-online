@@ -2,7 +2,8 @@
    Nothing here applies on a PC. Sizes follow --tc-scale (settings), positions the safe area. */
 
 .touch-ui {
-  --u: calc(56px * var(--tc-scale, 1));
+  /* --tc-fit (Phase 28): the default cluster drawn smaller on a screen it would not fit (TouchInput.fitToScreen). */
+  --u: calc(56px * var(--tc-scale, 1) * var(--tc-fit, 1));
   position: fixed;
   inset: 0;
   z-index: 12;
@@ -288,4 +289,69 @@ html.touch.tc-ammo-big .hud.ammo-low .ammo-mag {
 }
 html.touch.tc-ammo-big .hud.ammo-empty .ammo-mag {
   color: #e5484d;
+}
+
+/* Phase 28: the left fire button (thumb on the move side), above the stick's area. */
+.tc-fire2 {
+  --s: calc(var(--u) * 1.2);
+  left: calc(4vw + env(safe-area-inset-left));
+  bottom: calc(46vh + env(safe-area-inset-bottom));
+  border-color: rgba(229, 72, 77, 0.75);
+}
+/* The reload button tells the ammo: low (pulses), empty, reloading (a ring fills). */
+.tc-reload.low {
+  border-color: #e7b04f;
+  animation: tc-pulse 0.9s ease-in-out infinite;
+}
+.tc-reload.empty {
+  border-color: #e5484d;
+  background: rgba(229, 72, 77, 0.35);
+}
+.tc-reload.busy {
+  border-color: transparent;
+  background:
+    radial-gradient(closest-side, rgba(17, 19, 21, 0.7) 78%, transparent 80%),
+    conic-gradient(var(--c-accent, #e8a044) calc(var(--p, 0) * 360deg), rgba(255, 255, 255, 0.18) 0);
+}
+@keyframes tc-pulse {
+  50% {
+    background: rgba(231, 176, 79, 0.35);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tc-reload.low {
+    animation: none;
+    background: rgba(231, 176, 79, 0.3);
+  }
+}
+/* Weapon picker (hold 무기): a row of the loadout's weapons above the button; the lift picks. */
+.tc-picker {
+  position: fixed;
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 8px;
+  background: rgba(10, 12, 15, 0.82);
+  z-index: 2;
+  pointer-events: none;
+}
+.tc-picker[hidden] {
+  display: none;
+}
+.tc-pick {
+  min-width: calc(var(--u) * 1.2);
+  padding: 10px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: #f2f2f0;
+  font: 600 13px / 1.1 var(--font, sans-serif);
+  text-align: center;
+  white-space: nowrap;
+}
+.tc-pick.current {
+  border-color: rgba(255, 255, 255, 0.6);
+}
+.tc-pick.hover {
+  border-color: var(--c-accent, #e8a044);
+  background: rgba(232, 160, 68, 0.35);
 }

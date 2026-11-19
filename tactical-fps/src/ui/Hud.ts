@@ -75,6 +75,8 @@ export class Hud {
       </div>
       <div class="scope" aria-hidden="true"><span class="scope-h"></span><span class="scope-v"></span></div>
       <div class="smoke-veil" aria-hidden="true"></div>
+      <div class="net-status" role="status" hidden><span class="net-bars" aria-hidden="true"><i></i><i></i><i></i></span><span class="net-text"></span></div>
+      <div class="hud-notice" role="status" aria-live="polite" hidden></div>
       <div class="flash-white" aria-hidden="true"></div>
       <div class="vitals">
         <div class="vitals-label">HP</div>
@@ -239,6 +241,42 @@ export class Hud {
   }
 
   /** Brief X around the crosshair when a shot hits a target: red for the head, bigger on a kill. */
+  private noticeTimer: ReturnType<typeof setTimeout> | null = null;
+  private netKey = '';
+
+  /** A short line over the HUD for a few seconds (battery saver switched on, ...). */
+  showToast(text: string, ms = 4000): void {
+    const n = this.root.querySelector<HTMLElement>('.hud-notice')!;
+    n.textContent = text;
+    n.hidden = false;
+    if (this.noticeTimer) clearTimeout(this.noticeTimer);
+    this.noticeTimer = setTimeout(() => (n.hidden = true), ms);
+  }
+
+  /**
+   * Phase 28 network status (online only; null hides it): the round trip to the relay (ms) and how long
+   * ago the host was last heard from (a member: snapshots; the host: null). Written only when it changes.
+   */
+  setNetStatus(s: { rtt: number | null; hostSilentMs: number | null } | null): void {
+    const el = this.root.querySelector<HTMLElement>('.net-status')!;
+    if (!s) {
+      if (!el.hidden) el.hidden = true;
+      this.netKey = '';
+      return;
+    }
+    const stalled = s.hostSilentMs !== null && s.hostSilentMs > 600;
+    const rtt = s.rtt;
+    const level = stalled || rtt === null ? 0 : rtt <= 80 ? 3 : rtt <= 160 ? 2 : 1;
+    const text = stalled ? `방장 응답 지연 ${(s.hostSilentMs! / 1000).toFixed(1)}초` : rtt === null ? '지연 측정 중' : `${Math.round(rtt / 10) * 10} ms`;
+    const key = `${level}|${text}`;
+    if (key === this.netKey) return;
+    this.netKey = key;
+    el.hidden = false;
+    el.dataset.level = String(level);
+    el.classList.toggle('stalled', stalled);
+    el.querySelector('.net-text')!.textContent = text;
+  }
+
   showHitMarker(head: boolean, kill: boolean): void {
     const m = this.hitMarker;
     m.classList.toggle('head', head);

@@ -2,7 +2,7 @@ import type { WeaponCategory } from '../weapons/WeaponDefinition';
 import './menu.css';
 
 import { ACTIONS, bindKey, defaultControls, keyLabel, RESERVED_KEYS, SENSITIVITY_MAX, SENSITIVITY_MIN, type ActionId, type ControlSettings } from '../input/Controls';
-import { defaultTouchSettings, sanitizeTouchSettings, TOUCH_LIMITS, TOUCH_TOGGLES, type TouchSettings } from '../input/TouchSettings';
+import { applyTouchPreset, defaultTouchSettings, sanitizeTouchSettings, TOUCH_LIMITS, TOUCH_PRESETS, TOUCH_TOGGLES, type TouchPresetId, type TouchSettings } from '../input/TouchSettings';
 
 export type MenuPage = 'play' | 'loadout' | 'settings' | 'controls' | 'inventory' | 'shop' | 'missions' | 'multi';
 
@@ -434,14 +434,22 @@ export class MainMenu {
   }
 
   /** Touch controls (phones / tablets): every slider applied at once; `onChange` gets the whole record. */
-  setTouchControls(t: TouchSettings, onChange: (t: TouchSettings) => void): void {
+  setTouchControls(t: TouchSettings, onChange: (t: TouchSettings) => void): () => void {
     const inputs = [...this.root.querySelectorAll<HTMLInputElement>('input[data-touch]')];
     const show = () => {
       for (const el of inputs) {
         const k = el.dataset.touch as keyof TouchSettings;
         el.value = String(t[k]);
         const out = this.root.querySelector<HTMLOutputElement>(`output[data-touch-out="${k}"]`);
-        if (out) out.textContent = k === 'opacity' || k.startsWith('stick') || k.startsWith('buttons') ? `${Math.round(t[k] * 100)}%` : t[k].toFixed(2);
+        if (out)
+          out.textContent =
+            k === 'aimAssist' || k === 'recoilAssist'
+              ? t[k] === 0
+                ? '끔'
+                : `${Math.round(t[k] * 100)}%`
+              : k === 'opacity' || k.startsWith('stick') || k.startsWith('buttons')
+                ? `${Math.round(t[k] * 100)}%`
+                : t[k].toFixed(2);
       }
     };
     for (const el of inputs)
@@ -467,8 +475,30 @@ export class MainMenu {
       showToggles();
       onChange(t);
     };
+    // Presets (Phase 28): a few settings at once, the rest as they are.
+    const preset = this.root.querySelector<HTMLSelectElement>('select[data-touch-preset]')!;
+    this.root.querySelector<HTMLButtonElement>('.touch-preset-apply')!.onclick = () => {
+      Object.assign(t, applyTouchPreset(t, preset.value as TouchPresetId));
+      show();
+      showToggles();
+      onChange(t);
+    };
     show();
     showToggles();
+    return () => {
+      show();
+      showToggles();
+    };
+  }
+
+  /** The gyro's state on this device (settings page). */
+  setGyroStatus(text: string): void {
+    this.root.querySelector('.gyro-status')!.textContent = text;
+  }
+
+  /** What this browser recorded per platform (settings page): counts only, this device only. */
+  setPlatformStats(text: string): void {
+    this.root.querySelector('.platform-stats')!.textContent = text;
   }
 
   /** 버튼 배치 편집: the 편집 button, and whether a layout of the player's own is in use. */
@@ -837,6 +867,31 @@ function controlsHtml(): string {
       ${touchToggle('minimapLarge', '미니맵 크게', '')}
       ${touchToggle('ammoEmphasis', '탄약 표시 강조', '탄약 숫자를 크게, 부족하면 색으로 표시합니다.')}
       ${touchToggle('perfPriority', '프레임 안정 우선', '탄피·총구 연기·총구 조명 같은 장식 효과를 끕니다. 판정·정보 표시는 그대로입니다.')}
+      ${touchToggle('leftFire', '왼쪽 발사 버튼', '이동 쪽 엄지로도 쏠 수 있게 왼쪽에 발사 버튼을 하나 더 둡니다(버튼 배치 편집으로 옮길 수 있음).')}
+      ${touchToggle('batterySaver', '배터리 절약', '30 FPS, 장식 효과 끔, 낮은 해상도로 발열과 배터리 사용을 줄입니다.')}
+      ${touchToggle('autoSaver', '배터리가 적으면 자동 절약', '배터리 20% 이하·충전 중이 아닐 때 배터리 절약을 켭니다(브라우저가 배터리 정보를 줄 때만).')}
+      <h2 class="section-title">모바일 조준 보조</h2>
+      <p class="field-hint">터치 조작에만 적용됩니다(PC 마우스, PC 전용 방에는 없음). 자동 조준·자동 사격이 아니며, 공격력·연사·판정은 PC와 같습니다.</p>
+      <div class="field">
+        <span class="field-label">모바일 프리셋</span>
+        <span class="range-row">
+          <select class="select" data-touch-preset>
+            ${Object.entries(TOUCH_PRESETS)
+              .map(([id, p]) => `<option value="${id}">${p.label}</option>`)
+              .join('')}
+          </select>
+          <button type="button" class="btn touch-preset-apply">적용</button>
+        </span>
+        <span class="field-hint">감도·조준 보조·효과 몇 가지를 한 번에 정합니다. 나머지 설정은 그대로입니다.</span>
+      </div>
+      ${touchRange('aimAssist', '조준 보정', 0.05, '보이는 적 근처에서 화면을 끌 때만 조금 느려지고 살짝 당겨집니다. 손을 떼면 조준이 움직이지 않고, 화면 밖·벽·연막 뒤의 적에는 없습니다.')}
+      ${touchRange('recoilAssist', '반동 보정', 0.05, '무기별 반동 모양은 그대로, 시점이 튀는 크기만 최대 35%까지 줄입니다. 반동이 없어지지는 않습니다.')}
+      ${touchToggle('gyro', '자이로 조준', '휴대폰을 돌려 시점을 돌립니다(손가락 조작과 함께). 센서가 없거나 허용하지 않으면 터치 조작만 씁니다.')}
+      <p class="field-hint gyro-status"></p>
+      ${touchRange('gyroSensitivity', '자이로 감도', 0.05)}
+      ${touchToggle('gyroAdsOnly', '조준 중에만 자이로', '조준(ADS·스코프) 버튼을 켠 동안에만 자이로가 작동합니다.')}
+      <h2 class="section-title">플랫폼별 기록 (이 기기)</h2>
+      <p class="field-hint platform-stats"></p>
       <button type="button" class="btn touch-reset">터치 조작 초기화</button>
     </div>
     <div class="pc-controls">

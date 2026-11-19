@@ -22,6 +22,34 @@ export function roomBots(mode: RoomMode, requested: boolean | undefined): boolea
   return mode !== 'duel' && requested !== false;
 }
 
+/**
+ * Phase 28 crossplay. The platform a player plays on is the controls it uses (keyboard + mouse = 'pc',
+ * touch = 'mobile'); the client says which, the relay accepts only these values. A room's pool says who
+ * may be in it: everyone ('mixed', the default), PC players only, or mobile players only.
+ */
+export type Platform = 'pc' | 'mobile';
+export const PLATFORMS: readonly Platform[] = ['pc', 'mobile'];
+export type MatchPool = 'mixed' | 'pc' | 'mobile';
+export const POOLS: readonly MatchPool[] = ['mixed', 'pc', 'mobile'];
+/** Players per party (one team of a 5대5). */
+export const PARTY_MAX = 5;
+/** Party codes are one character longer than room codes (never mistaken for one). */
+export const PARTY_CODE_LENGTH = 6;
+
+/** May a player on `platform` be in a room of `pool`? */
+export function poolAllows(pool: MatchPool, platform: Platform): boolean {
+  return pool === 'mixed' || pool === platform;
+}
+
+/**
+ * The pool a group (a party, or one player) gets into for `requested`: a group of PC and mobile players
+ * always plays in the mixed pool; otherwise the requested pool, if it allows the group's platform (null: not).
+ */
+export function groupPool(requested: MatchPool, platforms: readonly Platform[]): MatchPool | null {
+  if (new Set(platforms).size > 1) return 'mixed';
+  return platforms.every((p) => poolAllows(requested, p)) ? requested : null;
+}
+
 export const NAME_MAX = 16;
 /** Room codes: 5 characters without look-alikes (0/O, 1/I/L). */
 export const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -32,6 +60,15 @@ export const MAX_MESSAGE = 32 * 1024;
 export interface MemberInfo {
   id: string;
   name: string;
+  /** Phase 28 (absent from an older relay: unknown). */
+  platform?: Platform;
+}
+
+/** A party: players who enter rooms together (the leader picks the room). */
+export interface PartyInfo {
+  code: string;
+  leaderId: string;
+  members: MemberInfo[];
 }
 
 export interface RoomInfo {
@@ -46,6 +83,8 @@ export interface RoomInfo {
    * Absent from an older relay: bots, as before.
    */
   bots?: boolean;
+  /** Who may be in it (Phase 28; absent from an older relay: everyone). */
+  pool?: MatchPool;
 }
 
 /** A room in the public list (`GET /mp/rooms`): counts only, no player names. */
@@ -56,14 +95,24 @@ export interface RoomSummary {
   players: number;
   capacity: number;
   bots?: boolean;
+  pool?: MatchPool;
 }
 
 /** Client → relay. */
 export type ClientMessage =
-  | { t: 'hello'; v: number; name: string }
-  /** `bots`: for a room this creates (an existing room keeps its own); absent = bots. */
-  | { t: 'quick'; mode: RoomMode; map: string; bots?: boolean }
-  | { t: 'create'; mode: RoomMode; map: string; bots?: boolean }
+  /** `platform`: absent = 'pc' (an older client: keyboard and mouse). */
+  | { t: 'hello'; v: number; name: string; platform?: Platform }
+  /**
+   * `bots`: for a room this creates (an existing room keeps its own); absent = bots. `pool`: the matching
+   * pool, absent = 'mixed'. In a party only the leader may send these and `join`: the whole party goes.
+   */
+  | { t: 'quick'; mode: RoomMode; map: string; bots?: boolean; pool?: MatchPool }
+  | { t: 'create'; mode: RoomMode; map: string; bots?: boolean; pool?: MatchPool }
+  /** The controls changed (outside a room only: a room keeps the platform each player entered with). */
+  | { t: 'platform'; platform: Platform }
+  | { t: 'party_create' }
+  | { t: 'party_join'; code: string }
+  | { t: 'party_leave' }
   | { t: 'join'; code: string }
   | { t: 'leave' }
   /** Host only: the map the room plays now (after a map change). */
@@ -74,7 +123,7 @@ export type ClientMessage =
   | { t: 'relay'; to?: string; d: unknown }
   | { t: 'ping'; n: number };
 
-export type MpError = 'version' | 'name' | 'full' | 'not_found' | 'bad_request' | 'rate' | 'server_full' | 'not_host' | 'no_room';
+export type MpError = 'version' | 'name' | 'full' | 'not_found' | 'bad_request' | 'rate' | 'server_full' | 'not_host' | 'no_room' | 'platform' | 'party_leader' | 'party_not_found' | 'party_full';
 
 /** Relay → client. */
 export type ServerMessage =
@@ -86,6 +135,8 @@ export type ServerMessage =
   /** The previous host left: `id` hosts from now on (the match starts over). */
   | { t: 'host'; id: string }
   | { t: 'relay'; from: string; d: unknown }
+  /** The party this player is in now (null: none: left, or never in one). */
+  | { t: 'party'; party: PartyInfo | null }
   | { t: 'error'; error: MpError }
   | { t: 'pong'; n: number };
 
@@ -96,12 +147,19 @@ export function cleanName(raw: unknown): string | null {
   return s.length ? s : null;
 }
 
-export function validCode(raw: unknown): string | null {
+export function validCode(raw: unknown, length = CODE_LENGTH): string | null {
   if (typeof raw !== 'string') return null;
   const s = raw.trim().toUpperCase();
-  if (s.length !== CODE_LENGTH || [...s].some((c) => !CODE_ALPHABET.includes(c))) return null;
+  if (s.length !== length || [...s].some((c) => !CODE_ALPHABET.includes(c))) return null;
   return s;
 }
+
+export function validPartyCode(raw: unknown): string | null {
+  return validCode(raw, PARTY_CODE_LENGTH);
+}
+
+export const PLATFORM_LABEL: Record<Platform, string> = { pc: 'PC', mobile: '모바일' };
+export const POOL_LABEL: Record<MatchPool, string> = { mixed: '통합 (PC + 모바일)', pc: 'PC 전용', mobile: '모바일 전용' };
 
 export function mpErrorMessage(e: MpError | 'network' | 'closed'): string {
   switch (e) {
@@ -123,6 +181,14 @@ export function mpErrorMessage(e: MpError | 'network' | 'closed'): string {
       return '방장만 할 수 있습니다.';
     case 'no_room':
       return '방에 들어가 있지 않습니다.';
+    case 'platform':
+      return '이 매칭에 참가할 수 없는 플랫폼입니다 (PC 전용 / 모바일 전용 방, 또는 방 안에서 조작 방식 변경).';
+    case 'party_leader':
+      return '파티에서는 파티장만 방을 고를 수 있습니다.';
+    case 'party_not_found':
+      return '그 코드의 파티가 없습니다.';
+    case 'party_full':
+      return `파티가 가득 찼습니다 (최대 ${PARTY_MAX}명).`;
     case 'network':
       return '멀티플레이 서버에 연결하지 못했습니다. (무료 서버는 처음 접속할 때 깨어나는 데 1분 정도 걸릴 수 있습니다.)';
     case 'closed':
