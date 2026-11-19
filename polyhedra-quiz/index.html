@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>정다면체 퀴즈</title>
+<style>
+  :root{
+    --bg:#fafaf7; --card:#ffffff; --ink:#22252b; --muted:#6b7078; --line:#e3e1da;
+    --accent:#3b7a3a; --accent-soft:#e9f3e3; --good:#2e8a4f; --good-soft:#e3f5ea; --bad:#c2453b; --bad-soft:#fbe7e5;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Pretendard","Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif;line-height:1.5}
+  header{background:#fff;border-bottom:3px solid #9cc56b;padding:14px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  header h1{margin:0;font-size:22px;letter-spacing:-.5px}
+  .badge{background:var(--accent);color:#fff;border-radius:999px;padding:3px 12px;font-weight:700;font-size:14px}
+  nav{margin-left:auto;display:flex;gap:6px}
+  nav button{border:1px solid var(--line);background:#fff;border-radius:8px;padding:7px 14px;font-size:15px;cursor:pointer;font-family:inherit}
+  nav button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  main{max-width:980px;margin:0 auto;padding:20px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px}
+  .hidden{display:none!important}
+
+  /* setup */
+  .setup h2{margin:0 0 6px;font-size:20px}
+  .setup p{margin:0 0 14px;color:var(--muted)}
+  .types{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px;margin-bottom:16px}
+  .types label{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;cursor:pointer;background:#fff;font-size:15px}
+  .types input{width:18px;height:18px;accent-color:var(--accent)}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  select{font-family:inherit;font-size:15px;padding:7px 10px;border-radius:8px;border:1px solid var(--line)}
+  .btn{background:var(--accent);color:#fff;border:none;border-radius:10px;padding:11px 22px;font-size:16px;font-weight:700;cursor:pointer;font-family:inherit}
+  .btn.ghost{background:#fff;color:var(--accent);border:1.5px solid var(--accent)}
+  .btn:disabled{opacity:.4;cursor:default}
+
+  /* quiz */
+  .progress{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;color:var(--muted);font-size:15px}
+  .bar{height:6px;background:#eee;border-radius:3px;overflow:hidden;margin-bottom:16px}
+  .bar>div{height:100%;background:#9cc56b;transition:width .3s}
+  .qtext{font-size:21px;font-weight:700;margin:0 0 14px;letter-spacing:-.3px}
+  .stage{display:flex;justify-content:center;align-items:center;min-height:260px;background:#fcfcfa;border:1px dashed var(--line);border-radius:12px;margin-bottom:16px;position:relative}
+  .stage canvas{touch-action:none;cursor:grab}
+  .stage .tip{position:absolute;bottom:6px;right:10px;font-size:12px;color:#9a9ea5}
+  .stage svg{max-width:100%;height:260px}
+  .opts{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .opt{border:1.5px solid var(--line);background:#fff;border-radius:12px;padding:14px;font-size:18px;cursor:pointer;font-family:inherit;text-align:center;transition:border-color .15s,background .15s}
+  .opt:hover:not(:disabled){border-color:var(--accent);background:var(--accent-soft)}
+  .opt:disabled{cursor:default}
+  .opt.correct{border-color:var(--good);background:var(--good-soft)}
+  .opt.wrong{border-color:var(--bad);background:var(--bad-soft)}
+  .opt.net svg{width:100%;height:150px;display:block}
+  .opt .num{display:inline-block;width:26px;height:26px;border-radius:50%;background:#f0efe9;font-size:14px;line-height:26px;margin-right:6px;color:var(--muted)}
+  .feedback{margin-top:14px;border-radius:12px;padding:14px 16px;font-size:16px}
+  .feedback.good{background:var(--good-soft);border:1px solid #b9e2c6}
+  .feedback.bad{background:var(--bad-soft);border:1px solid #f1c3be}
+  .feedback b{font-size:17px}
+  .next{margin-top:14px;text-align:right}
+
+  /* result */
+  .result{text-align:center}
+  .score{font-size:56px;font-weight:800;color:var(--accent);margin:6px 0}
+  .wronglist{text-align:left;margin:18px auto;max-width:620px}
+  .wronglist li{margin-bottom:6px}
+
+  /* study */
+  .study{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+  .scard{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px;text-align:center}
+  .scard h3{margin:0 0 4px;font-size:19px}
+  .scard canvas{touch-action:none;cursor:grab}
+  .scard svg{width:100%;height:150px}
+  .scard table{width:100%;border-collapse:collapse;font-size:15px;margin-top:6px}
+  .scard td{border-top:1px solid #eee;padding:5px 4px}
+  .scard td:first-child{color:var(--muted);text-align:left}
+  .scard td:last-child{text-align:right;font-weight:700}
+  .note{margin-top:16px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px 18px;font-size:15px}
+  .note h3{margin:0 0 6px;font-size:17px}
+  .note p{margin:4px 0}
+
+  @media (max-width:560px){
+    .opts{grid-template-columns:1fr}
+    .qtext{font-size:18px}
+    nav{margin-left:0}
+  }
+</style>
+</head>
+<body>
+<header>
+  <span class="badge">개념 3</span>
+  <h1>정다면체 퀴즈</h1>
+  <nav>
+    <button id="navQuiz" class="on">퀴즈</button>
+    <button id="navStudy">개념 정리</button>
+  </nav>
+</header>
+
+<main>
+  <!-- 설정 -->
+  <section id="setup" class="card setup">
+    <h2>문제 유형 고르기</h2>
+    <p>원하는 유형을 고르고 시작하세요. 입체도형은 마우스나 손가락으로 끌어서 돌려 볼 수 있어요.</p>
+    <div class="types" id="types"></div>
+    <div class="row">
+      <label>문제 수
+        <select id="count">
+          <option>5</option><option selected>10</option><option>15</option><option>20</option>
+        </select>
+      </label>
+      <button class="btn" id="startBtn">시작하기</button>
+    </div>
+  </section>
+
+  <!-- 퀴즈 -->
+  <section id="quiz" class="card hidden">
+    <div class="progress"><span id="qnum"></span><span id="qscore"></span></div>
+    <div class="bar"><div id="barFill"></div></div>
+    <p class="qtext" id="qtext"></p>
+    <div class="stage" id="stage"></div>
+    <div class="opts" id="opts"></div>
+    <div id="feedback"></div>
+    <div class="next"><button class="btn hidden" id="nextBtn">다음 문제 →</button></div>
+  </section>
+
+  <!-- 결과 -->
+  <section id="result" class="card result hidden">
+    <h2>결과</h2>
+    <div class="score" id="finalScore"></div>
+    <p id="finalMsg"></p>
+    <ul class="wronglist" id="wrongList"></ul>
+    <div class="row" style="justify-content:center">
+      <button class="btn" id="retryBtn">같은 설정으로 다시</button>
+      <button class="btn ghost" id="setupBtn">유형 다시 고르기</button>
+    </div>
+  </section>
+
+  <!-- 개념 정리 -->
+  <section id="study" class="hidden">
+    <div class="study" id="studyGrid"></div>
+    <div class="note">
+      <h3>참고</h3>
+      <p>정다면체: 모든 면이 합동인 정다각형이고, 각 꼭짓점에 모인 면의 개수가 모두 같은 다면체 (두 조건 중 하나만 만족하면 정다면체가 아님)</p>
+      <p>① 한 꼭짓점에서 3개 이상의 면이 만나야 한다. ② 한 꼭짓점에 모인 각의 크기의 합이 360°보다 작아야 한다.</p>
+      <p>→ 정다면체의 면이 될 수 있는 다각형은 정삼각형, 정사각형, 정오각형뿐이다. 정육각형은 60°가 아니라 120°라 3개만 모여도 360°가 되어 입체가 안 됨.</p>
+      <p>확인: (꼭짓점 수) − (모서리 수) + (면의 수) = 2 &nbsp;예) 정이십면체 12 − 30 + 20 = 2</p>
+    </div>
+  </section>
+</main>
+
+<script>
+/* ===================== 데이터 ===================== */
+const PHI = (1 + Math.sqrt(5)) / 2;
+const SOLIDS = [
+  {key:'tetra', name:'정사면체',   face:'정삼각형', vf:3, F:4,  E:6,  V:4,  color:[243,220,154], angle:'60° × 3 = 180°'},
+  {key:'cube',  name:'정육면체',   face:'정사각형', vf:3, F:6,  E:12, V:8,  color:[205,231,168], angle:'90° × 3 = 270°'},
+  {key:'octa',  name:'정팔면체',   face:'정삼각형', vf:4, F:8,  E:12, V:6,  color:[240,190,200], angle:'60° × 4 = 240°'},
+  {key:'dodeca',name:'정십이면체', face:'정오각형', vf:3, F:12, E:30, V:20, color:[201,182,228], angle:'108° × 3 = 324°'},
+  {key:'icosa', name:'정이십면체', face:'정삼각형', vf:5, F:20, E:30, V:12, color:[184,202,240], angle:'60° × 5 = 300°'},
+];
+const BY = Object.fromEntries(SOLIDS.map(s => [s.key, s]));
+
+/* ===================== 3D 기하 ===================== */
+function rawVerts(key){
+  const v = [];
+  const pm = [1,-1];
+  if(key==='tetra'){ v.push([1,1,1],[1,-1,-1],[-1,1,-1],[-1,-1,1]); }
+  if(key==='cube'){ for(const a of pm)for(const b of pm)for(const c of pm) v.push([a,b,c]); }
+  if(key==='octa'){ for(const a of pm){ v.push([a,0,0],[0,a,0],[0,0,a]); } }
+  if(key==='icosa'){ for(const a of pm)for(const b of pm){ v.push([0,a,b*PHI],[a,b*PHI,0],[a*PHI,0,b]); } }
+  if(key==='dodeca'){
+    for(const a of pm)for(const b of pm)for(const c of pm) v.push([a,b,c]);
+    for(const a of pm)for(const b of pm){ v.push([0,a/PHI,b*PHI],[a/PHI,b*PHI,0],[a*PHI,0,b/PHI]); }
+  }
+  return v.map(p => { const L = Math.hypot(...p); return p.map(x => x/L); });
+}
+const sub=(a,b)=>a.map((x,i)=>x-b[i]);
+const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+const norm=a=>{const L=Math.hypot(...a);return a.map(x=>x/L);};
+
+// 볼록다면체의 면을 자동으로 찾기 (세 점이 만드는 평면 중 모든 점이 한쪽에 있는 것)
+function findFaces(V){
+  const faces=[], seen=new Set(), eps=1e-6;
+  for(let i=0;i<V.length;i++)for(let j=i+1;j<V.length;j++)for(let k=j+1;k<V.length;k++){
+    let n = cross(sub(V[j],V[i]), sub(V[k],V[i]));
+    if(Math.hypot(...n)<eps) continue;
+    n = norm(n);
+    let d = dot(n,V[i]);
+    if(d<0){ n=n.map(x=>-x); d=-d; }
+    let ok=true; const on=[];
+    for(let m=0;m<V.length;m++){
+      const s = dot(n,V[m])-d;
+      if(s>eps){ ok=false; break; }
+      if(Math.abs(s)<eps) on.push(m);
+    }
+    if(!ok) continue;
+    const key = on.join(',');
+    if(seen.has(key)) continue;
+    seen.add(key);
+    const c = [0,1,2].map(t => on.reduce((s,m)=>s+V[m][t],0)/on.length);
+    const u = norm(sub(V[on[0]],c)), w = cross(n,u);
+    on.sort((a,b)=>{
+      const pa=sub(V[a],c), pb=sub(V[b],c);
+      return Math.atan2(dot(pa,w),dot(pa,u)) - Math.atan2(dot(pb,w),dot(pb,u));
+    });
+    faces.push({idx:on, n});
+  }
+  return faces;
+}
+for(const s of SOLIDS){ s.verts = rawVerts(s.key); s.faces = findFaces(s.verts); }
+
+/* ===================== 3D 뷰어 (캔버스) ===================== */
+const viewers = [];
+function makeViewer(container, key, size){
+  const dpr = window.devicePixelRatio || 1;
+  const cv = document.createElement('canvas');
+  cv.width = size*dpr; cv.height = size*dpr;
+  cv.style.width = size+'px'; cv.style.height = size+'px';
+  container.appendChild(cv);
+  const vw = {cv, ctx:cv.getContext('2d'), key, size, dpr, ax:-0.45, ay:0.6, drag:null};
+  vw.ctx.scale(dpr,dpr);
+  cv.addEventListener('pointerdown', e => { vw.drag={x:e.clientX,y:e.clientY}; cv.setPointerCapture(e.pointerId); cv.style.cursor='grabbing'; });
+  cv.addEventListener('pointermove', e => {
+    if(!vw.drag) return;
+    vw.ay += (e.clientX-vw.drag.x)*0.01; vw.ax += (e.clientY-vw.drag.y)*0.01;
+    vw.drag={x:e.clientX,y:e.clientY};
+  });
+  const up = () => { vw.drag=null; cv.style.cursor='grab'; };
+  cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+  viewers.push(vw);
+  return vw;
+}
+function drawViewer(vw){
+  const s = BY[vw.key], {ctx,size} = vw;
+  const cx=Math.cos(vw.ax), sx=Math.sin(vw.ax), cy=Math.cos(vw.ay), sy=Math.sin(vw.ay);
+  const rot = p => { const x1=p[0]*cy+p[2]*sy, z1=-p[0]*sy+p[2]*cy; return [x1, p[1]*cx-z1*sx, p[1]*sx+z1*cx]; };
+  const R = s.verts.map(rot);
+  const scale = size*0.40*(s.key==='tetra'?1.1:1);
+  const P = R.map(p => [size/2+p[0]*scale, size/2-p[1]*scale]);
+  ctx.clearRect(0,0,size,size);
+  const front=[], back=[];
+  for(const f of s.faces){ const nz = rot(f.n)[2]; (nz>0?front:back).push({f,nz}); }
+  // 보이지 않는 모서리: 점선
+  ctx.setLineDash([4,4]); ctx.strokeStyle='#8a8f96'; ctx.lineWidth=1.1;
+  for(const {f} of back){ ctx.beginPath(); f.idx.forEach((i,k)=>k?ctx.lineTo(...P[i]):ctx.moveTo(...P[i])); ctx.closePath(); ctx.stroke(); }
+  // 보이는 면
+  ctx.setLineDash([]);
+  const [r,g,b] = s.color;
+  for(const {f,nz} of front){
+    const k = 0.78 + 0.22*nz;
+    ctx.fillStyle = `rgba(${Math.round(r*k)},${Math.round(g*k)},${Math.round(b*k)},0.62)`;
+    ctx.beginPath(); f.idx.forEach((i,j)=>j?ctx.lineTo(...P[i]):ctx.moveTo(...P[i])); ctx.closePath(); ctx.fill();
+  }
+  ctx.strokeStyle='#2b2e33'; ctx.lineWidth=1.6; ctx.lineJoin='round';
+  for(const {f} of front){ ctx.beginPath(); f.idx.forEach((i,j)=>j?ctx.lineTo(...P[i]):ctx.moveTo(...P[i])); ctx.closePath(); ctx.stroke(); }
+}
+let last = performance.now();
+function loop(t){
+  const dt = Math.min(50, t-last); last = t;
+  for(let i=viewers.length-1;i>=0;i--){
+    const vw = viewers[i];
+    if(!document.body.contains(vw.cv)){ viewers.splice(i,1); continue; }
+    if(!vw.drag) vw.ay += dt*0.0006;
+    drawViewer(vw);
+  }
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+/* ===================== 전개도 (SVG) ===================== */
+const H = Math.sqrt(3)/2;
+function triStrip(n){
+  const T=[];
+  for(let i=0;i<n;i++){
+    if(i%2===0){ const x=i/2; T.push([[x,0],[x+1,0],[x+.5,H]]); }
+    else { const x=(i-1)/2+.5; T.push([[x,H],[x+1,H],[x+.5,0]]); }
+  }
+  return T;
+}
+function reflectPt(p,a,b){
+  const d=[b[0]-a[0],b[1]-a[1]], t=((p[0]-a[0])*d[0]+(p[1]-a[1])*d[1])/(d[0]*d[0]+d[1]*d[1]);
+  const q=[a[0]+t*d[0],a[1]+t*d[1]];
+  return [2*q[0]-p[0],2*q[1]-p[1]];
+}
+const reflectPoly=(P,i)=>P.map(p=>reflectPt(p,P[i],P[(i+1)%P.length]));
+function netPolys(key){
+  if(key==='tetra'){
+    const A=[0,0],B=[2,0],C=[1,2*H],ab=[1,0],ac=[.5,H],bc=[1.5,H];
+    return [[A,ab,ac],[ab,B,bc],[ac,bc,C],[ab,bc,ac]];
+  }
+  if(key==='cube'){
+    const sq=(x,y)=>[[x,y],[x+1,y],[x+1,y+1],[x,y+1]];
+    return [sq(1,0),sq(0,1),sq(1,1),sq(2,1),sq(3,1),sq(1,2)];
+  }
+  if(key==='octa'){
+    const T=triStrip(6);
+    T.push([[.5,H],[1.5,H],[1,2*H]]);
+    T.push([[2,0],[3,0],[2.5,-H]]);
+    return T;
+  }
+  if(key==='icosa'){
+    const T=triStrip(10);
+    for(let i=1;i<10;i+=2){ const x=(i-1)/2+.5; T.push([[x,H],[x+1,H],[x+.5,2*H]]); }
+    for(let i=0;i<10;i+=2){ const x=i/2; T.push([[x,0],[x+1,0],[x+.5,-H]]); }
+    return T;
+  }
+  if(key==='dodeca'){
+    const r = 1/(2*Math.sin(Math.PI/5));
+    const C=[...Array(5)].map((_,k)=>{const a=Math.PI/2+k*2*Math.PI/5; return [r*Math.cos(a), r*Math.sin(a)];});
+    const flower=[C, ...[0,1,2,3,4].map(i=>reflectPoly(C,i))];
+    const pet=flower[1], M=[(pet[2][0]+pet[3][0])/2,(pet[2][1]+pet[3][1])/2];
+    const flower2=flower.map(P=>P.map(p=>[2*M[0]-p[0],2*M[1]-p[1]]));
+    return [...flower, ...flower2];
+  }
+}
+const NETS = {};
+for(const s of SOLIDS) NETS[s.key]=netPolys(s.key);
+
+function netSVG(key){
+  const polys = NETS[key], s = BY[key];
+  let minx=1e9,miny=1e9,maxx=-1e9,maxy=-1e9;
+  polys.flat().forEach(([x,y])=>{minx=Math.min(minx,x);maxx=Math.max(maxx,x);miny=Math.min(miny,y);maxy=Math.max(maxy,y);});
+  const pad=.15, w=maxx-minx+2*pad, h=maxy-miny+2*pad;
+  const tx=p=>[(p[0]-minx+pad).toFixed(4), (maxy-p[1]+pad).toFixed(4)];
+  const edges=new Map();
+  const pk=p=>p[0].toFixed(3)+','+p[1].toFixed(3);
+  for(const P of polys) for(let i=0;i<P.length;i++){
+    const a=P[i], b=P[(i+1)%P.length], k=[pk(a),pk(b)].sort().join('|');
+    const e=edges.get(k); e?e.c++:edges.set(k,{a,b,c:1});
+  }
+  const [r,g,b]=s.color;
+  let out=`<svg viewBox="0 0 ${w.toFixed(3)} ${h.toFixed(3)}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">`;
+  for(const P of polys) out+=`<polygon points="${P.map(p=>tx(p).join(',')).join(' ')}" fill="rgb(${r},${g},${b})" fill-opacity="0.75"/>`;
+  for(const {a,b,c} of edges.values()){
+    const [x1,y1]=tx(a),[x2,y2]=tx(b);
+    out+= c>1
+      ? `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#555" stroke-width="1.1" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"/>`
+      : `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#222" stroke-width="1.7" stroke-linecap="round" vector-effect="non-scaling-stroke"/>`;
+  }
+  return out+'</svg>';
+}
+
+/* ===================== 문제 유형 ===================== */
+const TYPES = [
+  {id:'name',   label:'겨냥도 → 이름'},
+  {id:'face',   label:'면의 모양'},
+  {id:'vf',     label:'한 꼭짓점에 모인 면의 개수'},
+  {id:'F',      label:'면의 개수'},
+  {id:'E',      label:'모서리의 개수'},
+  {id:'V',      label:'꼭짓점의 개수'},
+  {id:'net2name', label:'전개도 → 이름'},
+  {id:'name2net', label:'이름 → 전개도 고르기'},
+];
+const shuffle = a => { a=[...a]; for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} return a; };
+const pick = a => a[Math.floor(Math.random()*a.length)];
+const LABEL = {F:'면의 개수', E:'모서리의 개수', V:'꼭짓점의 개수', vf:'한 꼭짓점에 모인 면의 개수'};
+
+function numOptions(ans, pool){
+  return shuffle([ans, ...shuffle(pool.filter(x=>x!==ans)).slice(0,3)]);
+}
+function makeQuestion(type, s){
+  const q = {type, key:s.key};
+  if(type==='name'){
+    q.text='이 겨냥도의 정다면체는 무엇일까요?';
+    q.stage='3d'; q.options=shuffle(SOLIDS.map(x=>x.name)); q.answer=s.name;
+    q.explain=`${s.name}: 면의 모양 ${s.face}, 한 꼭짓점에 모인 면 ${s.vf}개, 면 ${s.F}개`;
+  } else if(type==='face'){
+    q.text=`${s.name}의 면의 모양은?`;
+    q.stage='3d'; q.options=['정삼각형','정사각형','정오각형','정육각형']; q.answer=s.face;
+    q.explain=`${s.name}의 면은 모두 합동인 ${s.face}입니다. (정육각형은 정다면체의 면이 될 수 없어요.)`;
+  } else if(type==='vf'){
+    q.text=`${s.name}의 한 꼭짓점에 모인 면의 개수는?`;
+    q.stage='3d'; q.options=['3','4','5','6']; q.answer=String(s.vf);
+    q.explain=`${s.face} ${s.vf}개가 모입니다. 한 꼭짓점의 각의 합: ${s.angle} (< 360°)`;
+  } else if(type==='F'||type==='E'||type==='V'){
+    q.text=`${s.name}의 ${LABEL[type]}는?`;
+    q.stage='3d'; q.options=numOptions(s[type],[4,6,8,12,20,30]).map(String); q.answer=String(s[type]);
+    q.explain=`${s.name}: 면 ${s.F}, 모서리 ${s.E}, 꼭짓점 ${s.V} → 꼭짓점 − 모서리 + 면 = ${s.V} − ${s.E} + ${s.F} = 2`;
+  } else if(type==='net2name'){
+    q.text='이 전개도로 만들어지는 정다면체는?';
+    q.stage='net'; q.options=shuffle(SOLIDS.map(x=>x.name)); q.answer=s.name;
+    q.explain=`${s.face} ${s.F}개로 이루어진 전개도 → ${s.name}`;
+  } else if(type==='name2net'){
+    q.text=`${s.name}의 전개도를 고르세요.`;
+    q.stage='3d';
+    const others=shuffle(SOLIDS.filter(x=>x.key!==s.key)).slice(0,3).map(x=>x.key);
+    q.options=shuffle([s.key,...others]); q.answer=s.key; q.netOpts=true;
+    q.explain=`${s.name}의 전개도는 ${s.face} ${s.F}개로 이루어져 있어요.`;
+  }
+  return q;
+}
+function buildRound(types, n){
+  const qs=[]; let lastKey=null, lastType=null;
+  while(qs.length<n){
+    const t=pick(types);
+    let s=pick(SOLIDS);
+    if(s.key===lastKey && t===lastType) continue;
+    qs.push(makeQuestion(t,s)); lastKey=s.key; lastType=t;
+  }
+  return qs;
+}
+
+/* ===================== 화면 제어 ===================== */
+const $ = id => document.getElementById(id);
+const typesBox = $('types');
+TYPES.forEach(t=>{
+  typesBox.insertAdjacentHTML('beforeend',`<label><input type="checkbox" value="${t.id}" checked> ${t.label}</label>`);
+});
+typesBox.addEventListener('change',()=>{ $('startBtn').disabled = !selectedTypes().length; });
+const selectedTypes = () => [...typesBox.querySelectorAll('input:checked')].map(i=>i.value);
+
+let round=[], cur=0, score=0, wrongs=[];
+function show(id){ ['setup','quiz','result','study'].forEach(x=>$(x).classList.toggle('hidden',x!==id)); }
+
+function startRound(){
+  round = buildRound(selectedTypes(), +$('count').value);
+  cur=0; score=0; wrongs=[];
+  show('quiz'); renderQ();
+}
+function renderQ(){
+  const q=round[cur], s=BY[q.key];
+  $('qnum').textContent=`문제 ${cur+1} / ${round.length}`;
+  $('qscore').textContent=`점수 ${score}`;
+  $('barFill').style.width=(cur/round.length*100)+'%';
+  $('qtext').textContent=q.text;
+  const stage=$('stage'); stage.innerHTML='';
+  if(q.stage==='3d'){
+    makeViewer(stage, q.key, Math.min(280, stage.clientWidth-20 || 280));
+    stage.insertAdjacentHTML('beforeend','<span class="tip">끌어서 돌려보기</span>');
+  } else {
+    stage.innerHTML=netSVG(q.key);
+  }
+  const opts=$('opts'); opts.innerHTML='';
+  q.options.forEach((o,i)=>{
+    const b=document.createElement('button');
+    b.className='opt'+(q.netOpts?' net':'');
+    b.dataset.val=o;
+    b.innerHTML = q.netOpts ? `<span class="num">${i+1}</span>${netSVG(o)}` : `<span class="num">${i+1}</span>${o}`;
+    b.onclick=()=>answer(b,o);
+    opts.appendChild(b);
+  });
+  $('feedback').innerHTML=''; $('nextBtn').classList.add('hidden');
+}
+function answer(btn,val){
+  const q=round[cur];
+  const btns=[...$('opts').children];
+  btns.forEach(b=>b.disabled=true);
+  const ok = val===q.answer;
+  btns.find(b=>b.dataset.val===q.answer).classList.add('correct');
+  if(ok){ score++; } else { btn.classList.add('wrong'); wrongs.push(q); }
+  $('qscore').textContent=`점수 ${score}`;
+  const ansText = q.netOpts ? `${q.options.indexOf(q.answer)+1}번` : q.answer;
+  $('feedback').innerHTML=`<div class="feedback ${ok?'good':'bad'}"><b>${ok?'정답이에요!':'아쉬워요. 정답은 '+ansText}</b><br>${q.explain}</div>`;
+  $('nextBtn').textContent = cur+1<round.length ? '다음 문제 →' : '결과 보기';
+  $('nextBtn').classList.remove('hidden');
+  $('nextBtn').focus();
+}
+$('nextBtn').onclick=()=>{
+  cur++;
+  if(cur<round.length) renderQ(); else showResult();
+};
+function showResult(){
+  show('result');
+  const n=round.length, pct=Math.round(score/n*100);
+  $('finalScore').textContent=`${score} / ${n}`;
+  $('finalMsg').textContent = pct===100?'완벽해요! 정다면체 박사 🎉': pct>=80?'아주 잘했어요!': pct>=50?'조금만 더 복습해 봐요.':'개념 정리 탭에서 표를 다시 확인해 봐요.';
+  $('wrongList').innerHTML = wrongs.length
+    ? '<b>틀린 문제</b>'+wrongs.map(q=>`<li>${q.text} → <b>${q.netOpts?BY[q.answer].name+'의 전개도':q.answer}</b></li>`).join('')
+    : '';
+}
+$('startBtn').onclick=startRound;
+$('retryBtn').onclick=startRound;
+$('setupBtn').onclick=()=>show('setup');
+
+/* 개념 정리 */
+function buildStudy(){
+  const g=$('studyGrid'); g.innerHTML='';
+  for(const s of SOLIDS){
+    const c=document.createElement('div'); c.className='scard';
+    c.innerHTML=`<h3>${s.name}</h3><div class="v"></div><div class="n">${netSVG(s.key)}</div>
+      <table>
+        <tr><td>면의 모양</td><td>${s.face}</td></tr>
+        <tr><td>한 꼭짓점에 모인 면의 개수</td><td>${s.vf}</td></tr>
+        <tr><td>면의 개수</td><td>${s.F}</td></tr>
+        <tr><td>모서리의 개수</td><td>${s.E}</td></tr>
+        <tr><td>꼭짓점의 개수</td><td>${s.V}</td></tr>
+      </table>`;
+    g.appendChild(c);
+    makeViewer(c.querySelector('.v'), s.key, 180);
+  }
+}
+$('navQuiz').onclick=()=>{
+  $('navQuiz').classList.add('on'); $('navStudy').classList.remove('on');
+  show(round.length && cur<round.length ? 'quiz' : (round.length?'result':'setup'));
+};
+$('navStudy').onclick=()=>{
+  $('navStudy').classList.add('on'); $('navQuiz').classList.remove('on');
+  show('study'); if(!$('studyGrid').children.length) buildStudy();
+};
+document.addEventListener('keydown',e=>{
+  if($('quiz').classList.contains('hidden')) return;
+  const n=+e.key;
+  if(n>=1&&n<=4){ const b=$('opts').children[n-1]; if(b&&!b.disabled) b.click(); }
+});
+</script>
+</body>
+</html>
