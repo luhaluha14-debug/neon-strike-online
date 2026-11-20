@@ -4,7 +4,7 @@
 |---|---|
 | [`sigilfall/`](sigilfall/README.md) | **SIGILFALL** — 고속 주술 액션 FPS (PC / 모바일, 온라인 지원). `npm start` 로 실행되는 현재 게임입니다. |
 | [`dropzone/`](dropzone/README.md) | NEON STRIKE: DROPZONE — 3D 배틀로얄. `npm run dropzone` |
-| [`tactical-fps/`](tactical-fps/README.md) | GRID — 5v5 라운드 기반 전술 FPS. 폴더 안에서 `npm run dev` |
+| [`tactical-fps/`](tactical-fps/README.md) | GRID — 5v5 라운드 기반 전술 FPS (PC / 모바일, 크로스플레이 온라인). 폴더 안에서 `npm run dev` |
 | [`neon_strike_online/`](neon_strike_online/README.md) | NEON STRIKE — 먼저 만들었던 온라인 FPS. `npm run start:legacy` |
 
 ```bash
