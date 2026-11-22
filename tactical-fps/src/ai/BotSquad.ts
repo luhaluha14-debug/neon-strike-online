@@ -180,6 +180,7 @@ export class BotSquad {
       _pose.aiming = (b.remote ? b.remote.aiming : b.mode === 'engage') && b.alive;
       _pose.alive = b.alive;
       _pose.deadTime = b.combat.deadTime;
+      _pose.lean = c.lean;
       this.models[i].update(dt, _pose);
     });
   }

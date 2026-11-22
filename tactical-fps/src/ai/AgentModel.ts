@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { loadGltfScene, loadedGltfScene } from '../weapons/view/GltfWeaponView';
 import { PLAYER_CONFIG } from '../config';
-import { buildBotRifle, liftCharacterMaterial, RIFLE_GRIP, RIFLE_MUZZLE_Z, type BotBody, type BotKit, type BotPose } from './BotModel';
+import { buildBotRifle, liftCharacterMaterial, RIFLE_GRIP, RIFLE_MUZZLE_Z, FIGURE_LEAN, type BotBody, type BotKit, type BotPose } from './BotModel';
 import { HeldWeapon } from '../weapons/view/ThirdPersonWeapons';
 import { dressStandIn } from '../skins/StandInSkin';
 
@@ -122,7 +122,7 @@ export class AgentModel implements BotBody {
     // A small step bob stands in for the missing walk cycle.
     this.object.position.y += Math.abs(Math.sin(this.phase)) * BOB_HEIGHT * this.move;
     this.object.rotation.set(0, this.bodyYaw, 0);
-    this.body.rotation.z = this.flinch * 0.08 * this.flinchSide;
+    this.body.rotation.z = this.flinch * 0.08 * this.flinchSide - (p.alive ? (p.lean ?? 0) : 0) * FIGURE_LEAN;
     // Rifle follows the aim pitch when engaging; recoil kick.
     this.rifle.position.copy(this.rifleRest);
     this.rifle.position.z += this.kick * 0.03;

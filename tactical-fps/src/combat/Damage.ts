@@ -12,6 +12,8 @@ export interface DamageInfo {
   /** Normalized travel direction of the bullet. */
   direction: THREE.Vector3;
   distance: number;
+  /** A one-hit-kill weapon (melee): the target dies, whatever its health and armour. */
+  lethal?: boolean;
 }
 
 export interface TargetHit {
@@ -30,7 +32,10 @@ export interface Damageable {
   /** Team id; friendly fire rules can filter on it later. */
   readonly team?: string;
   readonly alive: boolean;
-  /** Returns the nearest hit along the ray within `maxDistance`, or null. */
-  raycast(ray: THREE.Ray, maxDistance: number): TargetHit | null;
+  /**
+   * Returns the nearest hit along the ray within `maxDistance`, or null. `pad` (m): a weapon's hit correction
+   * (Phase 30, the AWM): a hitbox that supports it is that much wider for this ray (others ignore it).
+   */
+  raycast(ray: THREE.Ray, maxDistance: number, pad?: number): TargetHit | null;
   applyDamage(info: DamageInfo): void;
 }

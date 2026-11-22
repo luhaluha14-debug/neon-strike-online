@@ -226,7 +226,7 @@ export class TrainingTarget implements Damageable {
   applyDamage(info: DamageInfo): void {
     if (!this.alive) return;
     const before = this.health;
-    this.health = Math.max(0, this.health - info.amount);
+    this.health = info.lethal ? 0 : Math.max(0, this.health - info.amount);
     // Same hit the hitscan just resolved through raycast(): flash that part.
     this.flashPart = this.lastHit && this.lastHit.point === info.point ? this.lastHit.part : PARTS.findIndex((p) => p.zone === info.zone);
     this.flashTime = FLASH_TIME;

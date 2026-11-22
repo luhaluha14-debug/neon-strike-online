@@ -31,10 +31,12 @@ export interface InputState {
   use: boolean;
   /** Inspect key held. */
   inspect: boolean;
+  /** Phase 30 lean (held): -1 left, 1 right, 0 upright. */
+  lean: number;
 }
 
 export function createInputState(): InputState {
-  return { moveX: 0, moveY: 0, lookYaw: 0, lookPitch: 0, jump: false, crouch: false, walk: false, fire: false, aim: false, reload: false, equipSlot: -1, equipLast: false, equipCycle: 0, utility: false, use: false, inspect: false };
+  return { moveX: 0, moveY: 0, lookYaw: 0, lookPitch: 0, jump: false, crouch: false, walk: false, fire: false, aim: false, reload: false, equipSlot: -1, equipLast: false, equipCycle: 0, utility: false, use: false, inspect: false, lean: 0 };
 }
 
 export interface InputSource {

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { PLAYER_CONFIG } from '../config';
 import type { CollisionWorld } from '../world/CollisionWorld';
 import type { DamageProfile } from '../weapons/WeaponDefinition';
 import type { Damageable, DamageInfo, HitZone } from './Damage';
@@ -20,6 +21,7 @@ export interface ShotRequest {
 }
 
 const _ray = new THREE.Ray();
+const _toPoint = new THREE.Vector3();
 
 /**
  * Instant-hit bullet resolution. The map is tested first to find how far the
@@ -55,10 +57,18 @@ export class HitscanSystem {
     _ray.origin.copy(origin);
     _ray.direction.copy(direction);
     let best: { target: Damageable; distance: number; point: THREE.Vector3; normal: THREE.Vector3; zone: HitZone } | null = null;
+    // Phase 30: a weapon's hit correction (the AWM): a wider hitbox for this round only.
+    const pad = damage.hitPad ?? 0;
     for (const target of this.targets) {
       if (!target.alive || target.id === shot.sourceId) continue;
       if (!this.friendlyFire && shot.team !== undefined && target.team === shot.team) continue;
-      const hit = target.raycast(_ray, best ? best.distance : limit);
+      let hit = target.raycast(_ray, best ? best.distance : limit, pad);
+      // A hit the correction alone makes must be in sight: nothing solid between the shooter and that point.
+      if (hit && pad > 0 && target.raycast(_ray, limit) === null) {
+        _toPoint.subVectors(hit.point, origin);
+        const d = _toPoint.length();
+        if (d > 1e-6 && this.world.raycast(origin, _toPoint.multiplyScalar(1 / d), d) !== null) hit = null;
+      }
       if (hit && hit.distance < limit && (!best || hit.distance < best.distance)) best = { target, ...hit };
     }
 
@@ -72,6 +82,7 @@ export class HitscanSystem {
         point: best.point,
         direction: direction.clone(),
         distance: best.distance,
+        ...(damage.lethal ? { lethal: true } : {}),
       };
       best.target.applyDamage(info);
       return { kind: 'target', ...best, damage: amount };
@@ -87,6 +98,8 @@ export class HitscanSystem {
 }
 
 export function computeDamage(profile: DamageProfile, zone: HitZone, distance: number): number {
+  // Melee (Phase 29): a full health bar for every zone and distance in reach; the target dies (lethal).
+  if (profile.lethal) return PLAYER_CONFIG.maxHealth;
   const zoneMul = zone === 'head' ? profile.headMultiplier : zone === 'limb' ? profile.limbMultiplier : 1;
   let falloff = 1;
   if (distance > profile.falloffStart) {

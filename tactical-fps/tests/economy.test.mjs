@@ -599,7 +599,8 @@ test('deathmatch and training: no buy phase, no economy, the standard loadout', 
     assert.equal(r.menuHidden, true);
     assert.equal(r.locked, true, `${mode}: still playing`);
     assert.deepEqual(r.weapons, ['ar01', 'sr01', 'karambit'], `${mode}: the standard loadout is back`);
-    assert.deepEqual(r.hudSlots, ['1 AR-01', '2 SR-01', '3 M9 BAYONET']);
+    // Phase 30: SR-01 is now the AWM.
+    assert.deepEqual(r.hudSlots, ['1 AR-01', '2 AWM', '3 M9 BAYONET']);
     assert.equal(r.respawns, mode === 'deathmatch' ? true : null);
     assert.equal(r.ff, true);
     assert.equal(r.buy, 'phase');

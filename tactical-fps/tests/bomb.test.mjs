@@ -244,9 +244,9 @@ test('planting with E: nothing outside a site; in site A, held 3.2 s standing st
   });
   assert.equal(pre.phase, 'live');
   // Outside a site: E does nothing.
-  await page.keyboard.down('KeyE');
+  await page.keyboard.down('KeyF');
   await run(30);
-  await page.keyboard.up('KeyE');
+  await page.keyboard.up('KeyF');
   await run(2);
   assert.equal(await page.evaluate(() => window.game.bomb.state), 'carried');
   const moneyBefore = await page.evaluate(() => {
@@ -256,25 +256,25 @@ test('planting with E: nothing outside a site; in site A, held 3.2 s standing st
     return g.teamMatch.economy.money('local');
   });
   const hint = await page.evaluate(() => window.T.hud().hint);
-  assert.equal(hint, 'A 사이트 — E 길게: C4 설치');
+  assert.equal(hint, 'A 사이트 — F 길게: C4 설치');
   // Held, but walking: cancelled.
-  await page.keyboard.down('KeyE');
+  await page.keyboard.down('KeyF');
   await run(30);
   const mid = await page.evaluate(() => ({ p: window.game.bomb.plantProgress, hud: window.T.hud() }));
   await page.keyboard.down('KeyW');
   await run(10);
   await page.keyboard.up('KeyW');
-  await page.keyboard.up('KeyE');
+  await page.keyboard.up('KeyF');
   const cancelled = await page.evaluate(() => ({ planting: window.game.bomb.planting, state: window.game.bomb.state }));
   await page.evaluate(() => {
     window.game.player.teleport(window.T.spot.clone().setY(window.T.spot.y + 0.1), 0);
     window.T.run(30);
   });
   // Held 3.2 s.
-  await page.keyboard.down('KeyE');
+  await page.keyboard.down('KeyF');
   const clock0 = await page.evaluate(() => window.game.teamMatch.roundTimeLeft);
   await run(3.2 * 60 + 3);
-  await page.keyboard.up('KeyE');
+  await page.keyboard.up('KeyF');
   const r = await page.evaluate(() => {
     const g = window.game;
     const clock = g.teamMatch.roundTimeLeft;
@@ -417,8 +417,8 @@ test('half time: sides swap (BLUE defends), money and gear start over; a dropped
     window.T.run(30);
   });
   const near = await page.evaluate(() => window.T.hud().hint);
-  assert.equal(near, 'E 길게: C4 해체 (7초)');
-  await page.keyboard.down('KeyE');
+  assert.equal(near, 'F 길게: C4 해체 (7초)');
+  await page.keyboard.down('KeyF');
   await run(60);
   const hurt = await page.evaluate(() => {
     const g = window.game;
@@ -429,10 +429,10 @@ test('half time: sides swap (BLUE defends), money and gear start over; a dropped
     window.T.run(1);
     return { before, after: g.bomb.defusing, hud: window.T.hud().progress };
   });
-  await page.keyboard.up('KeyE');
+  await page.keyboard.up('KeyF');
   await run(2);
   const planterId = await page.evaluate(() => window.game.bomb.plantedBy);
-  await page.keyboard.down('KeyE');
+  await page.keyboard.down('KeyF');
   const res = await page.evaluate((planterId) => {
     const g = window.game;
     const T = window.T;
@@ -451,7 +451,7 @@ test('half time: sides swap (BLUE defends), money and gear start over; a dropped
     T.run(1);
     return { frames: n, state: g.bomb.state, by: g.bomb.defusedBy, last: g.teamMatch.lastRound, gain: g.teamMatch.economy.money('local') - money, hudMid, over: g.teamMatch.over || g.teamMatch.phase };
   }, planterId);
-  await page.keyboard.up('KeyE');
+  await page.keyboard.up('KeyF');
   assert.ok(hurt.before > 0.1, 'defusing');
   assert.equal(hurt.after, null, 'a hit cancels the defuse');
   assert.equal(res.state, 'defused');

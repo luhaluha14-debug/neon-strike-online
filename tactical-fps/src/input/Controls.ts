@@ -16,7 +16,9 @@ export type ActionId =
   | 'lastWeapon'
   | 'utility'
   | 'use'
-  | 'inspect';
+  | 'inspect'
+  | 'leanLeft'
+  | 'leanRight';
 
 export interface ActionInfo {
   id: ActionId;
@@ -38,13 +40,22 @@ export const ACTIONS: readonly ActionInfo[] = [
   { id: 'crouch', label: '앉기', group: '이동', key: 'KeyC', alt: 'ControlLeft' },
   { id: 'reload', label: '재장전', group: '전투', key: 'KeyR' },
   { id: 'slot1', label: '주무기 (AR-01)', group: '전투', key: 'Digit1' },
-  { id: 'slot2', label: '저격총 (SR-01)', group: '전투', key: 'Digit2' },
+  { id: 'slot2', label: '저격총 (AWM)', group: '전투', key: 'Digit2' },
   { id: 'slot3', label: '근접 (M9)', group: '전투', key: 'Digit3' },
-  { id: 'lastWeapon', label: '이전 무기', group: '전투', key: 'KeyQ' },
-  { id: 'use', label: 'C4 설치 / 해체 (길게)', group: '전투', key: 'KeyE' },
+  // Phase 30: Q / E lean; the previous weapon, the C4 and inspect moved to X, F and V.
+  { id: 'lastWeapon', label: '이전 무기', group: '전투', key: 'KeyX' },
+  { id: 'use', label: 'C4 설치 / 해체 (길게)', group: '전투', key: 'KeyF' },
   { id: 'utility', label: '투척 장비 (섬광 / 연막, 다시 누르면 전환)', group: '전투', key: 'Digit4' },
-  { id: 'inspect', label: '무기 살펴보기', group: '전투', key: 'KeyF' },
+  { id: 'inspect', label: '무기 살펴보기', group: '전투', key: 'KeyV' },
+  { id: 'leanLeft', label: '왼쪽 기울이기 (누르는 동안)', group: '전투', key: 'KeyQ' },
+  { id: 'leanRight', label: '오른쪽 기울이기 (누르는 동안)', group: '전투', key: 'KeyE' },
 ];
+
+/**
+ * Keys these actions had before Phase 30. A record saved then (no lean keys yet) that still has an action on
+ * its old default gets the new default instead, so Q / E are free to lean; a key the player chose is kept.
+ */
+const BEFORE_LEAN: Partial<Record<ActionId, string>> = { lastWeapon: 'KeyQ', use: 'KeyE', inspect: 'KeyF' };
 
 /** Keys the game reserves (menu, overlays, respawn): never bindable. */
 export const RESERVED_KEYS: readonly string[] = ['Escape', 'F3', 'F4'];
@@ -69,9 +80,15 @@ export function loadControls(): ControlSettings {
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) ?? '{}') as { sensitivity?: unknown; bindings?: Record<string, unknown> };
     if (typeof raw.sensitivity === 'number' && raw.sensitivity >= SENSITIVITY_MIN && raw.sensitivity <= SENSITIVITY_MAX) c.sensitivity = raw.sensitivity;
+    const old = !!raw.bindings && raw.bindings.leanLeft === undefined && raw.bindings.leanRight === undefined;
     for (const a of ACTIONS) {
       const k = raw.bindings?.[a.id];
+      if (old && BEFORE_LEAN[a.id] === k) continue; // an old default: the new one
       if (typeof k === 'string' && k && !RESERVED_KEYS.includes(k)) c.bindings[a.id] = k;
+    }
+    // A key the player put on another action stays there: the lean that wanted it is left without one.
+    for (const lean of ['leanLeft', 'leanRight'] as const) {
+      if (ACTIONS.some((a) => a.id !== lean && c.bindings[a.id] === c.bindings[lean])) c.bindings[lean] = '';
     }
   } catch {
     // Unreadable or blocked storage: defaults.
@@ -102,6 +119,8 @@ export function bindKey(c: ControlSettings, action: ActionId, code: string): boo
 
 /** Short on-screen name of a key code ("KeyW" → "W", "Digit1" → "1"). */
 export function keyLabel(code: string): string {
+  // No key (a lean whose key the player gave to another action, Phase 30).
+  if (!code) return '—';
   const names: Record<string, string> = {
     Space: 'Space',
     ShiftLeft: 'L-Shift',

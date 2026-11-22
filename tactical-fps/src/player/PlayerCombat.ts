@@ -32,6 +32,7 @@ export interface PlayerDamageEvent {
 
 const _seg = new THREE.Line3();
 const _closest = new THREE.Vector3();
+const _lean = new THREE.Vector3();
 const _oc = new THREE.Vector3();
 const _ba = new THREE.Vector3();
 
@@ -89,19 +90,25 @@ export class PlayerCombat implements Damageable {
     return this.dead && this.deadTime >= RESPAWN_DELAY - 1e-9;
   }
 
-  /** Capsule from the feet to the top of the (possibly crouched) player. */
-  raycast(ray: THREE.Ray, maxDistance: number): TargetHit | null {
+  /**
+   * Capsule from the feet to the top of the (possibly crouched) player; its top follows a lean (Phase 30).
+   * `pad` (m, Phase 30: the AWM's hit correction) widens it for this ray; a hit only the padding makes is
+   * never a headshot.
+   */
+  raycast(ray: THREE.Ray, maxDistance: number, pad = 0): TargetHit | null {
     const p = this.player;
     const h = p.height;
     _seg.start.set(p.position.x, p.position.y + HIT_RADIUS, p.position.z);
     _seg.end.set(p.position.x, p.position.y + h - HIT_RADIUS, p.position.z);
-    const t = capsuleEntry(ray, _seg, HIT_RADIUS);
+    if (p.lean) _seg.end.add(p.leanShift(_lean));
+    const t = capsuleEntry(ray, _seg, HIT_RADIUS + pad);
     if (t === null || t > maxDistance) return null;
+    const padded = pad > 0 && capsuleEntry(ray, _seg, HIT_RADIUS) === null;
     const point = ray.origin.clone().addScaledVector(ray.direction, t);
     _seg.closestPointToPoint(point, true, _closest);
     const normal = point.clone().sub(_closest).normalize();
     const rel = (point.y - p.position.y) / h;
-    const zone: HitZone = rel >= HEAD ? 'head' : rel < LEGS ? 'limb' : 'body';
+    const zone: HitZone = rel >= HEAD ? (padded ? 'body' : 'head') : rel < LEGS ? 'limb' : 'body';
     return { distance: t, point, normal, zone };
   }
 
@@ -109,7 +116,8 @@ export class PlayerCombat implements Damageable {
     if (this.dead || this.protection > 0 || info.amount <= 0) return;
     const p = this.player;
     this.hits++;
-    const { health, absorbed } = armorSplit(info.amount, info.zone, this.armor);
+    // A lethal hit (melee) takes the whole health bar; armour neither absorbs it nor wears.
+    const { health, absorbed } = info.lethal ? { health: Math.max(info.amount, p.health), absorbed: 0 } : armorSplit(info.amount, info.zone, this.armor);
     this.armor = Math.max(0, this.armor - absorbed * ARMOR_CONFIG.wearPerAbsorbed);
     const left = p.health;
     p.health = Math.max(0, p.health - health);

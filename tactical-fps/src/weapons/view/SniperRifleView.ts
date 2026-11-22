@@ -229,6 +229,10 @@ export class SniperRifleView implements WeaponView {
  * lock down. Shared with GLB models that have a `Bolt` node.
  */
 export function animateBolt(bolt: THREE.Object3D, rest: THREE.Vector3, state: WeaponAnimState, travel = 0.085): void {
+  if (state.action === 'semi') {
+    animateSemiBolt(bolt, rest, state, travel);
+    return;
+  }
   const cycle = Math.min(state.fireInterval, 1.4);
   // Starts once the recoil settles, finishes just before the next shot is allowed.
   const t = (state.sinceShot - 0.18) / (cycle - 0.3);
@@ -250,6 +254,25 @@ export function animateBolt(bolt: THREE.Object3D, rest: THREE.Vector3, state: We
   }
   bolt.rotation.z = smooth(lift) * 1.05;
   bolt.position.set(rest.x, rest.y, rest.z + back * travel);
+}
+
+/**
+ * Phase 30, a semi-automatic action (the AWM): no hand on the bolt; it snaps back with the shot and runs
+ * forward again in a tenth of a second (a fresh round chambered, the case out). A reload pulls it back and
+ * lets it go at the end, handle down.
+ */
+function animateSemiBolt(bolt: THREE.Object3D, rest: THREE.Vector3, state: WeaponAnimState, travel: number): void {
+  let back = 0;
+  if (state.reload !== null) {
+    const r = state.reload;
+    back = smooth(Math.min(1, Math.max(0, (r - 0.02) / 0.1))) * (1 - smooth(Math.min(1, Math.max(0, (r - 0.9) / 0.06))));
+  } else {
+    const s = state.sinceShot;
+    if (s < 0.025) back = s / 0.025;
+    else if (s < 0.11) back = 1 - (s - 0.025) / 0.085;
+  }
+  bolt.rotation.z = 0;
+  bolt.position.set(rest.x, rest.y, rest.z + Math.max(0, back) * travel * 0.7);
 }
 
 function smooth(x: number): number {

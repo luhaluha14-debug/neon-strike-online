@@ -45,6 +45,15 @@ export const MAX_SPEED = PLAYER_CONFIG.maxAirSpeed + 1.5;
 const MOVE_SLACK = 2.5;
 /** Rounds a member may fire at once beyond its weapon's rate (bunched network delivery). */
 const SHOT_BURST = 8;
+/** Melee (one-hit kills): at most this many slashes at once, so bunched or forged reports can't kill a crowd. */
+const MELEE_BURST = 2;
+/**
+ * Phase 30 swap reset: a weapon drawn again (a new draw count from the member) may fire at once, as on the
+ * member's screen. Such resets are themselves limited: SWAP_BURST at once, SWAP_RATE per second after, so a
+ * forged draw count cannot lift any weapon past a human's switching speed.
+ */
+const SWAP_BURST = 3;
+const SWAP_RATE = 6;
 /** A shot's origin must be this close to the character's eye on the host (m). */
 const MAX_ORIGIN_OFFSET = 3;
 
@@ -97,9 +106,11 @@ class RemotePlayer implements RemoteControl {
   /** The member's report is too far off: put it back where the host has it. */
   correct = false;
   readonly buy = new BuyLoadout();
-  /** Rounds that may still be fired right now (refills at the weapon's rate). */
-  shotTokens = SHOT_BURST;
-  shotTime = 0;
+  /** Per weapon: rounds that may still be fired now (refills at that weapon's rate), and its draw count then. */
+  readonly shotBuckets = new Map<string, { tokens: number; time: number; draw: number | undefined }>();
+  /** Swap resets left (see SWAP_BURST). */
+  swapTokens = SWAP_BURST;
+  swapTime = 0;
   /** Armour kept across the coming round start (team match survivor). */
   keepArmor: number | null = null;
   roundSpawn = false;
@@ -145,6 +156,8 @@ class RemotePlayer implements RemoteControl {
     c.height = THREE.MathUtils.clamp(s.h, PLAYER_CONFIG.crouchHeight, PLAYER_CONFIG.standHeight);
     c.crouching = s.crouch === 1;
     c.grounded = s.g === 1;
+    // The member's lean, checked against the walls here too (no peeking through one).
+    c.setReportedLean(typeof s.ln === 'number' ? s.ln : 0);
     this.aiming = s.aim === 1;
     bot.useKey = s.use === 1;
   }
@@ -508,13 +521,27 @@ export class NetHost {
     const now = this.now();
     const pellets = def.pellets?.count ?? 1;
     const perSecond = (def.fireRate / 60) * pellets;
-    const cap = SHOT_BURST * pellets;
-    rp.shotTokens = Math.min(cap, rp.shotTokens + (now - rp.shotTime) * perSecond * 1.1);
-    rp.shotTime = now;
-    if (rp.shotTokens < 1) return refuse('rate');
-    rp.shotTokens -= 1;
+    // No more at once than a magazine holds (Phase 30: the AWM's 5, not 8).
+    const cap = def.category === 'melee' ? MELEE_BURST : Math.min(SHOT_BURST, def.magazineSize) * pellets;
+    let b = rp.shotBuckets.get(def.id);
+    if (!b) rp.shotBuckets.set(def.id, (b = { tokens: cap, time: now, draw: m.q }));
+    b.tokens = Math.min(cap, b.tokens + (now - b.time) * perSecond * 1.1);
+    b.time = now;
+    // Drawn again since its last round (Phase 30): its cooldown starts over, one round's worth (a shotgun's pellets).
+    if (typeof m.q === 'number' && Number.isFinite(m.q) && m.q !== b.draw && b.tokens < pellets) {
+      rp.swapTokens = Math.min(SWAP_BURST, rp.swapTokens + (now - rp.swapTime) * SWAP_RATE);
+      rp.swapTime = now;
+      if (rp.swapTokens >= 1) {
+        rp.swapTokens -= 1;
+        b.tokens = pellets;
+      }
+    }
+    if (typeof m.q === 'number') b.draw = m.q;
+    if (b.tokens < 1) return refuse('rate');
+    b.tokens -= 1;
     const origin = new THREE.Vector3(...m.o);
-    const eye = new THREE.Vector3(bot.position.x, bot.position.y + bot.controller.eyeHeight, bot.position.z);
+    // The eye as the host has it, lean included (Phase 30).
+    const eye = bot.controller.eyePosition(new THREE.Vector3());
     if (origin.distanceTo(eye) > MAX_ORIGIN_OFFSET) return refuse('origin');
     const dir = new THREE.Vector3(...m.d);
     if (dir.lengthSq() < 0.5) return refuse('invalid');
@@ -562,6 +589,11 @@ function entity(id: string, c: PlayerController, combat: PlayerCombat, aiming: b
   // The weapon in the hands (Phase 27), and before it the skin ('' for the default look).
   if (weapon) e.push(skin ?? '', weapon);
   else if (skin) e.push(skin);
+  // Phase 30: the lean, only while leaning (after the skin and weapon slots).
+  if (Math.abs(c.lean) > 0.01) {
+    while (e.length < 16) e.push('');
+    e.push(r2(c.lean));
+  }
   return e;
 }
 

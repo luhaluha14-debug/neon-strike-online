@@ -67,8 +67,15 @@ export class WeaponSystem {
    * fire rate are the weapon's; only how far the view is kicked is scaled.
    */
   recoilScale = 1;
+  /**
+   * Phase 30: how many times a weapon has been drawn (every switch / redraw / new loadout). Sent with each
+   * shot, so the host sees that a weapon fired again soon was drawn again in between (its cooldown reset).
+   */
+  drawCount = 0;
 
   private lastSlot = 0;
+  /** The trigger as of the last step (a switch made with it let go lets the new weapon fire on the next press). */
+  private triggerHeld = false;
   private reloadWasHeld = false;
   private inspectWasHeld = false;
 
@@ -109,7 +116,8 @@ export class WeaponSystem {
     this.recoil.setProfile(this.weapon.def.recoil);
     this.recoil.reset();
     this.inspectRemaining = 0;
-    this.weapon.equip();
+    this.weapon.equip(this.triggerHeld);
+    this.drawCount++;
     this.events.onEquip?.(this.weapon, this.slot);
   }
 
@@ -118,7 +126,8 @@ export class WeaponSystem {
     if (slot < 0 || slot >= this.loadout.length || slot === this.slot) return false;
     this.lastSlot = this.slot;
     this.slot = slot;
-    this.weapon.equip();
+    this.weapon.equip(this.triggerHeld);
+    this.drawCount++;
     this.recoil.setProfile(this.weapon.def.recoil);
     this.inspectRemaining = 0;
     this.events.onEquip?.(this.weapon, slot);
@@ -127,7 +136,8 @@ export class WeaponSystem {
 
   /** Draws the weapon in hand again (after holding something else, e.g. a grenade). */
   redraw(): void {
-    this.weapon.equip();
+    this.weapon.equip(this.triggerHeld);
+    this.drawCount++;
     this.inspectRemaining = 0;
     this.events.onEquip?.(this.weapon, this.slot);
   }
@@ -156,6 +166,7 @@ export class WeaponSystem {
     if (this.inspectRemaining > 0) this.inspectRemaining = Math.max(0, this.inspectRemaining - dt);
 
     const r = w.update(dt, input.fire);
+    this.triggerHeld = input.fire;
     if (r.shots > 0) this.inspectRemaining = 0;
     if (r.reloadFinished) this.events.onReloadEnd?.();
     if (r.dryFire) this.events.onDryFire?.();
@@ -184,7 +195,10 @@ export class WeaponSystem {
   private fireRound(): void {
     const p = this.owner;
     const def = this.weapon.def;
-    _origin.set(p.position.x, p.position.y + p.eyeHeight, p.position.z);
+    // From the eye, lean included (Phase 30): the round leaves where the camera is. (An owner without a lean,
+    // a plain stand-in: the upright eye, as before.)
+    if (typeof p.eyePosition === 'function') p.eyePosition(_origin);
+    else _origin.set(p.position.x, p.position.y + p.eyeHeight, p.position.z);
 
     // Bullets leave exactly through the crosshair (current view incl. recoil so far),
     // plus a movement-dependent cone. Standing still, first shots are pin-point.
@@ -217,11 +231,24 @@ export class WeaponSystem {
     const s = this.weapon.def.spread;
     const p = this.owner;
     const speed01 = Math.min(Math.hypot(p.velocity.x, p.velocity.z) / PLAYER_CONFIG.runSpeed, 1);
-    let spread = s.standing + s.moving * speed01;
+    let spread = s.standing + s.moving * movePenalty(speed01);
     if (!p.grounded) spread += s.airborne;
     if (p.crouching) spread *= s.crouchMultiplier;
     return spread;
   }
+}
+
+/** Phase 30: share of a weapon's moving inaccuracy at walking speed (Shift): a careful walk is nearly accurate. */
+export const WALK_SPREAD = 0.25;
+
+/**
+ * How much of a weapon's moving inaccuracy applies at `speed01` (speed / run speed): up to walking speed it
+ * grows to WALK_SPREAD, from there to a full run back up to all of it (a full run: exactly as before).
+ */
+export function movePenalty(speed01: number): number {
+  const walk = PLAYER_CONFIG.walkSpeed / PLAYER_CONFIG.runSpeed;
+  const v = Math.min(Math.max(speed01, 0), 1);
+  return v <= walk ? WALK_SPREAD * (v / walk) : WALK_SPREAD + (1 - WALK_SPREAD) * ((v - walk) / (1 - walk));
 }
 
 const _t = new THREE.Vector3();

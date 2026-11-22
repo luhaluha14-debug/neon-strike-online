@@ -11,7 +11,7 @@ import { GrenadeEffects } from '../fx/GrenadeEffects';
 import { BombEffects } from '../fx/BombEffects';
 import { BombObjective, type BombActor } from '../game/BombObjective';
 import { TrainingRange } from '../combat/TrainingRange';
-import { BOMB_CONFIG, CAMERA_CONFIG, GRENADE_CONFIG, PLAYER_CONFIG, QUALITY_PRESETS, SIM_CONFIG, type QualityLevel } from '../config';
+import { BOMB_CONFIG, CAMERA_CONFIG, GRENADE_CONFIG, LEAN_CONFIG, PLAYER_CONFIG, QUALITY_PRESETS, SIM_CONFIG, type QualityLevel } from '../config';
 import { AudioEngine } from '../audio/AudioEngine';
 import { WeaponAudio } from '../audio/WeaponAudio';
 import { BloodEffects } from '../fx/BloodEffects';
@@ -19,7 +19,8 @@ import { CombatEffects } from '../fx/CombatEffects';
 import { ShellCasings } from '../fx/ShellCasings';
 import { ImpactEffects } from '../fx/ImpactEffects';
 import { createInputState } from '../input/InputState';
-import { loadControls, saveControls } from '../input/Controls';
+import { keyLabel, loadControls, saveControls } from '../input/Controls';
+import { loadHandedness, saveHandedness, type Handedness } from './Handedness';
 import { GameInput } from '../input/GameInput';
 import { loadTouchSettings, saveTouchSettings, type TouchSettings } from '../input/TouchSettings';
 import { loadTouchLayout, saveTouchLayout, type TouchLayout } from '../input/TouchLayout';
@@ -88,7 +89,8 @@ import { teamWaitOf, type TeamWaitMsg, type ToClient } from '../net/GameMessages
 import { applyBomb, applyMatch, applyTeamMatch, type BombStateMsg, type MatchState, type TeamMatchState } from '../net/Mirror';
 
 /** When the case leaves after a round (s): at once, or when the pump (shotgun) / bolt (sniper) is worked. */
-const EJECT_DELAY: Record<Exclude<WeaponCategory, 'melee'>, number> = { rifle: 0, smg: 0, pistol: 0, shotgun: 0.22, sniper: 0.62, dmr: 0, lmg: 0 };
+// Phase 30: the AWM (the sniper) is semi-automatic: its case leaves with the shot (was 0.62 s, the hand-worked bolt).
+const EJECT_DELAY: Record<Exclude<WeaponCategory, 'melee'>, number> = { rifle: 0, smg: 0, pistol: 0, shotgun: 0.22, sniper: 0, dmr: 0, lmg: 0 };
 /** Case throw (m/s): out of the port's side, up, back toward the shooter. */
 const EJECT: Record<Exclude<WeaponCategory, 'melee'>, { side: number; up: number; back: number }> = {
   rifle: { side: 1.8, up: 1.5, back: 0.3 },
@@ -110,6 +112,7 @@ const team = (t: string): 'blue' | 'red' => (t === 'red' ? 'red' : 'blue');
 const SPACE_RAYS = [new THREE.Vector3(0, 1, 0), new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1)];
 const _spaceFrom = new THREE.Vector3();
 const _camRight = new THREE.Vector3();
+const _leanShift = new THREE.Vector3();
 const _motionEvents = { steps: 0, landing: 0 };
 const UP = new THREE.Vector3(0, 1, 0);
 /** World muzzle flash size of someone else's shot, per kind of weapon (CombatEffects.flash). */
@@ -515,6 +518,12 @@ export class Game implements HostGame, ClientGame {
       this.renderer.setPixelRatio(this.pixelRatio(QUALITY_PRESETS[this.qualityLevel].pixelRatioCap));
       this.onResize();
     });
+    // Phase 30 손잡이: the first-person view mirrored for a left-handed player (display only).
+    this.viewModel.setLeftHanded(loadHandedness() === 'left');
+    this.hud.menu.bindSelect<Handedness>('handedness', [{ value: 'right', label: '오른손잡이 (기본)' }, { value: 'left', label: '왼손잡이' }], loadHandedness(), (v) => {
+      saveHandedness(v);
+      this.viewModel.setLeftHanded(v === 'left');
+    });
     this.hud.menu.bindSelect('volume', VOLUME_OPTIONS, settings.volume, (v) => {
       this.settings.volume = v;
       saveSettings(this.settings);
@@ -861,13 +870,16 @@ export class Game implements HostGame, ClientGame {
       onShot: (result, _origin, dir, weapon, pellet) => {
         // Multiplayer: the host shows everyone this round; a room member's round is resolved by the host.
         this.netHost?.broadcastShot('local', weapon.def.id, _origin, result);
-        this.netClient?.shot(weapon.def.id, _origin, dir);
+        this.netClient?.shot(weapon.def.id, _origin, dir, this.weapons?.drawCount);
         // Rounds resolved in later ticks of the same frame keep their real spacing.
         if (this.frameShotTick < 0) this.frameShotTick = this.tickInFrame;
         const delay = (this.tickInFrame - this.frameShotTick) / SIM_CONFIG.tickRate;
         // A shotgun round: one blast, one kick; every pellet keeps its own hit, tracer and impact.
         // (No pellet index = a single-bullet round.)
         if (!pellet) {
+          // Fired while the switch was still putting the last weapon away (Phase 30: a drawn weapon fires at
+          // once): the new one is in the hands now.
+          this.viewModel.finishSwitch();
           this.weaponAudio.onShot(weapon, result, delay, this.camera, false);
           this.viewModel.onShot(weapon.def.category, weapon.def.view.feel);
           // The spent case: out of the port now, or when the pump / bolt is worked.
@@ -1262,7 +1274,7 @@ export class Game implements HostGame, ClientGame {
           out.status = bomb.carrier === 'local' ? 'C4 보유' : `C4: ${tm.name(bomb.carrier ?? '')} 보유`;
           if (bomb.carrier === 'local' && alive && tm.phase === 'live') {
             const site = bomb.siteAt(p.position);
-            out.hint = site ? `${site} 사이트 — E 길게: C4 설치` : 'A / B 사이트에서 E 길게: C4 설치';
+            out.hint = site ? `${site} 사이트 — ${this.useKeyLabel} 길게: C4 설치` : `A / B 사이트에서 ${this.useKeyLabel} 길게: C4 설치`;
           }
         }
         break;
@@ -1277,7 +1289,7 @@ export class Game implements HostGame, ClientGame {
         out.status = `C4 설치됨 · ${bomb.site} 사이트`;
         out.timer = bomb.timeLeft;
         const near = Math.hypot(p.position.x - bomb.position.x, p.position.z - bomb.position.z) <= BOMB_CONFIG.defuseRange;
-        if (!attacker && alive && tm.phase === 'live') out.hint = near ? `E 길게: C4 해체 (${BOMB_CONFIG.defuseTime}초)` : `${bomb.site} 사이트로 가서 해체`;
+        if (!attacker && alive && tm.phase === 'live') out.hint = near ? `${this.useKeyLabel} 길게: C4 해체 (${BOMB_CONFIG.defuseTime}초)` : `${bomb.site} 사이트로 가서 해체`;
         break;
       }
       case 'defused':
@@ -1865,6 +1877,11 @@ export class Game implements HostGame, ClientGame {
     }
     this.camera.position.lerpVectors(this.prevPos, player.position, alpha);
     this.camera.position.y += eye;
+    // Lean (Phase 30): the eye to the side (already kept off the wall) and the view rolled that way.
+    if (!dead && player.lean !== 0) {
+      this.camera.position.add(player.leanShift(_leanShift));
+      roll -= player.lean * LEAN_CONFIG.roll;
+    }
     if (dead || !this.input.active) {
       this.cameraMotion.reset();
     } else {
@@ -2025,6 +2042,11 @@ export class Game implements HostGame, ClientGame {
     if (!player) return;
     const s = this.bodyState;
     s.feet.set(this.camera.position.x, this.camera.position.y - eyeHeight, this.camera.position.z);
+    // The feet stay where they stand while the upper body leans (Phase 30).
+    if (player.lean !== 0) {
+      player.leanShift(_leanShift);
+      s.feet.sub(_leanShift);
+    }
     s.yaw = player.yaw;
     s.eyeHeight = eyeHeight;
     s.velocity.copy(player.velocity);
@@ -2364,6 +2386,7 @@ export class Game implements HostGame, ClientGame {
       fireInterval: w.fireInterval,
       inspect: this.weapons?.inspectProgress ?? null,
       empty: w.usesAmmo && w.magazine === 0,
+      action: w.def.action,
     };
   }
 
@@ -2636,19 +2659,36 @@ export class Game implements HostGame, ClientGame {
     const wasPlaying = hud.classList.contains('playing');
     hud.classList.add('playing');
     t.setEditing(true);
-    this.layoutEditor.show(t, this.touchLayout, this.touchSettings.opacity, {
-      onSave: (l) => {
-        this.touchLayout = l;
-        saveTouchLayout(l);
-        t.applyLayout(l);
-        this.hud.menu.setTouchLayoutState(!!l);
+    this.layoutEditor.show(
+      t,
+      this.touchLayout,
+      this.touchSettings.opacity,
+      {
+        onSave: (l, { minimal }) => {
+          this.touchLayout = l;
+          saveTouchLayout(l);
+          t.applyLayout(l);
+          this.hud.menu.setTouchLayoutState(!!l);
+          // The minimal HUD chosen in the editor is a touch setting (kept with the others).
+          this.touchSettings.minimalHud = minimal ? 1 : 0;
+          saveTouchSettings(this.touchSettings);
+          this.applyTouchConveniences();
+          this.refreshTouchPage?.();
+        },
+        onPreviewMinimal: (on) => document.documentElement.classList.toggle('tc-minimal', on),
+        onClose: () => {
+          t.setEditing(false);
+          hud.classList.toggle('playing', wasPlaying);
+          document.documentElement.classList.remove('tl-editing');
+        },
       },
-      onClose: () => {
-        t.setEditing(false);
-        hud.classList.toggle('playing', wasPlaying);
-        document.documentElement.classList.remove('tl-editing');
-      },
-    });
+      this.touchSettings.minimalHud === 1,
+    );
+  }
+
+  /** The key that plants / defuses the C4, as the hints name it (Phase 30: F by default; the player's own key). */
+  private get useKeyLabel(): string {
+    return keyLabel(this.input.bindings.use);
   }
 
   /** Touch conveniences that show on the HUD (minimap size, ammo emphasis) follow the settings. */
@@ -2657,6 +2697,8 @@ export class Game implements HostGame, ClientGame {
     const root = document.documentElement.classList;
     root.toggle('tc-map-large', t.minimapLarge === 1);
     root.toggle('tc-ammo-big', t.ammoEmphasis === 1);
+    // Phase 29: the minimal HUD (touch only: the CSS applies under html.touch).
+    root.toggle('tc-minimal', t.minimalHud === 1);
   }
 
   /**

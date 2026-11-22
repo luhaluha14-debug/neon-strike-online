@@ -58,6 +58,30 @@ export const PLAYER_CONFIG = {
  * armour left), wearing `wearPerAbsorbed` armour points per point stopped.
  * There is no helmet in the game, so head hits are never reduced.
  */
+/**
+ * Phase 30 lean (Q / E, the touch ◀ ▶ buttons): the eye moves `offset` m to the side and the view rolls
+ * `roll` rad, eased in `time` s; a wall at the side stops it `wallMargin` m short (it never looks or shoots
+ * through). The hit capsule's top follows the eye, so a lean shows (and exposes) the head that peeks.
+ */
+export const LEAN_CONFIG = {
+  offset: 0.38,
+  roll: 0.2,
+  time: 0.18,
+  wallMargin: 0.25,
+  /** The eye drops this much at a full lean (the body bends). */
+  drop: 0.05,
+} as const;
+
+/**
+ * Phase 30 AWM (SR-01) hit correction: the target's hit capsule is `hitPad` m wider for an AWM round only
+ * (radius 0.30 → 0.45 m); every other weapon is judged as before. A hit only the correction makes is a body
+ * hit (never a headshot), and only if no wall stands between the shooter and that point; the round still
+ * stops at the first wall on its line. Judged by whoever judges rounds (the host online), PC and touch alike.
+ */
+export const AWM_CONFIG = {
+  hitPad: 0.15,
+} as const;
+
 export const ARMOR_CONFIG = {
   max: 100,
   absorb: 0.3,

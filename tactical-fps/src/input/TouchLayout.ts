@@ -6,9 +6,22 @@
 
 const KEY = 'tactical-fps.touch-layout.v1';
 
-/** Controls that can be placed: the move stick's home position and every button. */
-export const LAYOUT_IDS = ['stick', 'fire', 'aim', 'reload', 'jump', 'crouch', 'weapon', 'use', 'utility', 'pause', 'board', 'buy', 'fire2'] as const;
+/**
+ * Controls that can be placed: the move stick's home position and every button. Phase 29: this list (with
+ * LAYOUT_LABELS and HIDE_LOCKED) is the one registry of placeable controls; a new button (Phase 30's lean
+ * left / right, say) is one more id here plus its button in TouchInput, and the editor, the stored layout,
+ * hiding and the overlap check take it up with no other change. Positions are relative to the safe area,
+ * so a left-handed arrangement is a layout like any other (x mirrored), not a second system.
+ */
+export const LAYOUT_IDS = ['stick', 'fire', 'aim', 'reload', 'jump', 'crouch', 'weapon', 'use', 'utility', 'pause', 'board', 'buy', 'fire2', 'leanL', 'leanR'] as const;
 export type LayoutId = (typeof LAYOUT_IDS)[number];
+
+/** Controls the player cannot hide (moving, firing and the way back to the menu always stay). */
+export const HIDE_LOCKED: readonly LayoutId[] = ['stick', 'fire', 'pause'];
+
+export function canHide(id: LayoutId): boolean {
+  return !HIDE_LOCKED.includes(id);
+}
 
 export const LAYOUT_LABELS: Record<LayoutId, string> = {
   stick: '이동 조이스틱',
@@ -24,6 +37,8 @@ export const LAYOUT_LABELS: Record<LayoutId, string> = {
   board: '점수판',
   buy: '구매',
   fire2: '왼쪽 발사 (설정에서 켬)',
+  leanL: '왼쪽 기울이기',
+  leanR: '오른쪽 기울이기',
 };
 
 export interface Placement {
@@ -34,6 +49,8 @@ export interface Placement {
   size: number;
   /** Opacity of this control (replaces the global 버튼 투명도 for it). */
   opacity: number;
+  /** Phase 29: hidden by the player (not drawn, takes no touch); never for HIDE_LOCKED controls. */
+  hidden?: boolean;
 }
 
 export interface TouchLayout {
@@ -62,7 +79,11 @@ export function sanitizeLayout(raw: unknown): TouchLayout | null {
     const q = p as Record<string, unknown>;
     const num = (v: unknown, lo: number, hi: number) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
     if (!num(q.x, 0, 1) || !num(q.y, 0, 1) || !num(q.size, ...PLACEMENT_LIMITS.size) || !num(q.opacity, ...PLACEMENT_LIMITS.opacity)) return null;
-    out.controls[id as LayoutId] = { x: q.x as number, y: q.y as number, size: q.size as number, opacity: q.opacity as number };
+    if (q.hidden !== undefined && typeof q.hidden !== 'boolean') return null;
+    const place: Placement = { x: q.x as number, y: q.y as number, size: q.size as number, opacity: q.opacity as number };
+    // A locked control stays shown whatever the stored layout says.
+    if (q.hidden === true && canHide(id as LayoutId)) place.hidden = true;
+    out.controls[id as LayoutId] = place;
   }
   return out;
 }

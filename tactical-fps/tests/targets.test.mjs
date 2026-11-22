@@ -327,12 +327,14 @@ test('shots to take a dummy down match the weapon data (100 HP)', async () => {
     'ar01/head': 1, // 102
     'ar01/torso': 5, // 24
     'ar01/thigh.l': 6, // 19
-    'sr01/head': 1, // 460
-    'sr01/torso': 1, // 115
-    'sr01/thigh.l': 2, // 98
-    'karambit/head': 2, // 60
-    'karambit/torso': 3, // 40
-    'karambit/thigh.l': 3, // 40
+    // Phase 30 AWM: 640 / 160 / 112 (was 460 / 115 / 98: a leg took two).
+    'sr01/head': 1,
+    'sr01/torso': 1,
+    'sr01/thigh.l': 1,
+    // Phase 29: every melee hit kills (was 60 / 40 / 40: 2, 3, 3 slashes).
+    'karambit/head': 1,
+    'karambit/torso': 1,
+    'karambit/thigh.l': 1,
   });
 });
 

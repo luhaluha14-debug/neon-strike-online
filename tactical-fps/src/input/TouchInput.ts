@@ -1,6 +1,6 @@
 import type { InputState } from './InputState';
 import type { TouchSettings } from './TouchSettings';
-import { LAYOUT_IDS, placementCentre, safeInsets, type LayoutId, type TouchLayout } from './TouchLayout';
+import { canHide, LAYOUT_IDS, placementCentre, safeInsets, type LayoutId, type TouchLayout } from './TouchLayout';
 import '../ui/touch.css';
 
 // Phone / tablet controls: a move stick on the left (it appears where the
@@ -24,7 +24,7 @@ const DEAD_ZONE = 0.14;
 /** Left part of the screen where a touch starts the move stick. */
 const STICK_ZONE = 0.42;
 
-type Act = 'fire' | 'fire2' | 'aim' | 'reload' | 'jump' | 'crouch' | 'weapon' | 'use' | 'utility' | 'pause' | 'board' | 'buy';
+type Act = 'fire' | 'fire2' | 'leanL' | 'leanR' | 'aim' | 'reload' | 'jump' | 'crouch' | 'weapon' | 'use' | 'utility' | 'pause' | 'board' | 'buy';
 
 /** Phase 28: holding 무기 this long opens the weapon picker (a tap is the next weapon, as before). */
 export const WEAPON_PICK_HOLD = 0.3;
@@ -124,7 +124,7 @@ export class TouchInput {
     this.root = document.createElement('div');
     this.root.className = 'touch-ui';
     this.root.hidden = true;
-    const b = (act: Act, label: string, extra = '') => `<button type="button" class="tc-btn tc-${act}${extra}" data-act="${act}" aria-label="${label}"><span>${label}</span></button>`;
+    const b = (act: Act, label: string, extra = '', aria = label) => `<button type="button" class="tc-btn tc-${act}${extra}" data-act="${act}" aria-label="${aria}"><span>${label}</span></button>`;
     this.root.innerHTML = `
       <div class="tc-stick" aria-hidden="true"><div class="tc-knob"></div></div>
       <div class="tc-top">
@@ -134,6 +134,7 @@ export class TouchInput {
         ${b('fire', '발사')}${b('aim', '조준')}${b('reload', '장전')}${b('jump', '점프')}${b('crouch', '앉기')}${b('weapon', '무기')}${b('use', '사용')}${b('utility', '투척')}
       </div>
       ${b('fire2', '발사')}
+      ${b('leanL', '◀', ' tc-lean', '왼쪽 기울이기')}${b('leanR', '▶', ' tc-lean', '오른쪽 기울이기')}
       <div class="tc-picker" hidden role="listbox" aria-label="무기 선택"></div>
 `;
     parent.appendChild(this.root);
@@ -230,7 +231,7 @@ export class TouchInput {
     const top = this.root.querySelector('.tc-top')!.getBoundingClientRect();
     let need = 1;
     for (const el of this.root.querySelectorAll<HTMLElement>('.tc-cluster .tc-btn')) {
-      if (el.classList.contains('placed')) continue;
+      if (el.classList.contains('placed') || el.classList.contains('user-hidden')) continue;
       const hid = el.hidden;
       el.hidden = false;
       const r = el.getBoundingClientRect();
@@ -266,6 +267,11 @@ export class TouchInput {
     el.style.setProperty('--p', String(p));
   }
 
+  /** Controls the player hid (Phase 29). */
+  get hiddenControls(): LayoutId[] {
+    return LAYOUT_IDS.filter((id) => this.layoutElement(id).classList.contains('user-hidden'));
+  }
+
   /** The weapon picker is open (tests). */
   get pickerOpen(): boolean {
     return !this.picker.hidden;
@@ -286,6 +292,8 @@ export class TouchInput {
     for (const id of LAYOUT_IDS) {
       const el = this.layoutElement(id);
       el.classList.remove('placed');
+      // Hidden by the player (Phase 29): not drawn, no touch; the editor shows it faded to bring it back.
+      el.classList.toggle('user-hidden', !!l?.controls[id]?.hidden && canHide(id));
       for (const k of ['position', 'left', 'top', 'right', 'bottom', 'width', 'height', 'margin', 'opacity', 'fontSize']) el.style.removeProperty(k.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase()));
       el.style.removeProperty('--sz');
     }
@@ -398,6 +406,10 @@ export class TouchInput {
     out.jump ||= held('jump') || this.latched.has('jump');
     out.reload ||= held('reload') || this.latched.has('reload');
     out.use ||= held('use');
+    // Phase 30 lean: held, like Q / E (both at once: upright).
+    const ll = held('leanL');
+    const lr = held('leanR');
+    if (ll || lr) out.lean = (lr ? 1 : 0) - (ll ? 1 : 0);
     out.utility ||= this.latched.has('utility');
     if (this.slot >= 0) out.equipSlot = this.slot;
     if (this.cycle !== 0) out.equipCycle = this.cycle;

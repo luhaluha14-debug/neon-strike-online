@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CAMERA_CONFIG, PLAYER_CONFIG } from '../config';
+import { CAMERA_CONFIG, LEAN_CONFIG, PLAYER_CONFIG } from '../config';
 import type { InputState } from '../input/InputState';
 import type { CollisionWorld, CapsuleHit } from '../world/CollisionWorld';
 
@@ -7,6 +7,8 @@ const _wish = new THREE.Vector3();
 const _segment = new THREE.Line3();
 const _down = new THREE.Vector3(0, -1, 0);
 const _normal = new THREE.Vector3();
+const _leanEye = new THREE.Vector3();
+const _leanDir = new THREE.Vector3();
 
 /**
  * Kinematic first-person character. `position` is the bottom of the capsule
@@ -23,6 +25,13 @@ export class PlayerController {
   /** Current capsule height, eased between stand and crouch. */
   height: number = PLAYER_CONFIG.standHeight;
   health: number = PLAYER_CONFIG.maxHealth;
+  /**
+   * Phase 30 lean as it is now, -1 (left) .. 1 (right): eased toward what is held and cut short by a wall at
+   * that side. The eye, the camera, the shots and the hit capsule's top all follow it (leanShift).
+   */
+  lean = 0;
+  /** Eased toward the held lean before the wall limit. */
+  private leanWant = 0;
 
   private jumpHeld = false;
   /** Time left on a jump press made in the air (it fires on landing; see jumpBuffer). */
@@ -49,6 +58,7 @@ export class PlayerController {
     this.groundTicks = 0;
     this.jumped = false;
     this.wallContact = false;
+    this.lean = this.leanWant = 0;
   }
 
   /** Mouse look is applied per render frame for responsiveness, not per tick. */
@@ -72,6 +82,7 @@ export class PlayerController {
   step(input: InputState, dt: number): void {
     const cfg = PLAYER_CONFIG;
     this.updateCrouch(input.crouch, dt);
+    this.updateLean(input.lean ?? 0, dt);
 
     // Wish direction in world space from yaw only.
     const sin = Math.sin(this.yaw);
@@ -146,6 +157,50 @@ export class PlayerController {
     }
     if (!this.grounded) this.groundTicks = 0;
     else this.jumped = false;
+  }
+
+  /** Eases the lean toward `want` (-1..1) and keeps it clear of a wall at that side. */
+  updateLean(want: number, dt: number): void {
+    const target = Math.max(-1, Math.min(1, want));
+    const step = dt / LEAN_CONFIG.time;
+    this.leanWant += Math.max(-step, Math.min(step, target - this.leanWant));
+    this.applyLeanLimit(this.leanWant);
+  }
+
+  /** A lean another machine reported (a member's, on the host): the same wall limit here, so no peeking through. */
+  setReportedLean(v: number): void {
+    const l = Number.isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0;
+    this.leanWant = l;
+    this.applyLeanLimit(l);
+  }
+
+  private applyLeanLimit(want: number): void {
+    if (Math.abs(want) < 1e-3) {
+      this.lean = 0;
+      return;
+    }
+    const side = Math.sign(want);
+    _leanEye.set(this.position.x, this.position.y + this.eyeHeight, this.position.z);
+    _leanDir.set(Math.cos(this.yaw) * side, 0, -Math.sin(this.yaw) * side);
+    const reach = LEAN_CONFIG.offset * Math.abs(want);
+    const hit = this.world.raycast(_leanEye, _leanDir, reach + LEAN_CONFIG.wallMargin);
+    const room = hit === null ? reach : Math.max(0, Math.min(reach, hit - LEAN_CONFIG.wallMargin));
+    this.lean = side * (room / LEAN_CONFIG.offset);
+  }
+
+  /** Where the lean puts the eye relative to the upright eye (world, m). */
+  leanShift(out: THREE.Vector3): THREE.Vector3 {
+    const k = this.lean * LEAN_CONFIG.offset;
+    return out.set(Math.cos(this.yaw) * k, -Math.abs(this.lean) * LEAN_CONFIG.drop, -Math.sin(this.yaw) * k);
+  }
+
+  /** The eye in the world, lean included: where shots leave and the camera sits. */
+  eyePosition(out: THREE.Vector3): THREE.Vector3 {
+    this.leanShift(out);
+    out.x += this.position.x;
+    out.y += this.position.y + this.eyeHeight;
+    out.z += this.position.z;
+    return out;
   }
 
   /**
