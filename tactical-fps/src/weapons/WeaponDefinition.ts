@@ -62,6 +62,14 @@ export interface DamageProfile {
   falloffMinMultiplier: number;
   /** Bullets stop existing past this (m). */
   maxRange: number;
+  /**
+   * Phase 29 — melee: one valid hit kills (M9 and the knife items, which are the same weapon). The same
+   * for every zone, angle (front, side, back) and target (player or bot) and through armour; reach,
+   * walls, rate, spawn protection and the host's checks still decide what is a valid hit.
+   */
+  lethal?: boolean;
+  /** Phase 30: hit correction (m) — the target's hitbox is this much wider for this weapon's rounds (AWM only). */
+  hitPad?: number;
 }
 
 /**
@@ -191,4 +199,9 @@ export interface WeaponDefinition {
    * Off while the weapon is not ready or still cycling after a shot.
    */
   scope?: { zoom: number; sensitivity: number };
+  /**
+   * Phase 30: how the action cycles between shots, for the model: 'semi' = gas-operated (the bolt snaps back
+   * and forward by itself, no hand on it). Absent: as before (a bolt-action's bolt worked by hand).
+   */
+  action?: 'semi';
 }

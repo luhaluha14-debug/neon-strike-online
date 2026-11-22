@@ -16,7 +16,7 @@ export const PLAYER_TARGET = 'player';
 /** Display name of a target. */
 export const TARGET_NAME: Record<string, string> = {
   ar01: 'AR-01',
-  sr01: 'SR-01',
+  sr01: 'AWM',
   smg01: 'SMG-01',
   sg01: 'SG-01',
   pis01: 'PIS-01',
@@ -50,7 +50,7 @@ function factory(category: SkinCategory, target: string, name: string, preview: 
 export const SKIN_CATALOG: readonly SkinDef[] = [
   // Default looks (always available, not sold).
   factory('weapon', 'ar01', 'AR-01 기본', [0x1a1b1d, 0x5a5c60]),
-  factory('weapon', 'sr01', 'SR-01 기본', [0x1a1b1d, 0xd8d8d0]),
+  factory('weapon', 'sr01', 'AWM 기본', [0x1a1b1d, 0xd8d8d0]),
   factory('weapon', 'smg01', 'SMG-01 기본', [0x1d1e20, 0x2a2b2d]),
   factory('weapon', 'sg01', 'SG-01 기본', [0x1d1e20, 0x2a2b2d]),
   factory('weapon', 'pis01', 'PIS-01 기본', [0x1d1e20, 0x2a2b2d]),

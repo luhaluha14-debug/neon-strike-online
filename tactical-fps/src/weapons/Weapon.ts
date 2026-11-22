@@ -61,13 +61,20 @@ export class Weapon {
     return true;
   }
 
-  /** Called when this weapon becomes the active one. An unfinished reload is cancelled (ammo unchanged). */
-  equip(): void {
+  /**
+   * Called when this weapon becomes the active one. An unfinished reload is cancelled (ammo unchanged).
+   * Phase 30: drawing a weapon resets its fire cooldown, and it may fire during its draw (the shot ends the
+   * draw): shoot → switch → shoot works with every weapon. Only the cooldown: ammo, magazine and reserve
+   * stay exactly as they were.
+   */
+  equip(triggerHeld = true): void {
     this.status = 'equipping';
     this.reloadRemaining = 0;
     this.equipRemaining = this.def.equipTime;
     this.timeSinceShot = Infinity;
-    this.triggerWasHeld = true; // a trigger held through the switch must be released first
+    this.cooldown = 0;
+    // A trigger held through the switch must be released first; one let go before it fires on the next press.
+    this.triggerWasHeld = triggerHeld;
   }
 
   /**
@@ -98,13 +105,18 @@ export class Weapon {
     const pressedThisStep = triggerHeld && !this.triggerWasHeld;
     const wantsFire = this.def.fireMode === 'auto' ? triggerHeld : pressedThisStep;
 
-    if (wantsFire && this.status === 'ready') {
+    // Phase 30: a drawn weapon fires at once (the draw is only its look; the shot brings it up).
+    if (wantsFire && (this.status === 'ready' || this.status === 'equipping')) {
       if (this.usesAmmo && this.magazine <= 0) {
         if (pressedThisStep) dryFire = true;
       } else {
         while (this.cooldown <= 0 && (!this.usesAmmo || this.magazine > 0)) {
           if (this.usesAmmo) this.magazine--;
           shots++;
+          if (this.status === 'equipping') {
+            this.status = 'ready';
+            this.equipRemaining = 0;
+          }
           this.cooldown += this.fireInterval;
           this.timeSinceShot = 0;
           if (this.def.fireMode === 'semi') break;

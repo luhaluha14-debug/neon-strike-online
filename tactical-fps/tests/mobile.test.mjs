@@ -72,7 +72,8 @@ test('1: a phone gets the touch controls by itself; the PC parts are hidden; pla
     assert.equal(r.touch, true);
     assert.equal(r.ui, true);
     assert.equal(r.lock, false, 'no pointer lock on a phone');
-    assert.deepEqual(r.buttons.sort(), ['aim', 'board', 'crouch', 'fire', 'jump', 'pause', 'reload', 'weapon'].sort(), 'training: no use / grenade / buy button');
+    // Phase 30 added the lean ◀ ▶ buttons.
+    assert.deepEqual(r.buttons.sort(), ['aim', 'board', 'crouch', 'fire', 'jump', 'leanL', 'leanR', 'pause', 'reload', 'weapon'].sort(), 'training: no use / grenade / buy button');
     assert.equal(r.pcControls, 'none');
     assert.notEqual(r.touchSettings, 'none');
     // Pause: the menu, the controls gone; 계속하기 back to play.
@@ -415,8 +416,8 @@ test('9, 10: render scale and quality: applied at once and kept; a phone starts 
     assert.deepEqual(
       { ...r.saved },
       // Phase 25 added the touch conveniences to the record: their defaults (all off) saved alongside.
-      // Phase 28 added the mobile aim / recoil assist, gyro, left fire and battery saver: their defaults too.
-      { stickX: 0.22, stickY: 0.3, buttonsX: 0.03, buttonsY: 0.12, buttonScale: 1.25, lookSensitivity: 1.6, adsSensitivity: 0.45, opacity: 0.5, aimSmoothing: 0, fireToggle: 0, fireRepeat: 0, minimapLarge: 0, ammoEmphasis: 0, perfPriority: 0, aimAssist: 0.5, recoilAssist: 0.5, gyro: 0, gyroSensitivity: 1, gyroAdsOnly: 0, leftFire: 0, batterySaver: 0, autoSaver: 1 },
+      // Phase 28 added the mobile aim / recoil assist, gyro, left fire and battery saver, Phase 29 the minimal HUD: their defaults too.
+      { stickX: 0.22, stickY: 0.3, buttonsX: 0.03, buttonsY: 0.12, buttonScale: 1.25, lookSensitivity: 1.6, adsSensitivity: 0.45, opacity: 0.5, aimSmoothing: 0, fireToggle: 0, fireRepeat: 0, minimapLarge: 0, ammoEmphasis: 0, perfPriority: 0, aimAssist: 0.5, recoilAssist: 0.5, gyro: 0, gyroSensitivity: 1, gyroAdsOnly: 0, leftFire: 0, batterySaver: 0, autoSaver: 1, minimalHud: 0 },
     );
     assert.deepEqual(r.css, ['1.25', '0.5', '22%', '12vh']);
     assert.equal(r.slider, '1.6');
@@ -452,6 +453,8 @@ test('9, 10: render scale and quality: applied at once and kept; a phone starts 
       leftFire: 0,
       batterySaver: 0,
       autoSaver: 1,
+      // Phase 29 미니멀 HUD: off by default.
+      minimalHud: 0,
     });
     // Garbage in storage: defaults within limits.
     await page.evaluate(() => localStorage.setItem('tactical-fps.touch.v1', JSON.stringify({ buttonScale: 99, opacity: 'x', lookSensitivity: -3 })));

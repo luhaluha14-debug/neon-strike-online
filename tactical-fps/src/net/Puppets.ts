@@ -29,6 +29,8 @@ export interface Puppet {
   pitch: number;
   height: number;
   alive: boolean;
+  /** Phase 30 lean, -1..1. */
+  lean: number;
 }
 
 const _pose: BotPose = {
@@ -103,6 +105,9 @@ export class Puppets {
       _pose.aiming = (flags & 4) !== 0 && p.alive;
       _pose.alive = p.alive;
       _pose.deadTime = eb[12];
+      // Phase 30: the lean (absent from an older host or while upright: 0).
+      p.lean = lerp(typeof ea[16] === 'number' ? ea[16] : 0, typeof eb[16] === 'number' ? eb[16] : 0, k);
+      _pose.lean = p.lean;
       // The weapon this character holds and its skin, as the host shows them (both checked again here: a known
       // weapon, a registered weapon / knife skin); anything else is the stand-in rifle / the default look.
       const w = typeof eb[15] === 'string' && WEAPONS[eb[15]] ? eb[15] : undefined;
@@ -140,7 +145,7 @@ export class Puppets {
     const model: BotBody = (this.look === 'agents' && AgentModel.create(team || undefined, kit)) || new BotModel(kit);
     model.object.name = id;
     this.group.add(model.object);
-    const p: Puppet = { id, team, model, samples: [], position: new THREE.Vector3(), yaw: 0, pitch: 0, height: 1.8, alive: true };
+    const p: Puppet = { id, team, model, samples: [], position: new THREE.Vector3(), yaw: 0, pitch: 0, height: 1.8, alive: true, lean: 0 };
     this.all.set(id, p);
     return p;
   }

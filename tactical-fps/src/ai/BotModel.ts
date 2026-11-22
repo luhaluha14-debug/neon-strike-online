@@ -23,7 +23,17 @@ export interface BotPose {
   alive: boolean;
   /** Seconds since death. */
   deadTime: number;
+  /** Phase 30: lean -1 (left) .. 1 (right); the upper body tilts that way (absent: upright). */
+  lean?: number;
 }
+
+/**
+ * How far the upper body tilts at a full lean (rad), about the hips: the head moves about as far as the eye
+ * (and the hit capsule's top) does, LEAN_CONFIG.offset.
+ */
+export const BODY_LEAN = 0.5;
+/** The same for a figure without a spine (AgentModel), tilting about the feet. */
+export const FIGURE_LEAN = 0.22;
 
 /** What BotSquad drives for each bot: the built-in BotModel or a Blender character (AgentModel). */
 export interface BotBody {
@@ -306,7 +316,7 @@ export class BotModel implements BotBody {
     this.arms.rotation.y = twist * 0.25;
     this.arms.position.z = this.kick * 0.035;
     this.spine.rotation.x = pitch * 0.25 * this.raise + this.flinch * 0.25;
-    this.spine.rotation.z = this.flinch * 0.15 * this.flinchSide;
+    this.spine.rotation.z = this.flinch * 0.15 * this.flinchSide - (p.alive ? (p.lean ?? 0) : 0) * BODY_LEAN;
 
     if (!p.alive) {
       // Falls onto its back about the feet (the object is at the feet; +Z is behind).

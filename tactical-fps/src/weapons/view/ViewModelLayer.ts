@@ -42,6 +42,8 @@ export const WEAPON_WEIGHT: Record<WeaponCategory, { sway: number; bob: number; 
 
 /** Duration of the placeholder melee slash (s). */
 const SLASH_TIME = 0.32;
+/** The blade's full sweep comes this soon after the slash (s): the hit is judged at the slash (Phase 29). */
+export const SLASH_STRIKE = 0.06;
 
 interface ShotFeel {
   /** Impulse of the kick spring per shot. */
@@ -122,6 +124,11 @@ export class ViewModelLayer {
   private armsLook: ArmsAppearance | null = null;
   /** Motion pivot: position/rotation offsets are applied here. */
   private readonly pivot = new THREE.Group();
+  /**
+   * Phase 30 손잡이 (handedness): the whole first-person scene (weapon, hands, every animation) drawn
+   * mirrored for a left-handed player. Display only: the shots still leave through the crosshair.
+   */
+  private readonly mirror = new THREE.Group();
   /** Muzzle flash at the current weapon's muzzle (star, flame prongs, brake jets, smoke). */
   readonly flash = new MuzzleFlash();
   /** Muzzle flash light on the hands and weapon; always in the scene (only its intensity changes, so no shader recompiles). */
@@ -171,7 +178,8 @@ export class ViewModelLayer {
 
   constructor(aspect: number) {
     this.camera = new THREE.PerspectiveCamera(62, aspect, 0.01, 10);
-    this.scene.add(this.pivot);
+    this.mirror.add(this.pivot);
+    this.scene.add(this.mirror);
     this.scene.add(this.fill);
     this.key.position.set(0.6, 1, 0.4);
     this.scene.add(this.key);
@@ -187,6 +195,15 @@ export class ViewModelLayer {
     this.ambient += (k - this.ambient) * 0.08;
     this.fill.intensity = 1.6 * this.ambient;
     this.key.intensity = 2.2 * (0.6 + 0.4 * this.ambient * this.ambient);
+  }
+
+  /** Left-handed (true) or right-handed (the default, as before). */
+  setLeftHanded(left: boolean): void {
+    this.mirror.scale.x = left ? -1 : 1;
+  }
+
+  get leftHanded(): boolean {
+    return this.mirror.scale.x < 0;
   }
 
   /** Effects detail (graphics quality): low leaves out the smoke. */
@@ -248,7 +265,8 @@ export class ViewModelLayer {
       side = (local.x - m.x) * -fz + (local.z - m.z) * fx >= 0 ? 1 : -1;
     }
     this.toWorld(out, worldCamera);
-    return side;
+    // Mirrored (left-handed): the port shows on the other side, and the cases fly out that way.
+    return this.leftHanded ? -side : side;
   }
 
   /** The selected weapon's model: during a switch, the one about to be drawn (debug / tests). */
@@ -317,14 +335,20 @@ export class ViewModelLayer {
     this.arms?.applyLook(look);
   }
 
-  /** A fresh start (respawn, round start): a switch in progress completes, kicks and dips are cleared. */
-  resetMotion(): void {
+  /** A switch in progress completes now: the new model is in the hands (a shot during the switch). */
+  finishSwitch(): void {
     if (this.incoming) {
       const { view, pose, category } = this.incoming;
       this.incoming = null;
       this.install(view, pose, category);
     }
     this.holster = this.holsterTotal = 0;
+    this.equipBase = 0;
+  }
+
+  /** A fresh start (respawn, round start): a switch in progress completes, kicks and dips are cleared. */
+  resetMotion(): void {
+    this.finishSwitch();
     this.equipBase = 0;
     this.kick = this.kickVel = this.roll = this.rollVel = this.land = this.landVel = 0;
     this.lastReload = null;
@@ -498,7 +522,9 @@ export class ViewModelLayer {
 
     // Melee slash: sweep from the right across the centre and back.
     if (showing && anim.category === 'melee' && anim.sinceShot < SLASH_TIME) {
-      const sw = Math.sin((anim.sinceShot / SLASH_TIME) * Math.PI);
+      // A fast strike across the centre (the hit lands now) and a slower return.
+      const t = anim.sinceShot;
+      const sw = t < SLASH_STRIKE ? Math.sin((t / SLASH_STRIKE) * (Math.PI / 2)) : (1 - (t - SLASH_STRIKE) / (SLASH_TIME - SLASH_STRIKE)) ** 2;
       off.x -= sw * 0.11;
       off.z -= sw * 0.06;
       off.ry += sw * 0.7;
@@ -533,6 +559,7 @@ export class ViewModelLayer {
       _anim.fireInterval = anim.fireInterval;
       _anim.inspect = anim.inspect;
       _anim.empty = anim.empty;
+      _anim.action = anim.action;
       this.view?.animate?.(_anim);
     }
     this.arms?.update(showing ? anim.reload : null);

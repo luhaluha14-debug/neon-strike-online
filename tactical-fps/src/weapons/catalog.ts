@@ -45,7 +45,8 @@ export interface CatalogItem {
 export const CATALOG: readonly CatalogItem[] = [
   { id: 'AR-01', name: '돌격소총', slot: 'primary', category: 'rifle', price: 2700, weapon: AR_01, available: true },
   // Price is GRID's proposal for the existing bolt-action rifle (one-shot body, slow).
-  { id: 'SR-01', name: '저격소총', slot: 'primary', category: 'sniper', price: 4750, weapon: SR_01, available: true },
+  // Phase 30: the AWM (semi-automatic, 150 RPM); the item id stays SR-01 (rooms, saved records).
+  { id: 'SR-01', name: 'AWM 저격소총 (반자동)', slot: 'primary', category: 'sniper', price: 4750, weapon: SR_01, available: true },
   { id: 'SMG-01', name: '기관단총', slot: 'primary', category: 'smg', price: 1500, weapon: SMG_01, available: true },
   { id: 'SG-01', name: '산탄총 (8펠릿)', slot: 'primary', category: 'shotgun', price: 2000, weapon: SG_01, available: true },
   { id: 'PIS-01', name: '권총', slot: 'secondary', category: 'pistol', price: 500, weapon: PIS_01, available: true },

@@ -133,9 +133,9 @@ test('forfeit with the C4 planted, a defuse under way and grenades in the air: e
     return { spot: spot.toArray(), carrier: g.bomb.carrier };
   });
   assert.equal(setup.carrier, 'local');
-  await page.keyboard.down('KeyE');
+  await page.keyboard.down('KeyF');
   await page.evaluate(() => window.T.run(3.2 * 60 + 5));
-  await page.keyboard.up('KeyE');
+  await page.keyboard.up('KeyF');
   const mid = await page.evaluate(() => {
     const g = window.game;
     const T = window.T;

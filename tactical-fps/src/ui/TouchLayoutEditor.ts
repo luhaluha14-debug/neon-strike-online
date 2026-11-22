@@ -1,5 +1,5 @@
 import type { TouchInput } from '../input/TouchInput';
-import { emptyLayout, LAYOUT_IDS, LAYOUT_LABELS, overlaps, PLACEMENT_LIMITS, relativeOf, safeInsets, type LayoutId, type Placement, type TouchLayout } from '../input/TouchLayout';
+import { canHide, emptyLayout, LAYOUT_IDS, LAYOUT_LABELS, overlaps, PLACEMENT_LIMITS, relativeOf, safeInsets, type LayoutId, type Placement, type TouchLayout } from '../input/TouchLayout';
 import './touchLayout.css';
 
 // 버튼 배치 편집: the touch controls shown as they are in play (the HUD behind them), each with a
@@ -8,11 +8,18 @@ import './touchLayout.css';
 // reaches the game: the touch controls take no input while the editor is open, and only one finger
 // drags at a time (a second finger is ignored until the first lifts). 저장 keeps the layout, 취소
 // puts back what was there, 기본 배치 returns every control to the built-in arrangement.
+// Phase 29: − / + beside the size slider; 숨기기 hides the selected control (not the stick, 발사 or
+// 일시정지): it stays here, faded, to be brought back; 미니멀 HUD previews the minimal HUD behind the controls.
 
 export interface LayoutEditorHandlers {
-  onSave(layout: TouchLayout | null): void;
+  onSave(layout: TouchLayout | null, opts: { minimal: boolean }): void;
   onClose(): void;
+  /** The minimal HUD previewed (on / off) while editing; put back on 취소. */
+  onPreviewMinimal?(on: boolean): void;
 }
+
+/** One step of the − / + size buttons. */
+const SIZE_STEP = 0.1;
 
 export class TouchLayoutEditor {
   readonly root: HTMLDivElement;
@@ -29,6 +36,10 @@ export class TouchLayoutEditor {
   private readonly sizeOut: HTMLOutputElement;
   private readonly opacityOut: HTMLOutputElement;
   private readonly warnEl: HTMLElement;
+  private readonly hideBtn: HTMLButtonElement;
+  private readonly hiddenNote: HTMLElement;
+  private readonly minimalIn: HTMLInputElement;
+  private minimalAtOpen = false;
   private handlers: LayoutEditorHandlers | null = null;
 
   constructor(parent: HTMLElement) {
@@ -45,8 +56,13 @@ export class TouchLayoutEditor {
           <span class="tl-name">버튼을 끌어 옮기세요</span>
         </div>
         <div class="tl-sliders">
-          <label class="tl-field"><span>크기</span><input type="range" class="tl-size" min="${PLACEMENT_LIMITS.size[0]}" max="${PLACEMENT_LIMITS.size[1]}" step="0.05" disabled /><output class="tl-size-out">—</output></label>
+          <div class="tl-field tl-size-field"><span>크기</span><button type="button" class="tl-step tl-smaller" aria-label="작게" disabled>−</button><input type="range" class="tl-size" aria-label="크기" min="${PLACEMENT_LIMITS.size[0]}" max="${PLACEMENT_LIMITS.size[1]}" step="0.05" disabled /><button type="button" class="tl-step tl-bigger" aria-label="크게" disabled>+</button><output class="tl-size-out">—</output></div>
           <label class="tl-field"><span>투명도</span><input type="range" class="tl-opacity" min="${PLACEMENT_LIMITS.opacity[0]}" max="${PLACEMENT_LIMITS.opacity[1]}" step="0.05" disabled /><output class="tl-opacity-out">—</output></label>
+        </div>
+        <div class="tl-row">
+          <button type="button" class="btn tl-hide" disabled>숨기기</button>
+          <span class="tl-hidden-note"></span>
+          <label class="tl-minimal"><input type="checkbox" class="tl-minimal-in" /> 미니멀 HUD</label>
         </div>
         <p class="tl-warn" role="status" aria-live="polite"></p>
         <div class="tl-actions">
@@ -63,6 +79,9 @@ export class TouchLayoutEditor {
     this.sizeOut = q('.tl-size-out');
     this.opacityOut = q('.tl-opacity-out');
     this.warnEl = q('.tl-warn');
+    this.hideBtn = q('.tl-hide');
+    this.hiddenNote = q('.tl-hidden-note');
+    this.minimalIn = q('.tl-minimal-in');
     const handles = q<HTMLDivElement>('.tl-handles');
     for (const id of LAYOUT_IDS) {
       const h = document.createElement('div');
@@ -82,6 +101,10 @@ export class TouchLayoutEditor {
     this.root.addEventListener('contextmenu', (e) => e.preventDefault());
     this.sizeIn.addEventListener('input', () => this.setSelected('size', Number(this.sizeIn.value)));
     this.opacityIn.addEventListener('input', () => this.setSelected('opacity', Number(this.opacityIn.value)));
+    q('.tl-smaller').addEventListener('click', () => this.stepSize(-SIZE_STEP));
+    q('.tl-bigger').addEventListener('click', () => this.stepSize(SIZE_STEP));
+    this.hideBtn.addEventListener('click', () => this.toggleHidden());
+    this.minimalIn.addEventListener('change', () => this.handlers?.onPreviewMinimal?.(this.minimalIn.checked));
     q('.tl-reset').addEventListener('click', () => this.reset());
     q('.tl-cancel').addEventListener('click', () => this.close(false));
     q('.tl-save').addEventListener('click', () => this.close(true));
@@ -98,7 +121,9 @@ export class TouchLayoutEditor {
   }
 
   /** Opens over the touch controls (already shown in their preview state by the caller). */
-  show(touch: TouchInput, layout: TouchLayout | null, defaultOpacity: number, handlers: LayoutEditorHandlers): void {
+  show(touch: TouchInput, layout: TouchLayout | null, defaultOpacity: number, handlers: LayoutEditorHandlers, minimal = false): void {
+    this.minimalAtOpen = minimal;
+    this.minimalIn.checked = minimal;
     this.touch = touch;
     this.original = layout;
     this.draft = layout ? structuredClone(layout) : emptyLayout();
@@ -123,8 +148,11 @@ export class TouchLayoutEditor {
   close(save: boolean): void {
     if (!this.open) return;
     const t = this.touch;
-    if (save) this.handlers?.onSave(Object.keys(this.draft.controls).length ? structuredClone(this.draft) : null);
-    else t?.applyLayout(this.original);
+    if (save) this.handlers?.onSave(Object.keys(this.draft.controls).length ? structuredClone(this.draft) : null, { minimal: this.minimalIn.checked });
+    else {
+      t?.applyLayout(this.original);
+      if (this.minimalIn.checked !== this.minimalAtOpen) this.handlers?.onPreviewMinimal?.(this.minimalAtOpen);
+    }
     this.drag = null;
     this.root.hidden = true;
     this.handlers?.onClose();
@@ -147,9 +175,15 @@ export class TouchLayoutEditor {
       h.style.width = `${r.width}px`;
       h.style.height = `${r.height}px`;
       h.classList.remove('warn');
+      // A hidden control: shown faded here to bring it back; not counted for overlaps (it is not on the screen).
+      const hidden = !!this.draft.controls[id]?.hidden;
+      h.classList.toggle('is-hidden', hidden);
+      if (hidden) continue;
       rects.push(r);
       ids.push(id);
     }
+    const n = LAYOUT_IDS.filter((id) => this.draft.controls[id]?.hidden).length;
+    this.hiddenNote.textContent = n ? `숨긴 버튼 ${n}개 (흐리게 표시, 골라서 다시 보이기)` : '';
     const hit = overlaps(rects);
     const names = new Set<LayoutId>();
     for (const [a, b] of hit) {
@@ -167,6 +201,9 @@ export class TouchLayoutEditor {
     const p = id ? this.placementOf(id) : null;
     this.nameEl.textContent = id ? LAYOUT_LABELS[id] : '버튼을 끌어 옮기세요';
     this.sizeIn.disabled = this.opacityIn.disabled = !p;
+    for (const b of this.root.querySelectorAll<HTMLButtonElement>('.tl-step')) b.disabled = !p;
+    this.hideBtn.disabled = !id || !canHide(id);
+    this.hideBtn.textContent = id && this.draft.controls[id]?.hidden ? '다시 보이기' : '숨기기';
     if (p) {
       this.sizeIn.value = String(p.size);
       this.opacityIn.value = String(p.opacity);
@@ -188,6 +225,26 @@ export class TouchLayoutEditor {
     const id = this.selected;
     if (!id) return;
     const p = { ...this.placementOf(id), [k]: Math.min(PLACEMENT_LIMITS[k][1], Math.max(PLACEMENT_LIMITS[k][0], v)) };
+    this.draft.controls[id] = p;
+    this.touch?.applyLayout(this.draft);
+    this.select(id);
+    this.refresh();
+  }
+
+  /** − / +: one step smaller or bigger (inside the size limits). */
+  stepSize(d: number): void {
+    const id = this.selected;
+    if (!id) return;
+    this.setSelected('size', Math.round((this.placementOf(id).size + d) * 100) / 100);
+  }
+
+  /** 숨기기 / 다시 보이기 for the selected control (never the stick, 발사 or 일시정지). */
+  toggleHidden(): void {
+    const id = this.selected;
+    if (!id || !canHide(id)) return;
+    const p = { ...this.placementOf(id) };
+    if (p.hidden) delete p.hidden;
+    else p.hidden = true;
     this.draft.controls[id] = p;
     this.touch?.applyLayout(this.draft);
     this.select(id);

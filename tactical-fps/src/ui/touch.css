@@ -355,3 +355,107 @@ html.touch.tc-ammo-big .hud.ammo-empty .ammo-mag {
   border-color: var(--c-accent, #e8a044);
   background: rgba(232, 160, 68, 0.35);
 }
+
+/* --- Phase 29 ------------------------------------------------------------------------------- */
+
+/* Tablets (a big landscape screen): the controls a little larger, still in the same places. */
+@media (min-width: 900px) and (min-height: 700px) {
+  html.touch .touch-ui {
+    --u: calc(64px * var(--tc-scale, 1) * var(--tc-fit, 1));
+  }
+}
+
+/* A button the player hid (버튼 배치 편집): gone in play; faded and dashed in the editor to bring back. */
+.touch-ui:not(.editing) .user-hidden {
+  display: none !important;
+}
+.touch-ui.editing .user-hidden {
+  display: grid !important;
+  opacity: 0.22 !important;
+  border-style: dashed;
+}
+.touch-ui.editing .tc-stick.user-hidden {
+  display: block !important;
+}
+
+/* Held or switched on: fully visible whatever its resting transparency (the outline stays). */
+.tc-btn.down,
+.tc-btn.on {
+  opacity: 1 !important;
+}
+
+/* 미니멀 HUD (touch setting): health, ammo, minimap, score and time; the rest of the panels go and
+   nothing stays near the crosshair. The PC HUD is untouched (html.touch only). */
+html.touch.tc-minimal .combat-stats,
+html.touch.tc-minimal .weapon .loadout,
+html.touch.tc-minimal .weapon .mag-track,
+html.touch.tc-minimal .weapon .reload-track,
+html.touch.tc-minimal .weapon .weapon-status,
+html.touch.tc-minimal .ta.money,
+html.touch.tc-minimal .ta.side,
+html.touch.tc-minimal .ta-pips,
+html.touch.tc-minimal .bomb-hint,
+html.touch.tc-minimal .reload-prompt {
+  display: none !important;
+}
+html.touch.tc-minimal .weapon {
+  padding: 2px 8px 3px;
+  background: transparent;
+  border-bottom-color: transparent;
+}
+html.touch.tc-minimal .vitals {
+  padding: 3px 8px 4px;
+}
+html.touch.tc-minimal .vitals .health-value {
+  font-size: 18px;
+}
+html.touch.tc-minimal .vitals .health-track {
+  width: 70px;
+}
+html.touch.tc-minimal .killfeed li:nth-last-child(n + 3) {
+  display: none;
+}
+html.touch.tc-minimal:not(.tc-map-large) .minimap {
+  width: 80px;
+  height: 80px;
+}
+/* Round banners up under the score bar, one line: never over the crosshair. */
+html.touch.tc-minimal .round-banner {
+  top: calc(max(14px, env(safe-area-inset-top)) + 50px);
+  padding: 3px 12px;
+  font-size: 13px;
+}
+html.touch.tc-minimal .round-banner .rb-sub {
+  display: none;
+}
+/* The buttons rest a little more see-through (a player's own per-button opacity still wins). */
+html.touch.tc-minimal .touch-ui .tc-btn:not(.placed) {
+  opacity: calc(var(--tc-opacity, 0.7) * 0.75);
+}
+/* While a round banner shows (minimal HUD), it takes the alive-count line's place instead of covering it. */
+html.touch.tc-minimal .team-hud:has(.round-banner:not([hidden])) .team-alive {
+  visibility: hidden;
+}
+/* The C4 line: one small line right under the alive counts (minimal HUD), off the crosshair. */
+html.touch.tc-minimal .team-hud .bomb-box {
+  top: calc(max(14px, env(safe-area-inset-top)) + 72px);
+  min-width: 0;
+  padding: 1px 8px;
+  font-size: 11px;
+}
+
+/* --- Phase 30 ------------------------------------------------------------------------------- */
+/* Lean left / right: a pair at the move stick's lower right (the left thumb leans between moves, as Q / E on
+   a keyboard), clear of the left-hand HUD column, the weapon panel and the crosshair; held to lean.
+   Movable, resizable and hideable like every control (TouchLayout). */
+.tc-lean {
+  --s: calc(var(--u) * 0.7);
+  bottom: calc(var(--tc-stick-y) - var(--u) + env(safe-area-inset-bottom));
+  font-size: calc(13px * var(--tc-scale, 1));
+}
+.tc-leanL {
+  left: calc(var(--tc-stick-x) + var(--u) * 1.1);
+}
+.tc-leanR {
+  left: calc(var(--tc-stick-x) + var(--u) * 1.85);
+}

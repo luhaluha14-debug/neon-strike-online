@@ -43,7 +43,8 @@ test('버튼 배치 편집: drag (one finger at a time), size, opacity, overlap 
       hudPreview: document.querySelector('.hud').classList.contains('playing'),
       handles: [...document.querySelectorAll('.tl-handle')].filter((h) => !h.hidden).length,
     }));
-    assert.deepEqual(shown, { menuHidden: true, editing: true, allButtons: true, hudPreview: true, handles: 12 });
+    // 12 controls (Phase 25) + the lean ◀ ▶ buttons (Phase 30).
+    assert.deepEqual(shown, { menuHidden: true, editing: true, allButtons: true, hudPreview: true, handles: 14 });
     const f = await fingers(page);
     // Drag 발사 to the left middle; a second finger on 조준 meanwhile moves nothing.
     const fire = await centre(page, '.tl-handle[data-id="fire"]');

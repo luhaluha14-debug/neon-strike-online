@@ -177,6 +177,12 @@ export class MainMenu {
               <select class="select" data-setting="render-scale"></select>
               <span class="field-hint">낮추면 그리는 픽셀이 줄어 느린 기기(휴대폰)에서 빨라집니다. 화면만 바뀌고 판정은 같습니다.</span>
             </label>
+            <h2 class="section-title">무기 표시</h2>
+            <label class="field">
+              <span class="field-label">손잡이</span>
+              <select class="select" data-setting="handedness"></select>
+              <span class="field-hint">왼손잡이는 1인칭 무기·손·애니메이션을 왼쪽에 그립니다. 화면 표시만 바뀌고 조준·사격·판정과 다른 사람이 보는 모습은 같습니다.</span>
+            </label>
             <h2 class="section-title">사운드</h2>
             <label class="field">
               <span class="field-label">효과음 볼륨</span>
@@ -684,7 +690,7 @@ export class MainMenu {
 
   // --- Settings ---------------------------------------------------------------
 
-  bindSelect<T extends string | number>(setting: 'quality' | 'frame-limit' | 'volume' | 'mode' | 'bots' | 'time-limit' | 'kill-target' | 'rounds-to-win' | 'round-time' | 'objective' | 'bot-look' | 'bot-difficulty' | 'render-scale' | 'input-mode', options: readonly MenuOption<T>[], current: T, onChange: (value: T) => void): void {
+  bindSelect<T extends string | number>(setting: 'quality' | 'frame-limit' | 'volume' | 'mode' | 'bots' | 'time-limit' | 'kill-target' | 'rounds-to-win' | 'round-time' | 'objective' | 'bot-look' | 'bot-difficulty' | 'render-scale' | 'input-mode' | 'handedness', options: readonly MenuOption<T>[], current: T, onChange: (value: T) => void): void {
     const select = this.root.querySelector<HTMLSelectElement>(`select[data-setting="${setting}"]`)!;
     select.replaceChildren(
       ...options.map((o) => {
@@ -858,8 +864,9 @@ function controlsHtml(): string {
       <div class="field">
         <span class="field-label">버튼 배치 편집</span>
         <button type="button" class="btn touch-layout-edit">편집</button>
-        <span class="field-hint">버튼을 하나씩 끌어 옮기고 크기·투명도를 정합니다. <span class="touch-layout-state"></span></span>
+        <span class="field-hint">버튼을 하나씩 끌어 옮기고 크기·투명도를 정하거나, 쓰지 않는 버튼을 숨깁니다(이동·발사·일시정지는 숨길 수 없음). <span class="touch-layout-state"></span></span>
       </div>
+      ${touchToggle('minimalHud', '미니멀 HUD', '체력·탄약·미니맵·점수/시간만 남기고 개인 기록·무기 줄·자금 줄·안내 문구를 숨겨 화면 가운데를 넓게 씁니다. 라운드 안내는 위쪽에 작게 표시됩니다.')}
       <h2 class="section-title">모바일 편의</h2>
       ${touchRange('aimSmoothing', '조준 안정화', 0.05, '조준 중 화면을 끌 때 회전을 몇 프레임에 나눠 부드럽게 줍니다(0 = 끔). 자동 조준이 아니며 끈 만큼만 돕니다.')}
       ${touchToggle('fireToggle', '발사 버튼 고정', '한 번 누르면 계속 쏘고, 다시 누르면 멈춥니다.')}

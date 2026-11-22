@@ -55,10 +55,15 @@ export interface TouchSettings {
   batterySaver: number;
   /** The battery saver by itself when the battery is low (≤ 20 %, not charging), where the browser tells. */
   autoSaver: number;
+  /**
+   * Phase 29 미니멀 HUD: only what a fight needs (health, ammo, minimap, score / time): the personal record,
+   * the weapon strip and bars, the team money / role line and hints go; banners move off the crosshair.
+   */
+  minimalHud: number;
 }
 
 /** The on / off settings (stored as 0 / 1). */
-export const TOUCH_TOGGLES = ['fireToggle', 'fireRepeat', 'minimapLarge', 'ammoEmphasis', 'perfPriority', 'gyro', 'gyroAdsOnly', 'leftFire', 'batterySaver', 'autoSaver'] as const;
+export const TOUCH_TOGGLES = ['fireToggle', 'fireRepeat', 'minimapLarge', 'ammoEmphasis', 'perfPriority', 'gyro', 'gyroAdsOnly', 'leftFire', 'batterySaver', 'autoSaver', 'minimalHud'] as const;
 
 export const TOUCH_LIMITS = {
   stickX: [0.06, 0.4],
@@ -83,6 +88,7 @@ export const TOUCH_LIMITS = {
   leftFire: [0, 1],
   batterySaver: [0, 1],
   autoSaver: [0, 1],
+  minimalHud: [0, 1],
 } as const satisfies Record<keyof TouchSettings, readonly [number, number]>;
 
 export function defaultTouchSettings(): TouchSettings {
@@ -109,6 +115,7 @@ export function defaultTouchSettings(): TouchSettings {
     leftFire: 0,
     batterySaver: 0,
     autoSaver: 1,
+    minimalHud: 0,
   };
 }
 
@@ -122,6 +129,7 @@ export const TOUCH_PRESETS = {
   fast: { label: '빠른 반응', values: { lookSensitivity: 1.4, adsSensitivity: 0.85, aimSmoothing: 0, aimAssist: 0.35, recoilAssist: 0.4, perfPriority: 1, batterySaver: 0 } },
   gyro: { label: '자이로 조준', values: { lookSensitivity: 0.9, adsSensitivity: 0.7, aimAssist: 0.4, recoilAssist: 0.5, gyro: 1, gyroAdsOnly: 1, gyroSensitivity: 1 } },
   battery: { label: '배터리 절약', values: { perfPriority: 1, batterySaver: 1 } },
+  minimal: { label: '미니멀 HUD (시야 우선)', values: { minimalHud: 1, opacity: 0.5 } },
 } as const satisfies Record<string, { label: string; values: Partial<TouchSettings> }>;
 export type TouchPresetId = keyof typeof TOUCH_PRESETS;
 

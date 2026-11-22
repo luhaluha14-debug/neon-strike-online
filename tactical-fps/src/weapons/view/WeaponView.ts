@@ -24,6 +24,8 @@ export interface WeaponAnimState {
   inspect: number | null;
   /** The magazine is empty (a pistol's slide stays locked back). */
   empty?: boolean;
+  /** Phase 30: the action ('semi': the bolt cycles by itself after each shot). */
+  action?: 'semi';
 }
 
 /**

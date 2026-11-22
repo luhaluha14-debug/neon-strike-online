@@ -182,13 +182,15 @@ export class NetClient {
       aim: this.game.netAiming ? 1 : 0,
       use: this.game.netUse ? 1 : 0,
       w: this.game.netWeaponId,
+      // Phase 30: the lean, only while leaning (no extra bytes upright).
+      ...(p.lean !== 0 ? { ln: r2(p.lean) } : {}),
     });
   }
 
   /** A round this player fired (one per pellet): the host resolves it. */
-  shot(weaponId: string, origin: THREE.Vector3, dir: THREE.Vector3): void {
+  shot(weaponId: string, origin: THREE.Vector3, dir: THREE.Vector3, draw?: number): void {
     if (!this.myId) return;
-    this.send({ k: 'shot', w: weaponId, o: v3(origin), d: [r3(dir.x), r3(dir.y), r3(dir.z)], rt: r3(this.renderTime()) });
+    this.send({ k: 'shot', w: weaponId, o: v3(origin), d: [r3(dir.x), r3(dir.y), r3(dir.z)], rt: r3(this.renderTime()), ...(draw !== undefined ? { q: draw } : {}) });
   }
 
   buy(id: string): void {

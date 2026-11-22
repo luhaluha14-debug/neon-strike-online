@@ -69,6 +69,7 @@ export class KeyboardMouseInput implements InputSource {
     out.utility = l.has(b.utility);
     out.use = held('use');
     out.inspect = pressed('inspect');
+    out.lean = (held('leanRight') ? 1 : 0) - (held('leanLeft') ? 1 : 0);
     out.lookYaw = this.yaw;
     out.lookPitch = this.pitch;
     this.yaw = 0;

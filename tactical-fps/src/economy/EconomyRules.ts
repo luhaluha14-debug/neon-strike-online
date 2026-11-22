@@ -48,7 +48,7 @@ export const DAILY_MISSIONS: readonly MissionDef[] = [
   { missionId: 'daily.match', title: '경기 1회 완료', metric: 'matches_completed', target: 1, reward: 100, reset: 'daily' },
   { missionId: 'daily.kills', title: '적 10명 처치', metric: 'kills', target: 10, reward: 150, reset: 'daily' },
   { missionId: 'daily.rounds', title: '라운드 3회 승리', metric: 'round_wins', target: 3, reward: 150, reset: 'daily' },
-  { missionId: 'daily.sr01', title: 'SR-01로 3명 처치', metric: 'weapon_kills', weaponId: 'sr01', target: 3, reward: 200, reset: 'daily' },
+  { missionId: 'daily.sr01', title: 'AWM으로 3명 처치', metric: 'weapon_kills', weaponId: 'sr01', target: 3, reward: 200, reset: 'daily' },
 ];
 
 /** Credits a new account starts with (enough for one common skin). */

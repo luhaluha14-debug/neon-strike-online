@@ -18,6 +18,9 @@ interface Sample {
   y: number;
   z: number;
   h: number;
+  /** Lean (Phase 30) and the facing it leans across: the head that peeked is where the shooter saw it. */
+  l: number;
+  yaw: number;
 }
 
 export class LagCompensation {
@@ -35,7 +38,7 @@ export class LagCompensation {
     const last = s.at(-1);
     // A jump (respawn / teleport): nobody saw it travel, so its old places are no longer where it was.
     if (last && Math.hypot(p.x - last.x, p.y - last.y, p.z - last.z) > TELEPORT) s.length = 0;
-    s.push({ t, x: p.x, y: p.y, z: p.z, h: controller.height });
+    s.push({ t, x: p.x, y: p.y, z: p.z, h: controller.height, l: controller.lean, yaw: controller.yaw });
     while (s.length > 2 && s[0].t < t - KEEP) s.shift();
   }
 
@@ -58,12 +61,16 @@ export class LagCompensation {
       if (id === except || track.samples.length === 0) continue;
       const p = sampleAt(track.samples, when);
       const c = track.controller;
-      const old = { x: c.position.x, y: c.position.y, z: c.position.z, h: c.height };
+      const old = { x: c.position.x, y: c.position.y, z: c.position.z, h: c.height, l: c.lean, yaw: c.yaw };
       c.position.set(p.x, p.y, p.z);
       c.height = p.h;
+      c.lean = p.l;
+      c.yaw = p.yaw;
       restore.push(() => {
         c.position.set(old.x, old.y, old.z);
         c.height = old.h;
+        c.lean = old.l;
+        c.yaw = old.yaw;
       });
     }
     try {
@@ -83,7 +90,7 @@ function sampleAt(s: readonly Sample[], t: number): Sample {
     const b = s[i];
     if (a.t <= t && t <= b.t) {
       const k = b.t > a.t ? (t - a.t) / (b.t - a.t) : 1;
-      return { t, x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, z: a.z + (b.z - a.z) * k, h: a.h + (b.h - a.h) * k };
+      return { t, x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, z: a.z + (b.z - a.z) * k, h: a.h + (b.h - a.h) * k, l: a.l + (b.l - a.l) * k, yaw: k < 0.5 ? a.yaw : b.yaw };
     }
   }
   return last;

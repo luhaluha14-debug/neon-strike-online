@@ -245,7 +245,7 @@ test('reload edge cases: switching away cancels it (ammo kept); full magazine: n
   assert.equal(r.reloading.status, 'reloading');
   assert.equal(r.reloading.hud.status, '재장전 중');
   assert.equal(r.away.mag, 20, 'switching away: magazine unchanged');
-  assert.equal(r.away.hud.name, 'SR-01', 'the HUD shows the weapon in hand');
+  assert.equal(r.away.hud.name, 'AWM', 'the HUD shows the weapon in hand'); // Phase 30: SR-01 is now the AWM
   assert.deepEqual([r.back.status, r.back.mag, r.back.hud.name, r.back.hud.mag, r.back.hud.status], ['ready', 20, 'AR-01', '20', ''], 'back: no reload carried over');
   assert.equal(r.fireAfter.firedAt, r.fireAfter.doneAt, `fires the frame the reload completes (${JSON.stringify(r.fireAfter)})`);
   assert.equal(r.fireAfter.mag, 29);
@@ -298,7 +298,7 @@ test('death mid-reload and mid-switch: respawn with full ammo, ready, the right 
   assert.equal(r.weapon, 'sr01');
   assert.match(r.model, /Rifle_Root|sr01|SR/i, `the weapon in hand is the one selected (${r.model})`);
   assert.deepEqual(r.ammo, [['ar01', 30, 90, 'ready'], ['sr01', 5, 30, 'ready'], ['karambit', 0, 0, 'ready']]);
-  assert.deepEqual([r.hud.name, r.hud.mag, r.hud.reserve, r.hud.status], ['SR-01', '5', '30', '']);
+  assert.deepEqual([r.hud.name, r.hud.mag, r.hud.reserve, r.hud.status], ['AWM', '5', '30', '']); // Phase 30: the AWM
   assert.equal(r.ready, 'ready');
   assert.deepEqual(page.errors, []);
 });

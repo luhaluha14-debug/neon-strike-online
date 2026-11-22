@@ -35,6 +35,8 @@ export type EntityState = [
    * With it, `skin` is always present ('' for the default look).
    */
   weapon?: string,
+  /** Phase 30: the lean, -1..1 (only sent while leaning; then `skin` and `weapon` are present, '' if none). */
+  lean?: number,
 ];
 
 /** Client → host. */
@@ -42,9 +44,12 @@ export type ToHost =
   /** Map loaded, ready to play: the host gives this member a character. */
   | { k: 'hi' }
   /** The member's character, ~30 per second. `sp`: the last spawn it applied (older reports are ignored). */
-  | { k: 'st'; sp: number; p: V3; v: V3; yaw: number; pitch: number; h: number; g: 0 | 1; crouch: 0 | 1; aim: 0 | 1; use: 0 | 1; w: string }
-  /** One round (pellet) fired: from the eye, along `d`, as the member saw the others at host time `rt`. */
-  | { k: 'shot'; w: string; o: V3; d: V3; rt: number }
+  | { k: 'st'; sp: number; p: V3; v: V3; yaw: number; pitch: number; h: number; g: 0 | 1; crouch: 0 | 1; aim: 0 | 1; use: 0 | 1; w: string; ln?: number }
+  /**
+   * One round (pellet) fired: from the eye, along `d`, as the member saw the others at host time `rt`.
+   * `q` (Phase 30): the member's draw count when it fired (a new value = the weapon was drawn again).
+   */
+  | { k: 'shot'; w: string; o: V3; d: V3; rt: number; q?: number }
   | { k: 'buy'; id: string; n: number }
   | { k: 'throw'; kind: GrenadeKind; eye: V3; dir: V3; carry: V3 }
   /** "출격 확정" from a member: ignored (only the host may end the buy time). */
