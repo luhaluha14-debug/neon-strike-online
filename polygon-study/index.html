@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>다각형의 성질</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&family=IBM+Plex+Sans+KR:wght@400;500;700&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout: 모눈 공책 위의 단일 칼럼. 위에서 아래로 정의 → 구성 → 도형 실험 → 공식 → 퀴즈 */
+:root {
+  --paper: #f6f8fb;
+  --grid: #dfe6ef;
+  --ink: #1d2b3a;
+  --muted: #5b6b7d;
+  --line: #2f5fd0;
+  --mark: #e0553a;
+  --card: #ffffff;
+  --ok: #1f8a4c;
+  --bad: #c43d2b;
+  --display: "Jua", "IBM Plex Sans KR", system-ui, sans-serif;
+  --body: "IBM Plex Sans KR", system-ui, -apple-system, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --paper: #121821; --grid: #1e2833; --ink: #e6edf5; --muted: #93a3b5;
+  --line: #7aa2ff; --mark: #ff8266; --card: #18212c; --ok: #4cc47f; --bad: #ff7a68; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --paper: #121821; --grid: #1e2833; --ink: #e6edf5; --muted: #93a3b5;
+  --line: #7aa2ff; --mark: #ff8266; --card: #18212c; --ok: #4cc47f; --bad: #ff7a68; color-scheme: dark }
+
+body {
+  background-color: var(--paper);
+  background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 24px 24px;
+  color: var(--ink); font-family: var(--body); font-size: 16px; line-height: 1.7;
+}
+.wrap { max-width: 760px; margin: 0 auto; padding-block: 40px 80px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 48px; }
+h1, h2 { font-family: var(--display); font-weight: 400; text-wrap: balance; margin: 0; line-height: 1.2; }
+h1 { font-size: clamp(2.4rem, 7vw, 3.6rem); }
+h2 { font-size: 1.8rem; display: flex; align-items: baseline; gap: 12px; }
+h2 .tag { font-family: var(--mono); font-size: .75rem; color: var(--mark); letter-spacing: .08em; }
+p { margin: 0; }
+section { display: flex; flex-direction: column; gap: 16px; }
+.lead { color: var(--muted); font-size: 1.05rem; }
+
+.def { background: var(--card); border: 2px solid var(--ink); padding: 20px 22px; font-size: 1.15rem; }
+.def b { color: var(--line); }
+.note { color: var(--muted); font-size: .95rem; }
+
+.parts { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
+.part { background: var(--card); border: 1px solid var(--grid); padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; }
+.part strong { font-family: var(--display); font-weight: 400; font-size: 1.3rem; }
+.part .sw { display: inline-block; width: 14px; height: 14px; margin-right: 8px; vertical-align: -1px; }
+
+/* 실험실 */
+.lab { background: var(--card); border: 2px solid var(--ink); display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.lab svg { width: 100%; height: auto; display: block; border-right: 1px solid var(--grid); }
+.lab-side { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+.lab-name { font-family: var(--display); font-size: 2.2rem; line-height: 1; }
+.lab label { font-size: .9rem; color: var(--muted); display: flex; flex-direction: column; gap: 6px; }
+input[type=range] { width: 100%; accent-color: var(--line); }
+.toggles { display: flex; flex-wrap: wrap; gap: 8px; }
+.toggles label { flex-direction: row; align-items: center; gap: 6px; color: var(--ink); }
+.stats { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: .95rem; }
+.stats dt { color: var(--muted); }
+.stats dd { margin: 0; font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; }
+
+table { border-collapse: collapse; width: 100%; background: var(--card); }
+th, td { border: 1px solid var(--grid); padding: 8px 12px; text-align: left; }
+th { font-weight: 500; color: var(--muted); font-size: .9rem; }
+td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+.formulas { display: flex; flex-direction: column; gap: 10px; }
+.f { background: var(--card); border-left: 4px solid var(--line); padding: 14px 18px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; align-items: baseline; }
+.f .name { font-weight: 700; }
+.f code { font-family: var(--mono); font-size: 1.05rem; color: var(--line); }
+.f .why { flex-basis: 100%; color: var(--muted); font-size: .92rem; }
+
+/* 퀴즈 */
+.quiz { background: var(--card); border: 2px solid var(--ink); padding: 22px; display: flex; flex-direction: column; gap: 16px; }
+.qhead { display: flex; justify-content: space-between; font-family: var(--mono); font-size: .85rem; color: var(--muted); }
+.progress { height: 6px; background: var(--grid); }
+.progress i { display: block; height: 100%; background: var(--line); transition: width .3s; }
+.qtext { font-size: 1.2rem; font-weight: 500; }
+.opts { display: grid; gap: 8px; }
+.opt { font: inherit; text-align: left; padding: 12px 14px; background: var(--paper); color: var(--ink); border: 1.5px solid var(--grid); cursor: pointer; }
+.opt:hover:not(:disabled) { border-color: var(--line); }
+.opt:focus-visible, .btn:focus-visible { outline: 3px solid var(--line); outline-offset: 2px; }
+.opt.right { border-color: var(--ok); color: var(--ok); font-weight: 700; }
+.opt.wrong { border-color: var(--bad); color: var(--bad); text-decoration: line-through; }
+.opt:disabled { cursor: default; }
+.explain { padding: 12px 14px; background: var(--paper); border-left: 4px solid var(--ok); font-size: .95rem; }
+.explain.no { border-left-color: var(--bad); }
+.btn { font: inherit; font-weight: 700; padding: 10px 20px; background: var(--ink); color: var(--paper); border: 0; cursor: pointer; align-self: flex-start; }
+.result { text-align: center; display: flex; flex-direction: column; gap: 12px; align-items: center; }
+.result .big { font-family: var(--display); font-size: 4rem; line-height: 1; color: var(--line); }
+
+.tab { display: flex; flex-direction: column; gap: 48px; }
+.tabs { display: flex; gap: 0; border-bottom: 2px solid var(--ink); margin-top: 8px; }
+.tabbtn { font-family: var(--display); font-size: 1.3rem; padding: 8px 24px; background: transparent; color: var(--muted); border: 2px solid transparent; border-bottom: 0; margin-bottom: -2px; cursor: pointer; }
+.tabbtn[aria-selected="true"] { background: var(--card); color: var(--ink); border-color: var(--ink); border-bottom: 2px solid var(--card); }
+.tabbtn:focus-visible { outline: 3px solid var(--line); outline-offset: 2px; }
+@media (max-width: 600px) {
+  .lab { grid-template-columns: 1fr; }
+  .lab svg { border-right: 0; border-bottom: 1px solid var(--grid); }
+  .parts { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header style="display:flex;flex-direction:column;gap:12px">
+    <h1>다각형의 성질</h1>
+    <p class="lead">개념 칸에서 정의와 공식을 익히고, 퀴즈 칸에서 매번 새로 섞이는 문제로 확인해 보세요.</p>
+    <nav class="tabs" role="tablist">
+      <button class="tabbtn" role="tab" id="btn-concept" data-tab="concept">개념</button>
+      <button class="tabbtn" role="tab" id="btn-quiz" data-tab="quiz">퀴즈</button>
+    </nav>
+  </header>
+
+  <div class="tab" id="tab-concept">
+
+  <section>
+    <h2><span class="tag">정의</span>다각형이란?</h2>
+    <div class="def"><b>다각형</b>은 <b>세 개 이상의 선분</b>으로 둘러싸인 <b>평면 도형</b>입니다.</div>
+    <p class="note">선분 두 개로는 도형을 둘러쌀 수 없으므로 가장 작은 다각형은 삼각형입니다. 원처럼 곡선이 들어간 도형은 다각형이 아닙니다.</p>
+  </section>
+
+  <section>
+    <h2><span class="tag">개념</span>기본 구성</h2>
+    <div class="parts">
+      <div class="part"><strong><span class="sw" style="background:var(--ink)"></span>변</strong><span>다각형을 이루는 선분</span></div>
+      <div class="part"><strong><span class="sw" style="background:var(--mark);border-radius:50%"></span>꼭짓점</strong><span>두 변이 만나는 점</span></div>
+      <div class="part"><strong><span class="sw" style="border:2px solid var(--ok);border-radius:50% 0 0 0"></span>내각</strong><span>이웃한 두 변이 안쪽에 만드는 각</span></div>
+      <div class="part"><strong><span class="sw" style="border-top:2px dashed var(--line);height:0;margin-top:6px"></span>대각선</strong><span>서로 이웃하지 않은 두 꼭짓점을 잇는 선분</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="tag">실험</span>n을 바꿔 보기</h2>
+    <div class="lab">
+      <svg id="svg" viewBox="-130 -130 260 260" role="img" aria-label="정다각형 그림"></svg>
+      <div class="lab-side">
+        <div class="lab-name" id="name">육각형</div>
+        <label for="n">변의 수 n = <span id="nv">6</span>
+          <input type="range" id="n" min="3" max="12" value="6">
+        </label>
+        <div class="toggles">
+          <label for="showDiag"><input type="checkbox" id="showDiag" checked>대각선</label>
+          <label for="showAng"><input type="checkbox" id="showAng" checked>내각</label>
+        </div>
+        <dl class="stats">
+          <dt>꼭짓점 수</dt><dd id="sV"></dd>
+          <dt>대각선 수</dt><dd id="sD"></dd>
+          <dt>내각의 합</dt><dd id="sS"></dd>
+          <dt>한 내각 (정다각형)</dt><dd id="sA"></dd>
+          <dt>외각의 합</dt><dd>360°</dd>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="tag">종류</span>변의 개수로 부르는 이름</h2>
+    <div style="overflow-x:auto">
+      <table>
+        <thead><tr><th>변의 수</th><th>이름</th><th>내각의 합</th><th>대각선 수</th></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="tag">공식</span>n각형의 주요 공식</h2>
+    <div class="formulas">
+      <div class="f"><span class="name">내각의 합</span><code>180° × (n − 2)</code><span class="why">한 꼭짓점에서 대각선을 그으면 삼각형 (n − 2)개로 나뉘고, 삼각형 하나의 내각 합은 180°입니다.</span></div>
+      <div class="f"><span class="name">대각선의 수</span><code>n(n − 3) ÷ 2</code><span class="why">한 꼭짓점에서는 자기 자신과 이웃한 두 점을 빼고 (n − 3)개를 그을 수 있고, 같은 대각선을 두 번 셌으니 2로 나눕니다.</span></div>
+      <div class="f"><span class="name">외각의 합</span><code>360°</code><span class="why">n이 몇이든 항상 같습니다. 한 꼭짓점의 내각과 외각을 더하면 180°이기 때문입니다.</span></div>
+      <div class="f"><span class="name">정n각형의 한 내각</span><code>180° × (n − 2) ÷ n</code><span class="why">정다각형은 내각의 크기가 모두 같으므로 내각의 합을 n으로 나눕니다.</span></div>
+    </div>
+  </section>
+
+  <button class="btn" data-tab="quiz">퀴즈 풀러 가기 →</button>
+  </div>
+
+  <div class="tab" id="tab-quiz" hidden>
+  <section>
+    <h2><span class="tag">퀴즈</span>확인 문제</h2>
+    <p class="note">문제 은행에서 10문제를 무작위로 뽑고, 숫자를 바꿔 새로 만드는 계산 문제도 섞여 나옵니다. 보기 순서도 매번 바뀝니다.</p>
+    <div class="quiz" id="quiz"></div>
+  </section>
+  </div>
+</div>
+
+<script>
+const names = {3:"삼각형",4:"사각형",5:"오각형",6:"육각형",7:"칠각형",8:"팔각형",9:"구각형",10:"십각형",11:"십일각형",12:"십이각형"};
+const nm = n => names[n] || n + "각형";
+const sum = n => 180 * (n - 2), diag = n => n * (n - 3) / 2;
+const fmt = x => Number.isInteger(x) ? x + "°" : x.toFixed(2).replace(/0+$/, "") + "°";
+
+// 실험실
+const svg = document.getElementById("svg"), ns = "http://www.w3.org/2000/svg";
+const el = (t, a) => { const e = document.createElementNS(ns, t); for (const k in a) e.setAttribute(k, a[k]); return e; };
+function draw() {
+  const n = +document.getElementById("n").value;
+  const showD = document.getElementById("showDiag").checked, showA = document.getElementById("showAng").checked;
+  const R = 105, pts = [];
+  for (let i = 0; i < n; i++) { const t = -Math.PI / 2 + i * 2 * Math.PI / n; pts.push([R * Math.cos(t), R * Math.sin(t)]); }
+  svg.innerHTML = "";
+  if (showD) for (let i = 0; i < n; i++) for (let j = i + 2; j < n; j++) {
+    if (i === 0 && j === n - 1) continue;
+    svg.appendChild(el("line", {x1: pts[i][0], y1: pts[i][1], x2: pts[j][0], y2: pts[j][1], stroke: "var(--line)", "stroke-width": 1, "stroke-dasharray": "4 3", opacity: .7}));
+  }
+  svg.appendChild(el("polygon", {points: pts.map(p => p.join(",")).join(" "), fill: "none", stroke: "var(--ink)", "stroke-width": 2.5, "stroke-linejoin": "round"}));
+  if (showA) pts.forEach((p, i) => {
+    const a = pts[(i + n - 1) % n], b = pts[(i + 1) % n], r = 16;
+    const u = v => { const d = Math.hypot(v[0], v[1]); return [v[0] / d * r, v[1] / d * r]; };
+    const ua = u([a[0] - p[0], a[1] - p[1]]), ub = u([b[0] - p[0], b[1] - p[1]]);
+    svg.appendChild(el("path", {d: `M${p[0] + ua[0]},${p[1] + ua[1]} A${r},${r} 0 0 0 ${p[0] + ub[0]},${p[1] + ub[1]}`, fill: "none", stroke: "var(--ok)", "stroke-width": 2}));
+  });
+  pts.forEach(p => svg.appendChild(el("circle", {cx: p[0], cy: p[1], r: 4.5, fill: "var(--mark)"})));
+  document.getElementById("nv").textContent = n;
+  document.getElementById("name").textContent = nm(n);
+  document.getElementById("sV").textContent = n + "개";
+  document.getElementById("sD").textContent = diag(n) + "개";
+  document.getElementById("sS").textContent = sum(n) + "°";
+  document.getElementById("sA").textContent = fmt(sum(n) / n);
+}
+["n", "showDiag", "showAng"].forEach(id => document.getElementById(id).addEventListener("input", draw));
+draw();
+
+// 표
+document.getElementById("tbody").innerHTML = [3,4,5,6,8,10].map(n =>
+  `<tr><td class="num">${n}</td><td>${nm(n)}</td><td class="num">${sum(n)}°</td><td class="num">${diag(n)}개</td></tr>`).join("") +
+  `<tr><td class="num">n</td><td>n각형</td><td class="num">180°×(n−2)</td><td class="num">n(n−3)÷2</td></tr>`;
+
+// 퀴즈
+// 탭
+function showTab(t) {
+  if (t !== "quiz") t = "concept";
+  document.getElementById("tab-concept").hidden = t !== "concept";
+  document.getElementById("tab-quiz").hidden = t !== "quiz";
+  document.querySelectorAll(".tabbtn").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === t));
+}
+document.querySelectorAll("[data-tab]").forEach(b => b.addEventListener("click", () => {
+  location.hash = b.dataset.tab; showTab(b.dataset.tab); window.scrollTo(0, 0);
+}));
+window.addEventListener("hashchange", () => showTab(location.hash.slice(1)));
+showTab(location.hash.slice(1));
+
+const POOL = [
+  {q: "다각형을 만들기 위해 필요한 선분은 최소 몇 개일까요?", o: ["2개", "3개", "4개", "5개"], a: 1, e: "선분 두 개로는 평면을 둘러쌀 수 없습니다. 가장 작은 다각형은 삼각형입니다."},
+  {q: "다음 중 다각형이 아닌 것은?", o: ["정사각형", "오각형", "원", "삼각형"], a: 2, e: "원은 곡선으로 둘러싸여 있어서 다각형이 아닙니다."},
+  {q: "서로 이웃하지 않은 두 꼭짓점을 잇는 선분을 무엇이라고 할까요?", o: ["변", "대각선", "높이", "외각"], a: 1, e: "이웃하지 않은 두 꼭짓점을 이으면 대각선입니다."},
+  {q: "오각형의 내각의 합은?", o: ["360°", "450°", "540°", "720°"], a: 2, e: "180° × (5 − 2) = 540°"},
+  {q: "육각형의 대각선은 모두 몇 개일까요?", o: ["6개", "9개", "12개", "15개"], a: 1, e: "6 × (6 − 3) ÷ 2 = 9개"},
+  {q: "십각형의 외각의 합은?", o: ["180°", "360°", "1440°", "1800°"], a: 1, e: "외각의 합은 변의 개수와 상관없이 항상 360°입니다."},
+  {q: "정팔각형의 한 내각의 크기는?", o: ["120°", "135°", "140°", "144°"], a: 1, e: "180° × (8 − 2) ÷ 8 = 1080° ÷ 8 = 135°"},
+  {q: "내각의 합이 1260°인 다각형은?", o: ["칠각형", "팔각형", "구각형", "십각형"], a: 2, e: "180° × (n − 2) = 1260° → n − 2 = 7 → n = 9, 구각형입니다."},
+  {q: "한 꼭짓점에서 대각선을 모두 그었더니 삼각형 6개로 나뉘었습니다. 이 다각형은?", o: ["육각형", "칠각형", "팔각형", "구각형"], a: 2, e: "삼각형의 개수는 n − 2개이므로 n − 2 = 6, n = 8입니다."},
+  {q: "대각선이 20개인 다각형은?", o: ["칠각형", "팔각형", "구각형", "십각형"], a: 1, e: "n(n − 3) ÷ 2 = 20 → n(n − 3) = 40 → n = 8, 팔각형입니다."},
+  {q: "두 변이 만나는 점을 무엇이라고 할까요?", o: ["꼭짓점", "중심", "대각선", "내각"], a: 0, e: "두 변이 만나는 점이 꼭짓점입니다."},
+  {q: "이웃한 두 변이 다각형의 안쪽에 만드는 각은?", o: ["외각", "내각", "직각", "평각"], a: 1, e: "안쪽에 생기는 각이 내각입니다."},
+  {q: "다음 중 다각형인 것은?", o: ["반원", "부채꼴", "마름모", "타원"], a: 2, e: "마름모는 선분 4개로 둘러싸인 사각형입니다. 나머지는 곡선이 있습니다."},
+  {q: "n각형의 변의 수와 꼭짓점의 수는 어떤 관계일까요?", o: ["항상 같다", "꼭짓점이 1개 더 많다", "변이 1개 더 많다", "꼭짓점이 2배다"], a: 0, e: "n각형은 변도 n개, 꼭짓점도 n개입니다."},
+  {q: "삼각형의 대각선은 몇 개일까요?", o: ["0개", "1개", "2개", "3개"], a: 0, e: "삼각형은 모든 꼭짓점이 서로 이웃해 있어서 대각선이 없습니다. 3 × 0 ÷ 2 = 0"},
+  {q: "사각형의 내각의 합은?", o: ["180°", "270°", "360°", "540°"], a: 2, e: "180° × (4 − 2) = 360°"},
+  {q: "다각형의 한 꼭짓점에서 내각과 외각의 크기를 더하면?", o: ["90°", "180°", "270°", "360°"], a: 1, e: "내각과 외각은 한 직선 위에 있으므로 합이 180°입니다."},
+  {q: "정육각형의 한 내각의 크기는?", o: ["108°", "120°", "135°", "144°"], a: 1, e: "720° ÷ 6 = 120°"},
+  {q: "정오각형의 한 외각의 크기는?", o: ["60°", "72°", "90°", "108°"], a: 1, e: "외각의 합 360°를 5로 나누면 72°입니다."},
+  {q: "정삼각형의 한 외각의 크기는?", o: ["60°", "90°", "120°", "180°"], a: 2, e: "180° − 60° = 120°, 또는 360° ÷ 3 = 120°"},
+  {q: "칠각형의 한 꼭짓점에서 그을 수 있는 대각선은 몇 개일까요?", o: ["3개", "4개", "5개", "7개"], a: 1, e: "자기 자신과 이웃한 두 꼭짓점을 빼면 7 − 3 = 4개입니다."},
+  {q: "한 꼭짓점에서 그을 수 있는 대각선이 5개인 다각형은?", o: ["육각형", "칠각형", "팔각형", "구각형"], a: 2, e: "n − 3 = 5 이므로 n = 8, 팔각형입니다."},
+  {q: "한 외각의 크기가 40°인 정다각형은?", o: ["정팔각형", "정구각형", "정십각형", "정십이각형"], a: 1, e: "360° ÷ 40° = 9, 정구각형입니다."},
+  {q: "한 내각의 크기가 144°인 정다각형은?", o: ["정팔각형", "정구각형", "정십각형", "정십이각형"], a: 2, e: "한 외각은 180° − 144° = 36°, 360° ÷ 36° = 10, 정십각형입니다."},
+  {q: "변의 수가 1개 늘어나면 내각의 합은 어떻게 될까요?", o: ["변하지 않는다", "90° 늘어난다", "180° 늘어난다", "360° 늘어난다"], a: 2, e: "180° × (n − 2)에서 n이 1 늘면 180°가 늘어납니다."},
+  {q: "십각형을 한 꼭짓점에서 그은 대각선으로 나누면 삼각형이 몇 개 생길까요?", o: ["7개", "8개", "9개", "10개"], a: 1, e: "n − 2 = 10 − 2 = 8개"},
+  {q: "변의 수가 많아져도 변하지 않는 값은?", o: ["내각의 합", "대각선의 수", "외각의 합", "꼭짓점의 수"], a: 2, e: "외각의 합은 언제나 360°입니다."},
+  {q: "정다각형이 되려면 어떤 조건이 필요할까요?", o: ["변의 길이만 모두 같다", "내각의 크기만 모두 같다", "변의 길이와 내각의 크기가 모두 같다", "대각선의 길이가 모두 같다"], a: 2, e: "변의 길이와 내각의 크기가 모두 같아야 정다각형입니다. 마름모는 변만 같고, 직사각형은 각만 같습니다."},
+  {q: "정사각형의 대각선은 몇 개일까요?", o: ["1개", "2개", "3개", "4개"], a: 1, e: "4 × 1 ÷ 2 = 2개"}
+];
+
+// 숫자를 바꿔 새로 만드는 계산 문제
+const ri = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
+const pick3 = (ans, cands) => [...new Set(cands.filter(c => c !== ans && c > 0))].slice(0, 3);
+const GEN = [
+  () => { const n = ri(5, 15), ans = sum(n);
+    return {q: `${nm(n)}의 내각의 합은?`, o: [ans, ...pick3(ans, [sum(n + 1), sum(n - 1), 180 * n, sum(n + 2)])].map(x => x + "°"), a: 0, e: `180° × (${n} − 2) = ${ans}°`}; },
+  () => { const n = ri(5, 14), ans = diag(n);
+    return {q: `${nm(n)}의 대각선은 모두 몇 개일까요?`, o: [ans, ...pick3(ans, [diag(n + 1), diag(n - 1), n * (n - 3), n - 3])].map(x => x + "개"), a: 0, e: `${n} × (${n} − 3) ÷ 2 = ${ans}개`}; },
+  () => { const n = ri(5, 13), s = sum(n);
+    return {q: `내각의 합이 ${s}°인 다각형은?`, o: [nm(n), nm(n + 1), nm(n - 1), nm(n + 2)], a: 0, e: `180° × (n − 2) = ${s}° → n − 2 = ${n - 2} → n = ${n}`}; },
+  () => { const list = [3, 4, 5, 6, 8, 9, 10, 12, 15, 18, 20], k = ri(1, list.length - 2), n = list[k], ans = sum(n) / n;
+    return {q: `정${nm(n)}의 한 내각의 크기는?`, o: [ans, ...pick3(ans, [sum(list[k - 1]) / list[k - 1], sum(list[k + 1]) / list[k + 1], 360 / n, 180 - ans / 2])].map(fmt), a: 0, e: `180° × (${n} − 2) ÷ ${n} = ${fmt(ans)}`}; },
+  () => { const list = [3, 4, 5, 6, 8, 9, 10, 12, 15, 18, 20, 24, 36], n = list[ri(0, list.length - 1)], ext = 360 / n;
+    return {q: `한 외각의 크기가 ${ext}°인 정다각형은?`, o: ["정" + nm(n), ...pick3("정" + nm(n), [n + 1, n - 1, n + 2, n * 2].filter(m => m >= 3).map(m => "정" + nm(m)))], a: 0, e: `360° ÷ ${ext}° = ${n}, 정${nm(n)}입니다.`}; }
+];
+
+const shuffle = arr => { const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const mixOptions = q => { const order = shuffle(q.o.map((_, i) => i)); return {...q, o: order.map(i => q.o[i]), a: order.indexOf(q.a)}; };
+let Q = [], idx = 0, score = 0;
+function newRound() {
+  const fixed = shuffle(POOL).slice(0, 7);
+  const gen = shuffle(GEN).slice(0, 3).map(f => f());
+  Q = shuffle([...fixed, ...gen]).map(mixOptions);
+  idx = 0; score = 0; render();
+}
+const box = document.getElementById("quiz");
+function render() {
+  if (idx >= Q.length) {
+    const msg = score === Q.length ? "모두 맞혔어요! 다각형 박사네요." : score >= 7 ? "잘했어요. 틀린 문제의 공식만 다시 보면 됩니다." : "공식 부분을 다시 읽고 한 번 더 도전해 보세요.";
+    box.innerHTML = `<div class="result"><div class="big">${score} / ${Q.length}</div><p>${msg}</p><button class="btn" id="again">다시 풀기</button></div>`;
+    document.getElementById("again").textContent = "새 문제로 다시 풀기";
+    document.getElementById("again").onclick = newRound;
+    return;
+  }
+  const q = Q[idx];
+  box.innerHTML = `<div class="qhead"><span>문제 ${idx + 1} / ${Q.length}</span><span>맞힌 개수 ${score}</span></div>
+    <div class="progress"><i style="width:${idx / Q.length * 100}%"></i></div>
+    <div class="qtext">${q.q}</div>
+    <div class="opts">${q.o.map((o, i) => `<button class="opt" data-i="${i}">${i + 1}. ${o}</button>`).join("")}</div>
+    <div id="after"></div>`;
+  box.querySelectorAll(".opt").forEach(b => b.onclick = () => {
+    const pick = +b.dataset.i, ok = pick === q.a;
+    if (ok) score++;
+    box.querySelectorAll(".opt").forEach((x, i) => { x.disabled = true; if (i === q.a) x.classList.add("right"); else if (i === pick) x.classList.add("wrong"); });
+    document.getElementById("after").innerHTML = `<div style="display:flex;flex-direction:column;gap:12px">
+      <div class="explain ${ok ? "" : "no"}"><b>${ok ? "정답!" : "아쉬워요."}</b> ${q.e}</div>
+      <button class="btn" id="next">${idx === Q.length - 1 ? "결과 보기" : "다음 문제"}</button></div>`;
+    const nx = document.getElementById("next"); nx.focus();
+    nx.onclick = () => { idx++; render(); };
+  });
+}
+newRound();
+</script>
+</body>
+</html>
