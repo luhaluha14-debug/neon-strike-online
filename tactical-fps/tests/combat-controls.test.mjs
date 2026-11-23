@@ -374,7 +374,7 @@ test('7. 손잡이: 왼손잡이 mirrors the first-person view for every weapon 
       assert.ok(x > 0, `${id}: right-handed, on the right (${x})`);
       assert.ok(left[id] < 0 && Math.abs(left[id] + x) < 0.05, `${id}: left-handed, mirrored to the left (${left[id]} vs ${x})`);
     }
-    // Fire, reload and the AWM's scope left-handed; the round still goes through the crosshair.
+    // Fire, reload and the SR-01's scope left-handed; the round still goes through the crosshair.
     const act = await page.evaluate(async () => {
       const g = window.game;
       const { WEAPONS } = await import('/src/weapons/weapons.ts');

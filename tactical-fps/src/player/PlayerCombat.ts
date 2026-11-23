@@ -92,7 +92,7 @@ export class PlayerCombat implements Damageable {
 
   /**
    * Capsule from the feet to the top of the (possibly crouched) player; its top follows a lean (Phase 30).
-   * `pad` (m, Phase 30: the AWM's hit correction) widens it for this ray; a hit only the padding makes is
+   * `pad` (m, Phase 30's hit correction, unused since Phase 32) widens it for this ray; a hit only the padding makes is
    * never a headshot.
    */
   raycast(ray: THREE.Ray, maxDistance: number, pad = 0): TargetHit | null {

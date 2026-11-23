@@ -10,8 +10,8 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startEnv, openGame } from './harness.mjs';
 
-// Phase 30 AWM: 160 x 0.9 = 144 (was SR-01's 145 x 0.9 = 130.5, a rounding boundary: 131).
-const SR_BODY_END = 144;
+// 145 x 0.9 = 130.5 sits exactly on a rounding boundary (floating point decides).
+const SR_BODY_END = 131;
 
 let env;
 let page;
@@ -83,8 +83,8 @@ test('damage numbers per weapon, zone and distance match the current weapon data
     // base 24, head x4.25, limb x0.8, 30-80 m falloff down to x0.8
     ar01: { head: [102, 102, 92, 82, 82], body: [24, 24, 22, 19, 19], limb: [19, 19, 17, 15, 15] },
     // Phase 26-A: base 145 (was 115), head x4, limb x0.65 (was 0.85), 120-250 m falloff down to x0.9
-    // Phase 30 AWM: base 160 (was 145), head x4, limb x0.7 (was 0.65), 150-300 m falloff down to x0.9 (was 120-250 m)
-    sr01: { head: [640, 640, 608, 576, 576], body: [160, 160, 152, SR_BODY_END, SR_BODY_END], limb: [112, 112, 106, 101, 101] },
+    // Phase 32: SR-01 restored to these (Phase 30's AWM had 160 / x0.7 / 150-300 m).
+    sr01: { head: [580, 580, 551, 522, 522], body: [145, 145, 138, SR_BODY_END, SR_BODY_END], limb: [94, 94, 90, 85, 85] },
     // Phase 29: melee is lethal: a full health bar (100) for every zone and distance (was base 40, head x1.5)
     karambit: { head: [100, 100, 100, 100, 100], body: [100, 100, 100, 100, 100], limb: [100, 100, 100, 100, 100] },
   });

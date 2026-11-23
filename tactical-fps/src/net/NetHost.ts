@@ -521,7 +521,7 @@ export class NetHost {
     const now = this.now();
     const pellets = def.pellets?.count ?? 1;
     const perSecond = (def.fireRate / 60) * pellets;
-    // No more at once than a magazine holds (Phase 30: the AWM's 5, not 8).
+    // No more at once than a magazine holds (Phase 30: SR-01's 5, not 8).
     const cap = def.category === 'melee' ? MELEE_BURST : Math.min(SHOT_BURST, def.magazineSize) * pellets;
     let b = rp.shotBuckets.get(def.id);
     if (!b) rp.shotBuckets.set(def.id, (b = { tokens: cap, time: now, draw: m.q }));

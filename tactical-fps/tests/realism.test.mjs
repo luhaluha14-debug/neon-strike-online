@@ -10,7 +10,7 @@
 //      guns still kick
 //   5. weapon motion: reload eased in / held / eased out per kind, variants differ, a draw swings past rest and
 //      settles, bringing the sights up dips and rolls the weapon a touch, then it settles
-//   6. weapon materials: the AWM's stock is olive (it was exported white), dark metal still reflects, skins keep
+//   6. weapon materials: the SR-01's stock is olive (it was exported white), dark metal still reflects, skins keep
 //      their colours, first and third person alike
 //   7. maps: wall-base grime measured from the map's ground level, stains on roads and slabs
 
@@ -362,7 +362,7 @@ test('5b. weapon motion: reload brought in quickly, held while the hands work, e
   assert.ok(Math.abs(aim[2].rz - aim[0].rz) < 0.002, 'and settles');
 });
 
-test('6. weapon materials: the AWM stock is olive (it was white in the file), dark metal still reflects, skins keep their colours — first and third person', async () => {
+test('6. weapon materials: the SR-01 stock is olive (it was white in the file), dark metal still reflects, skins keep their colours — first and third person', async () => {
   const r = await page.evaluate(async () => {
     const { loadGltfScene } = await import('/src/weapons/view/GltfWeaponView.ts');
     const { SkinRenderer } = await import('/src/skins/SkinRenderer.ts');

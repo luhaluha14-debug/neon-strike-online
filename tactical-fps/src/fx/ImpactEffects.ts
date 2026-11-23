@@ -1,7 +1,10 @@
 import * as THREE from 'three';
 import type { SurfaceKind } from '../world/SurfaceMaterials';
 
+/** Bullet holes kept per look (Phase 32: holes in stone / earth / wood, dents in metal, cracks in glass). */
 const MAX_DECALS = 128;
+const MAX_METAL_DECALS = 40;
+const MAX_GLASS_DECALS = 24;
 const MAX_PUFFS = 32;
 const PUFF_LIFE = 0.32;
 const MAX_SPARKS = 64;
@@ -79,6 +82,11 @@ const _c = new THREE.Color();
 export class ImpactEffects {
   readonly group = new THREE.Group();
   private readonly decals: THREE.InstancedMesh;
+  /** Phase 32: metal dents and glass cracks, each its own small pool (one draw call each). */
+  private readonly metalDecals: THREE.InstancedMesh;
+  private readonly glassDecals: THREE.InstancedMesh;
+  private metalCursor = 0;
+  private glassCursor = 0;
   private readonly puffs: THREE.InstancedMesh;
   private readonly sparks: THREE.InstancedMesh;
   private readonly chips: THREE.InstancedMesh;
@@ -118,6 +126,19 @@ export class ImpactEffects {
     this.decals.count = 0;
     this.decals.frustumCulled = false;
     this.decals.renderOrder = 1;
+    const decalOf = (map: THREE.Texture, size: number, max: number, extra: THREE.MeshBasicMaterialParameters = {}) => {
+      const m = new THREE.InstancedMesh(
+        new THREE.PlaneGeometry(size, size),
+        new THREE.MeshBasicMaterial({ map, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, fog: true, ...extra }),
+        max,
+      );
+      m.count = 0;
+      m.frustumCulled = false;
+      m.renderOrder = 1;
+      return m;
+    };
+    this.metalDecals = decalOf(makeDentTexture(), 0.07, MAX_METAL_DECALS);
+    this.glassDecals = decalOf(makeCrackTexture(), 0.22, MAX_GLASS_DECALS);
 
     const puffMat = new THREE.MeshBasicMaterial({ map: makePuffTexture(), color: 0xffffff, transparent: true, opacity: 0.85, depthWrite: false });
     this.puffs = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), puffMat, MAX_PUFFS);
@@ -136,7 +157,7 @@ export class ImpactEffects {
     for (let i = 0; i < MAX_PUFFS; i++) this.puffs.setColorAt(i, _c.setHex(0xffffff));
     for (let i = 0; i < MAX_CHIPS; i++) this.chips.setColorAt(i, _c.setHex(0xffffff));
     this.group.name = 'ImpactEffects';
-    this.group.add(this.decals, this.puffs, this.sparks, this.chips);
+    this.group.add(this.decals, this.metalDecals, this.glassDecals, this.puffs, this.sparks, this.chips);
   }
 
   /** Sparks + chips + puffs in the air (tests). */
@@ -156,12 +177,24 @@ export class ImpactEffects {
     // Bullet hole (ring buffer: oldest disappears first). Water keeps no hole.
     if (cls !== 'water' && cls !== 'foliage') {
       _p.copy(point).addScaledVector(normal, 0.004);
-      _s.setScalar((cls === 'metal' ? 0.6 : 0.8) + rand() * 0.4);
+      _s.setScalar(0.8 + rand() * 0.4);
       _m.compose(_p, _q, _s);
-      this.decals.setMatrixAt(this.decalCursor, _m);
-      this.decalCursor = (this.decalCursor + 1) % MAX_DECALS;
-      this.decals.count = Math.min(this.decals.count + 1, MAX_DECALS);
-      this.decals.instanceMatrix.needsUpdate = true;
+      if (cls === 'metal') {
+        this.metalDecals.setMatrixAt(this.metalCursor, _m);
+        this.metalCursor = (this.metalCursor + 1) % MAX_METAL_DECALS;
+        this.metalDecals.count = Math.min(this.metalDecals.count + 1, MAX_METAL_DECALS);
+        this.metalDecals.instanceMatrix.needsUpdate = true;
+      } else if (cls === 'glass') {
+        this.glassDecals.setMatrixAt(this.glassCursor, _m);
+        this.glassCursor = (this.glassCursor + 1) % MAX_GLASS_DECALS;
+        this.glassDecals.count = Math.min(this.glassDecals.count + 1, MAX_GLASS_DECALS);
+        this.glassDecals.instanceMatrix.needsUpdate = true;
+      } else {
+        this.decals.setMatrixAt(this.decalCursor, _m);
+        this.decalCursor = (this.decalCursor + 1) % MAX_DECALS;
+        this.decals.count = Math.min(this.decals.count + 1, MAX_DECALS);
+        this.decals.instanceMatrix.needsUpdate = true;
+      }
     }
 
     // Dust: kicked up bigger off the ground, drifting out of the surface.
@@ -221,7 +254,9 @@ export class ImpactEffects {
       if (t < 0) continue;
       // Grows fast and thins out; faces the camera.
       this.puffPos[i].addScaledVector(this.puffDrift[i], dt);
-      const k = this.puffSize[i] * (0.45 + Math.sqrt(t) * 0.9) * (t < 0.7 ? 1 : 1 - (t - 0.7) / 0.3);
+      let k = this.puffSize[i] * (0.45 + Math.sqrt(t) * 0.9) * (t < 0.7 ? 1 : 1 - (t - 0.7) / 0.3);
+      // Phase 32: dust right in front of the eye is kept small (it never blots out the view).
+      if (camera) k *= Math.min(1, camera.position.distanceTo(this.puffPos[i]) / 1.6);
       if (camera) _q.copy(camera.quaternion);
       else _q.identity();
       _q.multiply(_roll.setFromAxisAngle(_z, this.puffRoll[i] + t));
@@ -270,9 +305,16 @@ export class ImpactEffects {
     this.chips.instanceMatrix.needsUpdate = true;
   }
 
+  /** Bullet holes / dents / cracks on the map now (tests). */
+  get decalCounts(): { hole: number; metal: number; glass: number } {
+    return { hole: this.decals.count, metal: this.metalDecals.count, glass: this.glassDecals.count };
+  }
+
   clear(): void {
     this.decals.count = 0;
     this.decalCursor = 0;
+    this.metalDecals.count = this.glassDecals.count = 0;
+    this.metalCursor = this.glassCursor = 0;
     this.puffAge.fill(Infinity);
     this.sparkAge.fill(Infinity);
     this.chipAge.fill(Infinity);
@@ -306,6 +348,72 @@ function makeHoleTexture(): THREE.CanvasTexture {
   grad.addColorStop(1, 'rgba(60,56,50,0)');
   g.fillStyle = grad;
   g.fillRect(0, 0, 64, 64);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** Phase 32: a round's dent in metal: a small dark pit in a bright, scuffed ring of bare metal. */
+function makeDentTexture(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d')!;
+  const grad = g.createRadialGradient(32, 32, 1, 32, 32, 30);
+  grad.addColorStop(0, 'rgba(18,18,20,1)');
+  grad.addColorStop(0.22, 'rgba(40,40,44,0.95)');
+  grad.addColorStop(0.32, 'rgba(205,205,200,0.85)');
+  grad.addColorStop(0.55, 'rgba(150,150,145,0.35)');
+  grad.addColorStop(1, 'rgba(120,120,115,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** Phase 32: a round through glass: a small hole, cracks running out from it and a ring of crazing. */
+function makeCrackTexture(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d')!;
+  let seed = 7;
+  const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  g.strokeStyle = 'rgba(235,242,245,0.75)';
+  g.lineWidth = 1.2;
+  for (let i = 0; i < 11; i++) {
+    let a = (i / 11) * Math.PI * 2 + rand() * 0.4;
+    let x = 64;
+    let y = 64;
+    g.beginPath();
+    g.moveTo(x, y);
+    const len = 30 + rand() * 32;
+    for (let d = 0; d < len; d += 6) {
+      a += (rand() - 0.5) * 0.35;
+      x += Math.cos(a) * 6;
+      y += Math.sin(a) * 6;
+      g.lineTo(x, y);
+    }
+    g.stroke();
+  }
+  g.lineWidth = 0.8;
+  g.strokeStyle = 'rgba(235,242,245,0.5)';
+  for (const r of [9, 17]) {
+    g.beginPath();
+    for (let i = 0; i <= 14; i++) {
+      const a = (i / 14) * Math.PI * 2;
+      const rr = r + (rand() - 0.5) * 4;
+      if (i === 0) g.moveTo(64 + Math.cos(a) * rr, 64 + Math.sin(a) * rr);
+      else g.lineTo(64 + Math.cos(a) * rr, 64 + Math.sin(a) * rr);
+    }
+    g.stroke();
+  }
+  const hole = g.createRadialGradient(64, 64, 0, 64, 64, 6);
+  hole.addColorStop(0, 'rgba(15,18,20,0.95)');
+  hole.addColorStop(1, 'rgba(200,215,220,0.6)');
+  g.fillStyle = hole;
+  g.beginPath();
+  g.arc(64, 64, 6, 0, Math.PI * 2);
+  g.fill();
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;

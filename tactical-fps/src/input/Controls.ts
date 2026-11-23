@@ -40,7 +40,7 @@ export const ACTIONS: readonly ActionInfo[] = [
   { id: 'crouch', label: '앉기', group: '이동', key: 'KeyC', alt: 'ControlLeft' },
   { id: 'reload', label: '재장전', group: '전투', key: 'KeyR' },
   { id: 'slot1', label: '주무기 (AR-01)', group: '전투', key: 'Digit1' },
-  { id: 'slot2', label: '저격총 (AWM)', group: '전투', key: 'Digit2' },
+  { id: 'slot2', label: '저격총 (SR-01)', group: '전투', key: 'Digit2' },
   { id: 'slot3', label: '근접 (M9)', group: '전투', key: 'Digit3' },
   // Phase 30: Q / E lean; the previous weapon, the C4 and inspect moved to X, F and V.
   { id: 'lastWeapon', label: '이전 무기', group: '전투', key: 'KeyX' },

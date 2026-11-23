@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { AgentModel } from '../ai/AgentModel';
-import { crouchOf } from '../ai/CharacterMotion';
+import { crouchOf, hitStrength } from '../ai/CharacterMotion';
 import { BotKit, BotModel, type BotBody, type BotPose } from '../ai/BotModel';
 import type { BotLook } from '../ai/BotSquad';
 import type { EntityState } from './GameMessages';
@@ -32,8 +32,15 @@ export interface Puppet {
   alive: boolean;
   /** Phase 30 lean, -1..1. */
   lean: number;
+  /**
+   * Phase 32: health + armour as last shown and the snapshot time it is from: a drop between snapshots is a
+   * hit, so the body flinches on every screen (no extra data on the wire).
+   */
+  hp: number;
+  hpT: number;
 }
 
+const _hitDir = new THREE.Vector3();
 const _pose: BotPose = {
   feet: new THREE.Vector3(),
   yaw: 0,
@@ -92,6 +99,17 @@ export class Puppets {
       const k = b.t > a.t ? THREE.MathUtils.clamp((at - a.t) / (b.t - a.t), 0, 1) : 1;
       const ea = a.e;
       const eb = b.e;
+      // Phase 32: a hit shows when the shown time reaches the snapshot that lost health (the shooter's side is not
+      // sent: the body is pushed from where it faces, as most hits in a fight come).
+      if (a.t > p.hpT) {
+        const hp = ea[10] + ea[11];
+        if (p.hpT > -Infinity && hp < p.hp - 0.5 && (ea[9] & 1) !== 0) {
+          _hitDir.set(Math.sin(ea[4]), 0, Math.cos(ea[4]));
+          p.model.onHit(_hitDir, hitStrength(p.hp - hp, false));
+        }
+        p.hp = hp;
+        p.hpT = a.t;
+      }
       p.position.set(lerp(ea[1], eb[1], k), lerp(ea[2], eb[2], k), lerp(ea[3], eb[3], k));
       p.yaw = lerpAngle(ea[4], eb[4], k);
       p.pitch = lerp(ea[5], eb[5], k);
@@ -147,7 +165,7 @@ export class Puppets {
     const model: BotBody = (this.look === 'agents' && AgentModel.create(team || undefined, kit)) || new BotModel(kit);
     model.object.name = id;
     this.group.add(model.object);
-    const p: Puppet = { id, team, model, samples: [], position: new THREE.Vector3(), yaw: 0, pitch: 0, height: 1.8, alive: true, lean: 0 };
+    const p: Puppet = { id, team, model, samples: [], position: new THREE.Vector3(), yaw: 0, pitch: 0, height: 1.8, alive: true, lean: 0, hp: 0, hpT: -Infinity };
     this.all.set(id, p);
     return p;
   }

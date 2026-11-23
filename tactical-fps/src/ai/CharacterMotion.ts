@@ -17,6 +17,14 @@ export const CHARACTER_NEAR_RANGE = { low: 14, medium: 28, high: 45 } as const;
 const STAND_EYE = PLAYER_CONFIG.standHeight - PLAYER_CONFIG.eyeOffsetFromTop;
 const CROUCH_DROP = PLAYER_CONFIG.standHeight - PLAYER_CONFIG.crouchHeight;
 
+/** How hard a hit of `damage` (health + armour) shows on the body (CharacterMotion.hit strength). */
+export function hitStrength(damage: number, head: boolean): number {
+  return Math.min(1.6, Math.max(0.5, damage / 40)) * (head ? 1.2 : 1);
+}
+
+/** How long a death fall takes (s). */
+const DEATH_FALL = 0.5;
+
 /** A jump to the next spot (respawn, teleport) rather than a step: the speed is not taken from it. */
 const TELEPORT_SPEED = 25;
 
@@ -42,6 +50,21 @@ export class CharacterMotion {
   private readonly last = new THREE.Vector3();
   private hasLast = false;
   private breath = Math.random() * 10;
+  /**
+   * Phase 32: hit reaction. `flinch` 0..~1.6 (by damage), decaying in ~0.2 s; the body is pushed the way the
+   * round travelled: `flinchSide` (-1 to its right .. 1 to its left, the roll's sign) and `flinchPitch`
+   * (-1 thrown back by a round from the front, 1 pitched forward by one from behind).
+   */
+  flinch = 0;
+  flinchSide = 0;
+  flinchPitch = 0;
+  /** The last round's direction in body space (right, forward). */
+  private hitRight = 0;
+  private hitFwd = -1;
+  /** How the body falls when killed, chosen at death from the last round: back (1) / forward (-1), or to a side. */
+  private fallBack = 1;
+  private fallSide = 0;
+  private fallChosen = false;
 
   update(dt: number, p: BotPose): void {
     // Velocity from the displacement (dt 0: a still pose, e.g. the lobby figure).
@@ -79,6 +102,47 @@ export class CharacterMotion {
     }
     this.sinceSlash += dt;
     this.breath += dt;
+    this.flinch = Math.max(0, this.flinch - dt * 5);
+    if (p.alive) this.fallChosen = false;
+  }
+
+  /** A round hit this character (`direction`: the way it travelled, world), `strength` ~0.5..1.6 by damage. */
+  hit(direction: THREE.Vector3, bodyYaw: number, strength = 1): void {
+    const right = Math.cos(bodyYaw) * direction.x - Math.sin(bodyYaw) * direction.z;
+    const fwd = -Math.sin(bodyYaw) * direction.x - Math.cos(bodyYaw) * direction.z;
+    this.flinch = Math.min(1.6, Math.max(0.4, strength));
+    this.flinchSide = right > 0 ? -1 : 1;
+    this.flinchPitch = fwd < 0 ? -1 : 1;
+    this.hitRight = right;
+    this.hitFwd = fwd;
+  }
+
+  /**
+   * The death fall on `obj` (at the feet, facing -Z), `deadTime` s after death: the knees give first, then the
+   * body goes over the way the killing round travelled — onto its back (shot from the front), its face (from
+   * behind) or a side — lifted by `depth` so it lies on the floor rather than in it.
+   */
+  deathFall(obj: THREE.Object3D, deadTime: number, depth: number): number {
+    if (!this.fallChosen) {
+      this.fallChosen = true;
+      if (Math.abs(this.hitRight) > Math.abs(this.hitFwd) * 1.2) {
+        this.fallSide = Math.sign(this.hitRight) || 1;
+        this.fallBack = 0;
+      } else {
+        this.fallSide = 0;
+        this.fallBack = this.hitFwd < 0 ? 1 : -1;
+      }
+    }
+    const t = Math.min(deadTime / DEATH_FALL, 1);
+    const fall = t * t;
+    const buckle = Math.sin(Math.min(deadTime / 0.25, 1) * (Math.PI / 2)) * (1 - fall) * 0.12;
+    obj.position.y += depth * fall - buckle;
+    if (this.fallSide !== 0) obj.rotateZ(-this.fallSide * (Math.PI / 2) * 0.95 * fall);
+    else {
+      obj.rotateX(this.fallBack * (Math.PI / 2) * 0.97 * fall);
+      obj.rotateZ(0.25 * fall);
+    }
+    return fall;
   }
 
   /** Eye height for the legs (crouch and landing included). */
@@ -116,6 +180,10 @@ export class CharacterMotion {
     this.land = this.landVel = 0;
     this.wasGrounded = true;
     this.sinceSlash = Infinity;
+    this.flinch = 0;
+    this.fallChosen = false;
+    this.hitRight = 0;
+    this.hitFwd = -1;
   }
 }
 

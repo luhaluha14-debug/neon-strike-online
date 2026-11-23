@@ -51,7 +51,7 @@ export function prepareWeaponScene(scene: THREE.Object3D): void {
  *  - polymer and paint: a black plastic is never quite 0 (about 3 % albedo); never mirror-smooth;
  *  - rubber: the darkest, fully matte, no metal;
  *  - glass, bores and cavities stay as they are.
- * Also mends a file defect: the AWM's olive stock was exported without its colour (white).
+ * Also mends a file defect: the SR-01's olive stock was exported without its colour (white).
  */
 export function realisticFinish(material: THREE.Material): void {
   const m = material as THREE.MeshStandardMaterial;

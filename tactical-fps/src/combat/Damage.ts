@@ -34,7 +34,7 @@ export interface Damageable {
   readonly alive: boolean;
   /**
    * Returns the nearest hit along the ray within `maxDistance`, or null. `pad` (m): a weapon's hit correction
-   * (Phase 30, the AWM): a hitbox that supports it is that much wider for this ray (others ignore it).
+   * (Phase 30; no weapon uses it since Phase 32): a hitbox that supports it is that much wider for this ray (others ignore it).
    */
   raycast(ray: THREE.Ray, maxDistance: number, pad?: number): TargetHit | null;
   applyDamage(info: DamageInfo): void;
