@@ -145,7 +145,20 @@ export type WeaponViewSpec = (
    * are untouched. Absent = the category's feel (1 each).
    */
   feel?: { kick?: number; rise?: number; back?: number; roll?: number };
+  /** Phase 31: this weapon's own reload / draw motion, as multipliers of its category's (absent: 1 each). */
+  motion?: WeaponMotion;
 };
+
+/**
+ * Phase 31: how a weapon's hands motion differs from the others of its kind (presentation only): `reload` how
+ * deep it is brought down / up for the magazine, `roll` how far it is turned over doing it, `overshoot` how
+ * far past its rest it swings when drawn before it settles (light weapons more, heavy ones less).
+ */
+export interface WeaponMotion {
+  reload?: number;
+  roll?: number;
+  overshoot?: number;
+}
 
 /** Sound cues of one weapon (ids from `audio/weaponSounds`). Presentation only. */
 export interface WeaponSounds {

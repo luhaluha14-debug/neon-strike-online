@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { BotSquad, type SquadMember } from '../ai/BotSquad';
 import { preloadAgentModels } from '../ai/AgentModel';
+import { CHARACTER_NEAR_RANGE, CHARACTER_VIEW } from '../ai/CharacterMotion';
 import type { Bot, Combatant } from '../ai/Bot';
 import { NavGrid } from '../ai/NavGrid';
 import { TacticalDirector } from '../ai/TacticalDirector';
@@ -53,7 +54,7 @@ import { findMap, MAPS, type MapDefinition } from '../maps';
 import { disposeMap, loadMap, type LoadedMap, type SpawnPoint } from '../world/MapLoader';
 import { Pigeons, preloadPigeons } from '../world/Pigeons';
 import { createSkyEnvironment, HORIZON_COLOR, SkyDome } from '../world/Sky';
-import { enhanceMapMaterials, setSkyOcclusion } from '../world/SurfaceMaterials';
+import { enhanceMapMaterials, setSkyOcclusion, setSurfaceGround } from '../world/SurfaceMaterials';
 import { bakeSkyOcclusion, skyVisibilityAt, type SkyOcclusionGrid } from '../world/SkyOcclusion';
 import { FRAME_LIMIT_OPTIONS, FrameLoop, type FrameLimit } from './FrameLoop';
 import { AutoQualityMonitor, saveAutoState, type AutoState } from './AutoQuality';
@@ -447,6 +448,9 @@ export class Game implements HostGame, ClientGame {
       mapDef.environment.viewDistance,
     );
     this.camera.rotation.order = 'YXZ';
+    // Phase 31: characters near this camera get their full animated body.
+    CHARACTER_VIEW.eye = this.camera.position;
+    CHARACTER_VIEW.nearRange = CHARACTER_NEAR_RANGE[quality];
     this.lobbyBackdrop.setAspect(this.camera.aspect);
     this.viewModel = new ViewModelLayer(window.innerWidth / window.innerHeight);
     this.viewModel.initEnvironment(this.renderer);
@@ -824,6 +828,9 @@ export class Game implements HostGame, ClientGame {
     // The minimap layout (and the walkable grid) now, behind the loading screen: no hitch in play.
     this.prepareMinimap(map, def.id);
     const surfaces = enhanceMapMaterials(map.root, this.quality, this.skyEnv);
+    // Phase 31: ground level for the wall-base grime: where the players stand at the spawns (median).
+    const spawnYs = [...map.attackSpawns, ...map.defenseSpawns].map((sp) => sp.position.y).sort((a, b) => a - b);
+    setSurfaceGround(spawnYs.length ? spawnYs[spawnYs.length >> 1] : map.playBounds.min.y);
     console.info(`[map:${def.id}] surfaces`, surfaces);
     // Sky light under cover (medium / high: low keeps every surface fully lit and skips the bake).
     if (this.quality !== 'low') {
@@ -1604,7 +1611,7 @@ export class Game implements HostGame, ClientGame {
       'bot-look',
       [
         { value: 'procedural', label: '기본 (애니메이션)' },
-        { value: 'agents', label: '요원 모델 (정적 포즈)' },
+        { value: 'agents', label: '요원 모델' },
       ] as const,
       ms.botLook,
       (look) => {
@@ -1963,6 +1970,7 @@ export class Game implements HostGame, ClientGame {
         vy: player.velocity.y,
         aim: this.aimAmount(),
         stepPhase: this.cameraMotion.phase,
+        lean: dead ? 0 : player.lean,
       },
       this.animState(w),
     );
@@ -2387,6 +2395,7 @@ export class Game implements HostGame, ClientGame {
       inspect: this.weapons?.inspectProgress ?? null,
       empty: w.usesAmmo && w.magazine === 0,
       action: w.def.action,
+      motion: w.def.view.motion,
     };
   }
 
@@ -2553,6 +2562,7 @@ export class Game implements HostGame, ClientGame {
   private applyQuality(level: QualityLevel): void {
     this.qualityLevel = level;
     const preset = QUALITY_PRESETS[level];
+    CHARACTER_VIEW.nearRange = CHARACTER_NEAR_RANGE[level];
     this.renderer.setPixelRatio(this.pixelRatio(preset.pixelRatioCap));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     const shadow = this.sun.shadow;

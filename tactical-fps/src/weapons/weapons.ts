@@ -536,6 +536,8 @@ export const AR_02: WeaponDefinition = {
     pose: { position: [0.17, -0.155, -0.47], rotation: [0.02, 0.12, -0.04], scale: 1 },
     // Its own feel: flatter than AR-01 (less muzzle rise, more straight push back).
     feel: { rise: 0.85, back: 1.15 },
+    // Phase 31: a bullpup-length carbine: brought down less and turned over less for the magazine, a livelier draw.
+    motion: { reload: 0.9, roll: 0.7, overshoot: 1.15 },
   },
   sounds: {
     fire: 'ar02.shot',
@@ -614,6 +616,8 @@ export const SMG_02: WeaponDefinition = {
     pose: { position: [0.17, -0.165, -0.46], rotation: [0.02, 0.12, -0.04], scale: 1 },
     // .45: a heavier thump per round than SMG-01's buzz, less twist.
     feel: { kick: 1.12, roll: 0.85 },
+    // Phase 31: turned well over for its long magazine.
+    motion: { reload: 1.1, roll: 1.25 },
   },
   sounds: {
     fire: 'smg02.shot',
@@ -756,6 +760,8 @@ export const PIS_02: WeaponDefinition = {
     pose: { position: [0.15, -0.165, -0.42], rotation: [0.02, 0.06, -0.02], scale: 1 },
     // Heavier slide: snaps up a little more than PIS-01.
     feel: { rise: 1.1 },
+    // Phase 31: a heavier frame: tilted less for the magazine, a snappier draw.
+    motion: { roll: 0.8, overshoot: 1.2 },
   },
   sounds: {
     fire: 'pis02.shot',
@@ -925,6 +931,8 @@ export const LMG_02: WeaponDefinition = {
     pose: { position: [0.18, -0.12, -0.54], rotation: [0.02, 0.12, -0.05], scale: 1 },
     // 7.62 at 1,000 RPM: each round shoves harder than LMG-01's.
     feel: { kick: 1.12, back: 1.1 },
+    // Phase 31: the heaviest gun: lifted higher for the belt, the slowest to settle from a draw.
+    motion: { reload: 1.15, roll: 1.1, overshoot: 0.75 },
   },
   sounds: {
     fire: 'lmg02.shot',

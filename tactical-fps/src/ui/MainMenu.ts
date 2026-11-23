@@ -113,7 +113,7 @@ export class MainMenu {
               <label class="field">
                 <span class="field-label">봇 외형</span>
                 <select class="select" data-setting="bot-look"></select>
-                <span class="field-hint">요원 모델은 리깅·애니메이션이 없는 정적 포즈입니다(걷기 동작 없음).</span>
+                <span class="field-hint">요원 모델은 상체가 Blender 캐릭터이고, 가까이에서는 다리가 걷기·앉기 동작을 합니다(멀리서는 정적 포즈).</span>
               </label>
               <label class="field">
                 <span class="field-label">봇 난이도</span>

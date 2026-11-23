@@ -26,6 +26,8 @@ export interface WeaponAnimState {
   empty?: boolean;
   /** Phase 30: the action ('semi': the bolt cycles by itself after each shot). */
   action?: 'semi';
+  /** Phase 31: the weapon's own reload / draw motion (WeaponViewSpec.motion). */
+  motion?: WeaponMotion;
 }
 
 /**
@@ -39,6 +41,9 @@ export interface WeaponAnimState {
  * For a GLB, add empties named `Grip_R` (firing hand), `Grip_L` (support
  * hand, optional), `Muzzle` (optional) and a node `Magazine` (optional).
  */
+import type { MeleeStyle } from '../meleeMotion';
+import type { WeaponMotion } from '../WeaponDefinition';
+
 export interface WeaponView {
   readonly object: THREE.Object3D;
   /** Where the muzzle flash appears; null for melee. */
@@ -58,6 +63,8 @@ export interface WeaponView {
   readonly supportAnchor: THREE.Object3D | null;
   /** Optional elbow placement when the default arm path would cut through the model. */
   readonly armPose?: ArmPose;
+  /** Phase 31: how a knife model is held and used (absent: not a knife, or the M9's way). */
+  readonly meleeStyle?: MeleeStyle;
   /** Moves weapon-specific parts (e.g. the sniper bolt) each frame. */
   animate?(state: WeaponAnimState): void;
   dispose(): void;

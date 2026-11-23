@@ -5,6 +5,9 @@ import { getArmTextures } from '../weapons/view/ArmTextures';
 import { dressStandIn } from '../skins/StandInSkin';
 import { HeldWeapon } from '../weapons/view/ThirdPersonWeapons';
 import { liftCharacterMaterial } from './CharacterLight';
+import { CharacterMotion } from './CharacterMotion';
+import { WEAPONS } from '../weapons/weapons';
+import { meleeStyleOf, type MeleeStyle } from '../weapons/meleeMotion';
 
 /** FirstPersonBody keeps its hips this far behind the eyes (first-person trick); a third-person body undoes it. */
 const BODY_BACK = 0.18;
@@ -25,6 +28,37 @@ export interface BotPose {
   deadTime: number;
   /** Phase 30: lean -1 (left) .. 1 (right); the upper body tilts that way (absent: upright). */
   lean?: number;
+  /** Phase 31: 0 standing .. 1 crouched (absent: standing); the legs bend and the hips drop. */
+  crouch?: number;
+}
+
+/**
+ * Phase 31: a knife slash as the arms show it (third person), per knife, `sw` 0..1 of the sweep: the M9 cuts
+ * diagonally across and down, the karambit hooks across the other way close to the body, the butterfly knife
+ * thrusts straight ahead. `out` gets arm turns (rad) and a push forward (m).
+ */
+export function slashPose(style: MeleeStyle, sw: number, out: { rx: number; ry: number; rz: number; z: number }): void {
+  out.rx = out.ry = out.rz = out.z = 0;
+  if (sw <= 0) return;
+  if (style === 'karambit') {
+    out.ry = -0.75 * sw;
+    out.rz = 0.35 * sw;
+    out.rx = 0.15 * sw;
+  } else if (style === 'butterfly') {
+    out.z = -0.2 * sw;
+    out.rx = 0.12 * sw;
+    out.ry = 0.1 * sw;
+  } else {
+    out.ry = 0.85 * sw;
+    out.rx = -0.4 * sw;
+    out.rz = -0.2 * sw;
+  }
+}
+const _slash = { rx: 0, ry: 0, rz: 0, z: 0 };
+
+/** The held weapon is a knife (the slash, not a recoil kick, when it is used). */
+export function holdsKnife(held: HeldWeapon): boolean {
+  return held.weaponId !== undefined && WEAPONS[held.weaponId]?.category === 'melee';
 }
 
 /**
@@ -32,8 +66,6 @@ export interface BotPose {
  * (and the hit capsule's top) does, LEAN_CONFIG.offset.
  */
 export const BODY_LEAN = 0.5;
-/** The same for a figure without a spine (AgentModel), tilting about the feet. */
-export const FIGURE_LEAN = 0.22;
 
 /** What BotSquad drives for each bot: the built-in BotModel or a Blender character (AgentModel). */
 export interface BotBody {
@@ -197,6 +229,8 @@ export class BotModel implements BotBody {
   private kick = 0;
   private flinch = 0;
   private flinchSide = 0;
+  /** Phase 31: walk speed from the real displacement, crouch, landing, eased lean, knife slash. */
+  readonly motion = new CharacterMotion();
 
   private readonly kit: BotKit;
   private rifle: THREE.Group | null = null;
@@ -219,6 +253,12 @@ export class BotModel implements BotBody {
     for (const x of [-0.1, 0, 0.1]) this.add(sp, new THREE.BoxGeometry(0.085, 0.11, 0.05), k.gear, [x, 0.18, -0.145]);
     this.add(sp, new THREE.BoxGeometry(0.3, 0.05, 0.05), k.dark, [0, 0.1, -0.13]);
     for (const x of [-0.11, 0.11]) this.add(sp, new THREE.BoxGeometry(0.07, 0.04, 0.27), k.gear, [x, 0.45, 0]);
+    // Phase 31 kit detail (merged into the existing materials: no extra draw calls): magazine tops showing out of
+    // the front pouches, a radio pouch on the left side with its antenna, a hydration panel low on the back (under the team ID panel).
+    for (const x of [-0.1, 0, 0.1]) this.add(sp, new THREE.BoxGeometry(0.055, 0.035, 0.028), k.dark, [x, 0.25, -0.147]);
+    this.add(sp, new THREE.BoxGeometry(0.06, 0.11, 0.06), k.gear, [-0.2, 0.24, -0.02]);
+    this.add(sp, new THREE.CylinderGeometry(0.004, 0.004, 0.3, 5), k.dark, [-0.21, 0.43, 0.0], [1, 1, 1], [0.12, 0, 0.06]);
+    this.add(sp, new THREE.BoxGeometry(0.22, 0.14, 0.05), k.gear, [0, 0.17, 0.15]);
     // Neck, head, helmet with rim, goggles and a mount on the front.
     this.add(sp, new THREE.CylinderGeometry(0.05, 0.058, 0.1, 10), k.skin, [0, 0.52, 0.005]);
     this.add(sp, new THREE.SphereGeometry(0.098, 16, 12), k.skin, [0, 0.645, 0], [0.95, 1.08, 1]);
@@ -293,10 +333,13 @@ export class BotModel implements BotBody {
   /** Per frame. */
   update(dt: number, p: BotPose): void {
     // Hand FirstPersonBody feet shifted forward so its hips land over the bot's capsule.
+    const mo = this.motion;
+    mo.update(dt, p);
     _feet.set(p.feet.x - Math.sin(p.yaw) * BODY_BACK, p.feet.y, p.feet.z - Math.cos(p.yaw) * BODY_BACK);
     _state.feet.copy(_feet);
     _state.yaw = p.yaw;
-    _state.velocity.copy(p.alive ? p.velocity : _state.velocity.set(0, 0, 0));
+    _state.velocity.copy(mo.velocity);
+    _state.eyeHeight = mo.eyeHeight;
     _state.grounded = p.grounded || !p.alive;
     this.lower.update(dt, _state);
     // Re-place it with the body's actual (lagging) yaw so the hips stay over the capsule
@@ -312,11 +355,16 @@ export class BotModel implements BotBody {
     this.kick = Math.max(0, this.kick - dt * 10);
     this.flinch = Math.max(0, this.flinch - dt * 5);
     const pitch = THREE.MathUtils.clamp(p.pitch, -1, 1);
-    this.arms.rotation.x = pitch * this.raise + (1 - this.raise) * -0.75 + this.kick * 0.12;
-    this.arms.rotation.y = twist * 0.25;
-    this.arms.position.z = this.kick * 0.035;
-    this.spine.rotation.x = pitch * 0.25 * this.raise + this.flinch * 0.25;
-    this.spine.rotation.z = this.flinch * 0.15 * this.flinchSide - (p.alive ? (p.lean ?? 0) : 0) * BODY_LEAN;
+    slashPose(mo.slashStyle, p.alive ? mo.slashSweep : 0, _slash);
+    this.arms.rotation.x = pitch * this.raise + (1 - this.raise) * -0.75 + this.kick * 0.12 + _slash.rx;
+    this.arms.rotation.y = twist * 0.25 + _slash.ry;
+    this.arms.rotation.z = _slash.rz;
+    this.arms.position.z = this.kick * 0.035 + _slash.z;
+    const move01 = Math.min(1, Math.hypot(mo.velocity.x, mo.velocity.z) / 5);
+    // Crouched, the chest tips forward over the knees; standing still it breathes; it leans into a side step.
+    this.spine.rotation.x = pitch * 0.25 * this.raise + this.flinch * 0.25 + mo.crouch * 0.18 + mo.breathing(move01);
+    this.spine.rotation.y += _slash.ry * 0.3;
+    this.spine.rotation.z = this.flinch * 0.15 * this.flinchSide - mo.lean * BODY_LEAN - (p.alive ? mo.strafeRoll(this.object.rotation.y) : 0);
 
     if (!p.alive) {
       // Falls onto its back about the feet (the object is at the feet; +Z is behind).
@@ -330,9 +378,10 @@ export class BotModel implements BotBody {
     }
   }
 
-  /** A round fired: short recoil kick. */
+  /** A round fired: short recoil kick; a knife slashes instead (Phase 31). */
   onShot(): void {
-    this.kick = 1;
+    if (holdsKnife(this.held)) this.motion.slash(meleeStyleOf(this.held.assetId));
+    else this.kick = 1;
   }
 
   /** Hit: the torso jolts away from the shot. */
@@ -358,6 +407,7 @@ export class BotModel implements BotBody {
 
   reset(): void {
     this.lower.reset();
+    this.motion.reset();
     this.raise = 0;
     this.kick = 0;
     this.flinch = 0;

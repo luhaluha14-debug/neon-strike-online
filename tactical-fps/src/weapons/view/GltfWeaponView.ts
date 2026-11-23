@@ -5,6 +5,7 @@ import { PISTOL_GRIP, type ArmPose, type HandGripProfile } from './HandGrip';
 import { animateBolt } from './SniperRifleView';
 import type { WeaponAnimState, WeaponView } from './WeaponView';
 import { prepareWeaponScene } from './WeaponSurface';
+import type { MeleeStyle } from '../meleeMotion';
 
 /**
  * A first-person weapon loaded from a Blender GLB.
@@ -41,6 +42,8 @@ export class GltfWeaponView implements WeaponView {
   readonly reloadGrab?: THREE.Object3D;
   readonly gripAnchor = new THREE.Object3D();
   private hinges: { o: THREE.Object3D; rest: number; dir: 1 | -1 }[] = [];
+  /** Phase 31: the balisong (hinged handles) and the karambit are held and used their own way. */
+  readonly meleeStyle?: MeleeStyle;
   readonly supportAnchor: THREE.Object3D | null;
   readonly rightHand: HandGripProfile;
   readonly armPose?: ArmPose;
@@ -122,6 +125,8 @@ export class GltfWeaponView implements WeaponView {
       const o = find(name);
       return o ? [{ o, rest: o.rotation.z, dir: i === 0 ? 1 : -1 }] : [];
     });
+    if (this.hinges.length) this.meleeStyle = 'butterfly';
+    else if (find('Karambit')) this.meleeStyle = 'karambit';
     // Ejection port: the file's own node, else the fit's point (model space).
     const portNode = find('Ejection_Port') ?? find('Dust_Cover');
     if (portNode) {

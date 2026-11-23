@@ -69,6 +69,13 @@ interface SurfacePreset {
   grain: number;
   /** Laid units with joints: bricks on walls, pavers / slabs on floors. */
   pattern: Pattern | null;
+  /**
+   * Phase 31: grime where a wall meets the ground — splashed dirt, scuffs, damp — fading out ~0.4–0.9 m up
+   * (an uneven edge). 0 = none.
+   */
+  baseGrime: number;
+  /** Phase 31: oil stains / water marks and worn patches on a floor (darker, with a slight sheen). 0 = none. */
+  oil: number;
 }
 
 interface Pattern {
@@ -100,32 +107,34 @@ const P = (p: Partial<SurfacePreset>): SurfacePreset => ({
   wearColor: 0x4a443b,
   grain: 0.05,
   pattern: null,
+  baseGrime: 0,
+  oil: 0,
   ...p,
 });
 
 export const SURFACE_PRESETS: Record<SurfaceKind, SurfacePreset> = {
-  asphalt: P({ roughness: 0.93, colorVar: 0.18, roughVar: 0.06, bump: 0.9, scale: 0.45, grain: 0.35, wearColor: 0x1d1c1a }),
+  asphalt: P({ roughness: 0.93, colorVar: 0.18, roughVar: 0.06, bump: 0.9, scale: 0.45, grain: 0.35, wearColor: 0x1d1c1a, oil: 0.55 }),
   concrete: P({
-    roughness: 0.88, colorVar: 0.13, roughVar: 0.08, bump: 0.45, scale: 0.28, streaks: 0.2, topDirt: 0.25, grain: 0.16,
+    roughness: 0.88, colorVar: 0.13, roughVar: 0.08, bump: 0.45, scale: 0.28, streaks: 0.2, topDirt: 0.25, grain: 0.16, baseGrime: 0.45, oil: 0.3,
     // Cast slabs with saw-cut joints on floors and roofs.
     pattern: { on: 'floors', size: [2.4, 2.4], joint: 0.012, bond: 0, tone: 0.08, jointShade: 0.6 },
   }),
-  stone: P({ roughness: 0.8, colorVar: 0.11, roughVar: 0.1, bump: 0.4, scale: 0.55, streaks: 0.1, topDirt: 0.15, grain: 0.22 }),
+  stone: P({ roughness: 0.8, colorVar: 0.11, roughVar: 0.1, bump: 0.4, scale: 0.55, streaks: 0.1, topDirt: 0.15, grain: 0.22, baseGrime: 0.3 }),
   paver: P({
-    roughness: 0.84, colorVar: 0.1, roughVar: 0.1, bump: 0.5, scale: 0.55, topDirt: 0.2, grain: 0.2,
+    roughness: 0.84, colorVar: 0.1, roughVar: 0.1, bump: 0.5, scale: 0.55, topDirt: 0.2, grain: 0.2, oil: 0.18,
     pattern: { on: 'floors', size: [0.4, 0.2], joint: 0.008, bond: 0.5, tone: 0.18, jointShade: 0.5 },
   }),
   brick: P({
-    roughness: 0.88, colorVar: 0.1, roughVar: 0.08, bump: 0.6, scale: 0.4, streaks: 0.16, grain: 0.12,
+    roughness: 0.88, colorVar: 0.1, roughVar: 0.08, bump: 0.6, scale: 0.4, streaks: 0.16, grain: 0.12, baseGrime: 0.4,
     // 215 x 65 mm bricks, 10 mm mortar, running bond.
     pattern: { on: 'walls', size: [0.225, 0.075], joint: 0.01, bond: 0.5, tone: 0.28, jointShade: 0 },
   }),
   metal: P({ reflective: true, roughness: 0.38, metalness: 0.85, colorVar: 0.06, roughVar: 0.2, bump: 0.08, scale: 0.9, streaks: 0.08 }),
-  paintedMetal: P({ reflective: true, roughness: 0.55, metalness: 0.25, colorVar: 0.07, roughVar: 0.15, bump: 0.1, scale: 0.6, streaks: 0.22, wear: 0.12, wearColor: 0x3a2a20 }),
+  paintedMetal: P({ reflective: true, roughness: 0.55, metalness: 0.25, colorVar: 0.07, roughVar: 0.15, bump: 0.1, scale: 0.6, streaks: 0.22, wear: 0.12, wearColor: 0x3a2a20, baseGrime: 0.4 }),
   rust: P({ roughness: 0.86, metalness: 0.15, colorVar: 0.2, roughVar: 0.1, bump: 0.5, scale: 0.6, streaks: 0.2, grain: 0.15 }),
   glass: P({ reflective: true, roughness: 0.06, metalness: 0.85, envMapIntensity: 1.1, colorVar: 0.03, roughVar: 0.05, scale: 0.15, streaks: 0.08, grain: 0 }),
   roadPaint: P({ roughness: 0.62, colorVar: 0.08, roughVar: 0.1, bump: 0.35, scale: 0.45, wear: 0.4, wearColor: 0x242322, grain: 0.2 }),
-  paint: P({ roughness: 0.6, colorVar: 0.05, roughVar: 0.1, bump: 0.08, scale: 0.4, streaks: 0.12, wear: 0.04 }),
+  paint: P({ roughness: 0.6, colorVar: 0.05, roughVar: 0.1, bump: 0.08, scale: 0.4, streaks: 0.12, wear: 0.04, baseGrime: 0.3 }),
   carPaint: P({ reflective: true, roughness: 0.3, metalness: 0.35, colorVar: 0.02, roughVar: 0.06, scale: 0.5, topDirt: 0.1, grain: 0 }),
   wood: P({ roughness: 0.8, colorVar: 0.15, roughVar: 0.08, bump: 0.35, scale: 0.7, streaks: 0.1, grain: 0.1 }),
   dirt: P({ roughness: 0.96, colorVar: 0.22, roughVar: 0.04, bump: 0.7, scale: 0.5, grain: 0.3 }),
@@ -135,7 +144,7 @@ export const SURFACE_PRESETS: Record<SurfaceKind, SurfacePreset> = {
   // Reflects the sky at grazing angles only; the stream bed colour shows looking down.
   water: P({ reflective: true, roughness: 0.1, metalness: 0, envMapIntensity: 0.65, colorVar: 0.05, roughVar: 0.03, bump: 0.25, scale: 0.6, grain: 0 }),
   light: P({ roughness: 0.3, colorVar: 0 }),
-  default: P({ roughness: 0.7, colorVar: 0.06, roughVar: 0.08, bump: 0.15, scale: 0.4, streaks: 0.08 }),
+  default: P({ roughness: 0.7, colorVar: 0.06, roughVar: 0.08, bump: 0.15, scale: 0.4, streaks: 0.08, baseGrime: 0.3 }),
 };
 
 /** Ordered: the first matching rule wins. Names come from the Blender material names. */
@@ -186,6 +195,19 @@ const SKY_OCC_UNIFORMS = {
  * Uses a baked sky-visibility grid for the map's sky light: under cover the hemisphere fill drops
  * to `diffuseFloor` and sky reflections to `specularFloor` (null grid = off, everything lit as before).
  */
+/** Phase 31: the map's ground level (m), shared by every patched material: the wall-base grime is measured up from it. */
+const SURF_GROUND = { surfGround: { value: 0 } };
+
+/** Sets the map's ground level (the height its streets / yard floor are at) for the wall-base grime. */
+export function setSurfaceGround(y: number): void {
+  SURF_GROUND.surfGround.value = y;
+}
+
+/** The ground level in use (tests). */
+export function surfaceGround(): number {
+  return SURF_GROUND.surfGround.value;
+}
+
 export function setSkyOcclusion(
   grid: { texture: THREE.Data3DTexture; origin: THREE.Vector3; size: THREE.Vector3 } | null,
   diffuseFloor = 0.6,
@@ -265,11 +287,12 @@ function applySurface(mat: THREE.MeshStandardMaterial, kind: SurfaceKind, qualit
         : new THREE.Vector4(1, 1, 0, 0),
     },
     surfWear: { value: new THREE.Color(p.wearColor) },
+    surfE: { value: new THREE.Vector4(p.baseGrime, p.oil, 0, 0) },
   };
   // Medium skips the separate fine-grain fetch (2 fetches instead of 3).
   const qualityDefine = quality === 'high' ? '' : '#define SURF_MEDIUM\n';
   mat.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, uniforms, SKY_OCC_UNIFORMS);
+    Object.assign(shader.uniforms, uniforms, SKY_OCC_UNIFORMS, SURF_GROUND);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vSurfPos;\nvarying vec3 vSurfN;')
       .replace(
@@ -284,7 +307,7 @@ function applySurface(mat: THREE.MeshStandardMaterial, kind: SurfaceKind, qualit
       .replace('#include <lights_fragment_end>', SURF_SKY + '#include <lights_fragment_end>');
   };
   // Same GLSL for every patched material: one program per light/fog setup, not per material.
-  mat.customProgramCacheKey = () => 'surface-v4' + quality;
+  mat.customProgramCacheKey = () => 'surface-v5' + quality;
   mat.needsUpdate = true;
 }
 
@@ -299,6 +322,8 @@ uniform vec4 surfB; // streaks, topDirt, wear, -
 uniform vec4 surfC; // grain, pattern mode (0 none, 1 walls, 2 floors), bond offset, unit tone variation
 uniform vec4 surfP; // unit size x, y (m), joint width (m), joint shade
 uniform vec3 surfWear;
+uniform vec4 surfE; // wall-base grime, road oil, -, -
+uniform float surfGround;
 varying vec3 vSurfPos;
 varying vec3 vSurfN;
 
@@ -383,6 +408,24 @@ diffuseColor.rgb = mix(diffuseColor.rgb, surfWear, surfB.y * surfUp * smoothstep
 float surfWearMask = surfB.z * smoothstep(0.52, 0.78, surfD.a * 0.55 + surfM.g * 0.45);
 diffuseColor.rgb = mix(diffuseColor.rgb, surfWear, surfWearMask);
 surfRough += surfWearMask * 0.2;
+// Phase 31: grime at the foot of a wall (splashed dirt, scuffs, damp): darkest at the ground, fading out
+// 0.4-0.9 m up along an uneven edge; only near the map's ground level, not on upper storeys.
+if (surfE.x > 0.0 && surfVert > 0.0) {
+  float hUp = vSurfPos.y - surfGround;
+  float edge = 0.4 + surfM.r * 0.35 + surfD.g * 0.15;
+  float grime = surfE.x * surfVert * (1.0 - smoothstep(0.0, edge, hUp)) * step(-0.3, hUp);
+  diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.55, 0.53, 0.5), grime);
+  surfRough += grime * 0.05;
+}
+// Phase 31: road wear — dark oil stains with a slight sheen and lighter worn patches, broken up so they
+// never tile.
+if (surfE.y > 0.0 && surfFlat > 0.0) {
+  float stain = smoothstep(0.62, 0.74, surfM.r * 0.7 + surfD.g * 0.3) * surfE.y * surfFlat;
+  diffuseColor.rgb *= 1.0 - stain * 0.45;
+  surfRough -= stain * 0.28;
+  float worn = smoothstep(0.6, 0.72, surfM.b * 0.8 + surfD.r * 0.2) * surfE.y * surfFlat;
+  diffuseColor.rgb *= 1.0 + worn * 0.18;
+}
 `;
 
 const SURF_ROUGHNESS = /* glsl */ `

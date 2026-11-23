@@ -264,7 +264,8 @@ test('real game: reverb follows indoor / outdoor; hands dim a little indoors; ma
     // Map materials carry the sky term; bots / players / the view model do not.
     let mapPatched = 0;
     g.map.root.traverse((o) => {
-      if (o.isMesh && o.material?.customProgramCacheKey?.().startsWith('surface-v4')) mapPatched++;
+      // Phase 31: the surface shader's program key is now 'surface-v5' (wall-base grime and floor stains added).
+      if (o.isMesh && o.material?.customProgramCacheKey?.().startsWith('surface-v5')) mapPatched++;
     });
     let vmPatched = 0;
     g.viewModel.scene.traverse((o) => {
