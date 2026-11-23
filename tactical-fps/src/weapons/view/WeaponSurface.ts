@@ -36,9 +36,55 @@ export function prepareWeaponScene(scene: THREE.Object3D): void {
     }
     if (!seen.has(mat)) {
       seen.add(mat);
+      realisticFinish(mat);
       addWeaponGrain(mat);
     }
   });
+}
+
+/**
+ * Phase 31: the files' plain materials brought into physically plausible ranges (once, on the file's own
+ * materials — a skin sets its own colours on its copies afterwards, so every skin keeps its look):
+ *  - metal finishes (parkerized / anodized steel, aluminium): a dark finish still reflects about 6–8 % of the
+ *    light (a near-0 colour on a metal reads as a black hole with no highlight at all); roughness kept in the
+ *    range of a worn matte to satin finish;
+ *  - polymer and paint: a black plastic is never quite 0 (about 3 % albedo); never mirror-smooth;
+ *  - rubber: the darkest, fully matte, no metal;
+ *  - glass, bores and cavities stay as they are.
+ * Also mends a file defect: the AWM's olive stock was exported without its colour (white).
+ */
+export function realisticFinish(material: THREE.Material): void {
+  const m = material as THREE.MeshStandardMaterial;
+  if (!m.isMeshStandardMaterial || m.userData.finish) return;
+  m.userData.finish = true;
+  const white = m.color.r > 0.99 && m.color.g > 0.99 && m.color.b > 0.99;
+  if (/^Stock_Olive$/i.test(m.name) && white) {
+    m.color.setHex(0x59603c);
+    m.metalness = 0;
+    m.roughness = 0.62;
+    return;
+  }
+  if (m.roughness < 0.1 || /glass|lens|bore|cavity/i.test(m.name)) return;
+  const floor = (f: number) => {
+    const lum = 0.2126 * m.color.r + 0.7152 * m.color.g + 0.0722 * m.color.b;
+    if (lum >= f) return;
+    if (lum <= 1e-4) m.color.setRGB(f, f, f);
+    else {
+      // Same hue, lifted to the floor.
+      m.color.multiplyScalar(f / lum);
+    }
+  };
+  if (/rubber|groove/i.test(m.name)) {
+    floor(0.018);
+    m.metalness = 0;
+    m.roughness = Math.max(m.roughness, 0.85);
+  } else if (m.metalness >= 0.55) {
+    floor(0.065);
+    m.roughness = THREE.MathUtils.clamp(m.roughness, 0.28, 0.6);
+  } else {
+    floor(0.03);
+    m.roughness = Math.max(m.roughness, 0.45);
+  }
 }
 
 /** Adds the surface grain to a weapon material (idempotent; also used on skinned copies). */

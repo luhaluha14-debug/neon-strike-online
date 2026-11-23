@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { AgentModel } from '../ai/AgentModel';
+import { crouchOf } from '../ai/CharacterMotion';
 import { BotKit, BotModel, type BotBody, type BotPose } from '../ai/BotModel';
 import type { BotLook } from '../ai/BotSquad';
 import type { EntityState } from './GameMessages';
@@ -108,6 +109,7 @@ export class Puppets {
       // Phase 30: the lean (absent from an older host or while upright: 0).
       p.lean = lerp(typeof ea[16] === 'number' ? ea[16] : 0, typeof eb[16] === 'number' ? eb[16] : 0, k);
       _pose.lean = p.lean;
+      _pose.crouch = crouchOf(p.height);
       // The weapon this character holds and its skin, as the host shows them (both checked again here: a known
       // weapon, a registered weapon / knife skin); anything else is the stand-in rifle / the default look.
       const w = typeof eb[15] === 'string' && WEAPONS[eb[15]] ? eb[15] : undefined;

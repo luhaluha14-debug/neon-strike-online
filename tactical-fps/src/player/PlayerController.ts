@@ -32,6 +32,11 @@ export class PlayerController {
   lean = 0;
   /** Eased toward the held lean before the wall limit. */
   private leanWant = 0;
+  /**
+   * Phase 31: progress toward the held lean at a steady rate (LEAN_CONFIG.time for the full way); the lean
+   * itself follows it on an ease-in-out curve, so it starts and settles gently instead of snapping into motion.
+   */
+  private leanLinear = 0;
 
   private jumpHeld = false;
   /** Time left on a jump press made in the air (it fires on landing; see jumpBuffer). */
@@ -58,7 +63,7 @@ export class PlayerController {
     this.groundTicks = 0;
     this.jumped = false;
     this.wallContact = false;
-    this.lean = this.leanWant = 0;
+    this.lean = this.leanWant = this.leanLinear = 0;
   }
 
   /** Mouse look is applied per render frame for responsiveness, not per tick. */
@@ -163,14 +168,16 @@ export class PlayerController {
   updateLean(want: number, dt: number): void {
     const target = Math.max(-1, Math.min(1, want));
     const step = dt / LEAN_CONFIG.time;
-    this.leanWant += Math.max(-step, Math.min(step, target - this.leanWant));
+    this.leanLinear += Math.max(-step, Math.min(step, target - this.leanLinear));
+    const a = Math.abs(this.leanLinear);
+    this.leanWant = Math.sign(this.leanLinear) * a * a * (3 - 2 * a);
     this.applyLeanLimit(this.leanWant);
   }
 
   /** A lean another machine reported (a member's, on the host): the same wall limit here, so no peeking through. */
   setReportedLean(v: number): void {
     const l = Number.isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0;
-    this.leanWant = l;
+    this.leanWant = this.leanLinear = l;
     this.applyLeanLimit(l);
   }
 

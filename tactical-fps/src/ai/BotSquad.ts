@@ -6,6 +6,7 @@ import type { WeaponDefinition } from '../weapons/WeaponDefinition';
 import type { LoadedMap } from '../world/MapLoader';
 import { Bot, type Combatant } from './Bot';
 import { AgentModel } from './AgentModel';
+import { crouchOf } from './CharacterMotion';
 import { BotKit, BotModel, type BotBody, type BotPose } from './BotModel';
 import type { NavGrid } from './NavGrid';
 
@@ -181,6 +182,8 @@ export class BotSquad {
       _pose.alive = b.alive;
       _pose.deadTime = b.combat.deadTime;
       _pose.lean = c.lean;
+      // Phase 31: crouch as the capsule shows it (0 standing .. 1 crouched).
+      _pose.crouch = crouchOf(c.height);
       this.models[i].update(dt, _pose);
     });
   }

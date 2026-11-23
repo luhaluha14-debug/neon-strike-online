@@ -220,7 +220,8 @@ test('4. the hit capsule leans with the body: a round 0.33 m to the right of an 
       // The model: its top moves toward its right as it leans.
       const model = g.squad['models'][g.squad.bots.indexOf(bot)];
       const top = () => {
-        g.squad.updateVisuals(0.016);
+        // Phase 31: the body shows the lean eased (~0.15 s, a network update arrives in steps): a few frames.
+        for (let f = 0; f < 30; f++) g.squad.updateVisuals(0.016);
         model.object.updateMatrixWorld(true);
         let best = null;
         model.object.traverse((o) => {

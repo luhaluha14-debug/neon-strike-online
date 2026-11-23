@@ -91,8 +91,15 @@ test('switching: the weapon in hand goes down out of view first, then the new on
   assert.notEqual(after[0].model, holster[0].model, 'the new model after the swap');
   assert.ok(r.frames.every((x) => x.selected === after[0].model), 'the selected weapon\'s model is reported from the start (currentView)');
   assert.ok(after[0].y < -0.18, `the new one starts out of view (${after[0].y.toFixed(3)} m)`);
-  // Coming up: monotonic until in hand.
-  for (let i = 1; i < after.length; i++) assert.ok(after[i].y >= after[i - 1].y - 1e-9, 'the new weapon only comes up');
+  // Coming up: monotonic up to its highest point, then (Phase 31) it settles back down onto the rest pose from a
+  // small swing past it (under 1.5 cm), never dipping again.
+  const peak = after.reduce((k, x, i) => (x.y > after[k].y ? i : k), 0);
+  for (let i = 1; i <= peak; i++) assert.ok(after[i].y >= after[i - 1].y - 1e-9, 'the new weapon only comes up');
+  // After the peak it settles: no jump and nothing lower than the idle breathing (±1.2 mm) takes it.
+  for (let i = peak + 1; i < after.length; i++) {
+    assert.ok(Math.abs(after[i].y - after[i - 1].y) < 0.003 && after[i].y > -0.002, `then settles (${after.slice(peak).map((x) => x.y.toFixed(4)).join(' ')})`);
+  }
+  assert.ok(after[peak].y < 0.015, `a small swing past rest (${after[peak].y.toFixed(4)} m)`);
   assert.ok(Math.abs(after.at(-1).y) < 0.002, 'in hand at the end');
   // Every frame-to-frame move while in view (above -12 cm) is small: no teleport.
   for (let i = 1; i < r.frames.length; i++) {

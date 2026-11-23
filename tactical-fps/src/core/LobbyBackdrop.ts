@@ -157,6 +157,7 @@ export class LobbyBackdrop {
     if (!this.figure) {
       this.kit = new BotKit();
       this.figure = new AgentModel(template, this.kit);
+      this.figure.alwaysNear = true;
       this.figure.object.name = 'LobbyFigure';
       this.scene.add(this.figure.object);
     }

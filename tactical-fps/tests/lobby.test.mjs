@@ -298,7 +298,11 @@ test('per-map shots: MAP 01 and MAP 02 each use their own camera and figure plac
   const w = await shot();
   assert.equal(w.map, 'warehouse');
   assert.equal(w.source, 'map');
-  assert.deepEqual([w.cam, w.yaw, w.pitch, w.fig], [[...w.def.camera], w.def.yaw, w.def.pitch, [...w.def.figure]]);
+  // Phase 31: the figure stands on animated legs whose root sits 0.18 m ahead of the feet (as the built-in body's
+  // always has), so its root is within that of the shot's figure place rather than exactly on it.
+  const near = (f, at) => Math.hypot(f[0] - at[0], f[1] - at[1]) <= 0.19;
+  assert.deepEqual([w.cam, w.yaw, w.pitch], [[...w.def.camera], w.def.yaw, w.def.pitch]);
+  assert.ok(near(w.fig, w.def.figure), `figure at its place (${w.fig} vs ${w.def.figure})`);
   assert.equal(await page.evaluate(() => performance.getEntriesByType('resource').some((e) => e.name.includes('seoul.glb'))), false, 'the Seoul map is only downloaded when it is picked');
   // Switch to MAP 02 from the Play page, then back to the lobby.
   await page.click('.lobby [data-lobby="play"]');
@@ -309,7 +313,8 @@ test('per-map shots: MAP 01 and MAP 02 each use their own camera and figure plac
   await page.waitForTimeout(500);
   const s = await shot();
   assert.equal(s.source, 'map');
-  assert.deepEqual([s.cam, s.yaw, s.pitch, s.fig], [[...s.def.camera], s.def.yaw, s.def.pitch, [...s.def.figure]]);
+  assert.deepEqual([s.cam, s.yaw, s.pitch], [[...s.def.camera], s.def.yaw, s.def.pitch]);
+  assert.ok(near(s.fig, s.def.figure), `figure at its place (${s.fig} vs ${s.def.figure})`);
   assert.notDeepEqual(s.cam, w.cam);
   assert.ok(s.renders > w.renders, 'drawn for the new map');
   await page.waitForTimeout(1000);

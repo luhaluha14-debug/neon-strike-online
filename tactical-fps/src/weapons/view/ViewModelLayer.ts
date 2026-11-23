@@ -2,10 +2,11 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import type { ArmsAppearance } from '../../skins/SkinRenderer';
 import { FirstPersonArms } from './FirstPersonArms';
-import type { ViewmodelPose, WeaponCategory } from '../WeaponDefinition';
+import type { ViewmodelPose, WeaponCategory, WeaponMotion } from '../WeaponDefinition';
 import type { WeaponAnimState, WeaponView } from './WeaponView';
 import { pumpTravel } from './GltfWeaponView';
 import { FLASH, MuzzleFlash, type FlashDetail } from './MuzzleFlash';
+import { meleeSweep } from '../meleeMotion';
 
 export interface ViewModelMotion {
   /** Look delta this frame (radians) — drives sway. */
@@ -21,6 +22,8 @@ export interface ViewModelMotion {
   aim?: number;
   /** The camera's stride phase (rad, CameraMotion.phase): the weapon bobs in step with the eye. */
   stepPhase?: number;
+  /** Phase 31: the player's lean, -1..1 (the weapon cants into it and trails a moment behind the eye). */
+  lean?: number;
 }
 
 /**
@@ -40,10 +43,8 @@ export const WEAPON_WEIGHT: Record<WeaponCategory, { sway: number; bob: number; 
   melee: { sway: 0.7, bob: 0.8, follow: 15, land: 0.7, air: 0.8 },
 };
 
-/** Duration of the placeholder melee slash (s). */
-const SLASH_TIME = 0.32;
-/** The blade's full sweep comes this soon after the slash (s): the hit is judged at the slash (Phase 29). */
-export const SLASH_STRIKE = 0.06;
+// The knife slash timeline (shared with the third-person bodies, Phase 31).
+export { SLASH_STRIKE } from '../meleeMotion';
 
 interface ShotFeel {
   /** Impulse of the kick spring per shot. */
@@ -155,6 +156,10 @@ export class ViewModelLayer {
   private air = 0;
   private aimS = 0;
   private breathPhase = 0;
+  /** Lean as the weapon shows it (Phase 31). */
+  private leanS = 0;
+  /** How fast the sights are coming up (+) or going down (-) now, smoothed (Phase 31). */
+  private aimMove = 0;
   /** Category of the model in hand (the anim state already describes the next weapon during a holster). */
   private shownCategory: WeaponCategory = 'rifle';
   /** Switching: the model being put away until `holster` runs out, then `incoming` is drawn. */
@@ -423,7 +428,12 @@ export class ViewModelLayer {
     }
     if (!m.grounded && m.vy !== undefined) this.airVy = m.vy;
     this.wasGrounded = m.grounded;
+    const aimBefore = this.aimS;
     this.aimS += ((m.aim ?? 0) - this.aimS) * (1 - Math.exp(-12 * dt));
+    // Phase 31: bringing the sights up (or down) the weapon dips and rolls a touch on the way, more for a
+    // heavier weapon, and settles as it arrives (presentation only: the aim time is the weapon's own).
+    const aimVel = dt > 0 ? (this.aimS - aimBefore) / dt : 0;
+    this.aimMove += (THREE.MathUtils.clamp(aimVel / 12, -1, 1) - this.aimMove) * (1 - Math.exp(-20 * dt));
     const steady = 1 - 0.65 * this.aimS;
     // In the air the weapon floats against the motion: down a touch going up, up a touch falling.
     const airTarget = m.grounded || m.vy === undefined ? 0 : THREE.MathUtils.clamp(-m.vy * 0.0016, -0.008, 0.009) * wt.air;
@@ -460,10 +470,21 @@ export class ViewModelLayer {
 
     // Pose offsets from the placeholder animations (all relative to rest).
     off.x = off.y = off.z = off.rx = off.ry = off.rz = 0;
+    // Lean (Phase 31): the eye moves at once; the weapon follows a moment later with its weight (it trails
+    // toward where the eye came from) and cants a touch into the lean, as a rifle held to the cheek does.
+    const leanNow = m.lean ?? 0;
+    this.leanS += (leanNow - this.leanS) * (1 - Math.exp(-wt.follow * 1.2 * dt));
+    // (A left-handed view model is mirrored, so its sideways offsets are mirrored back here.)
+    const hand = this.leftHanded ? -1 : 1;
+    off.x -= (leanNow - this.leanS) * 0.03 * hand;
+    off.rz -= this.leanS * 0.06 * hand;
+    off.y -= Math.abs(this.leanS) * 0.004;
     // Moving: the weapon rolls a touch with each step; a landing dips it.
     off.rz += Math.sin(this.bobPhase) * 0.012 * this.bobAmount;
     // (A landing peaks at ~7 mm down and ~0.6° muzzle down, back up within half a second.)
     off.y += this.land * 0.3 + Math.sin(this.breathPhase) * 0.0012 * still + this.air;
+    off.y -= Math.abs(this.aimMove) * 0.006 * wt.sway;
+    off.rz += this.aimMove * 0.045 * wt.sway;
     off.rx += this.land * 0.4 + Math.sin(this.breathPhase) * 0.002 * still;
 
     // Switching: the model in hand goes down first; the new one is drawn once it is out of view.
@@ -490,7 +511,11 @@ export class ViewModelLayer {
     const showing = this.incoming === null;
 
     // A completed reload: the shotgun racks its pump (the reload ends with the pump sound).
-    if (this.lastReload !== null && anim.reload === null && this.lastReload > 0.85) this.sinceReloadEnd = 0;
+    if (this.lastReload !== null && anim.reload === null && this.lastReload > 0.85) {
+      this.sinceReloadEnd = 0;
+      // Phase 31: the weapon settles back into the shoulder with a little weight (heavier weapons more).
+      if (showing) this.landVel -= 0.12 * wt.land;
+    }
     else this.sinceReloadEnd += dt;
     this.lastReload = anim.reload;
     const sinceCycle = anim.category === 'shotgun' ? Math.min(anim.sinceShot, this.sinceReloadEnd) : anim.sinceShot;
@@ -505,7 +530,7 @@ export class ViewModelLayer {
 
     // Reload: each kind of weapon its own motion, timed to its reload sounds; the magazine drops out and back in.
     if (showing && anim.reload !== null) {
-      reloadOffset(anim.category, anim.reload);
+      reloadOffset(anim.category, anim.reload, anim.motion);
       if (this.view?.magazine) {
         const t = anim.reload;
         const out = t < 0.25 ? t / 0.25 : t < 0.6 ? 1 : Math.max(0, 1 - (t - 0.6) / 0.25);
@@ -517,19 +542,45 @@ export class ViewModelLayer {
       this.view.magazine.visible = true;
     }
 
-    // Draw: rise from below the screen edge, each kind of weapon its own way.
-    if (showing) drawOffset(anim.category, 1 - easeOut(equip));
+    // Draw: rise from below the screen edge, each kind of weapon its own way, swinging a little past its rest
+    // before it settles (Phase 31; light weapons more, heavy ones less).
+    if (showing && equip < 1) drawOffset(anim.category, 1 - backOut(equip, DRAW_OVERSHOOT[anim.category] * (anim.motion?.overshoot ?? 1)));
 
-    // Melee slash: sweep from the right across the centre and back.
-    if (showing && anim.category === 'melee' && anim.sinceShot < SLASH_TIME) {
-      // A fast strike across the centre (the hit lands now) and a slower return.
-      const t = anim.sinceShot;
-      const sw = t < SLASH_STRIKE ? Math.sin((t / SLASH_STRIKE) * (Math.PI / 2)) : (1 - (t - SLASH_STRIKE) / (SLASH_TIME - SLASH_STRIKE)) ** 2;
-      off.x -= sw * 0.11;
-      off.z -= sw * 0.06;
-      off.ry += sw * 0.7;
-      off.rz += sw * 0.55;
-      off.rx -= sw * 0.25;
+    // Knife (Phase 31: each knife its own stance and attack, on the shared timeline: a fast strike, the hit
+    // lands at full sweep, then a slower return).
+    if (showing && anim.category === 'melee') {
+      const style = this.view?.meleeStyle ?? 'm9';
+      const sw = meleeSweep(anim.sinceShot);
+      if (style === 'karambit') {
+        // Reverse grip, the claw curling down out of the fist: held rolled in and close; the attack hooks
+        // across from the left to the right and rips back.
+        off.rz += 0.12;
+        off.x -= 0.006;
+        off.x += sw * 0.1;
+        off.z -= sw * 0.04;
+        off.y -= sw * 0.015;
+        off.ry -= sw * 0.6;
+        off.rz -= sw * 0.5;
+        off.rx += sw * 0.12;
+      } else if (style === 'butterfly') {
+        // Balisong: held point up and a little lower, loose in the wrist; the attack is a straight thrust with a
+        // quick turn of the wrist.
+        off.rx -= 0.06;
+        off.y -= 0.006;
+        off.rz += Math.sin(this.breathPhase * 1.3) * 0.01;
+        off.z -= sw * 0.17;
+        off.y += sw * 0.02;
+        off.x -= sw * 0.025;
+        off.rx -= sw * 0.14;
+        off.rz += sw * 0.22;
+      } else {
+        // M9 bayonet, forward grip: a diagonal slash from the right across the centre and back.
+        off.x -= sw * 0.11;
+        off.z -= sw * 0.06;
+        off.ry += sw * 0.7;
+        off.rz += sw * 0.55;
+        off.rx -= sw * 0.25;
+      }
     }
 
     // Inspect: turn the weapon to show its side, then back.
@@ -589,10 +640,23 @@ export class ViewModelLayer {
   }
 }
 
-function easeOut(t: number): number {
-  const c = Math.min(Math.max(t, 0), 1);
-  return 1 - (1 - c) * (1 - c);
+/** Ease out with a swing past the end (`s`: how far, 0 = none), back to exactly 1 at t = 1. */
+function backOut(t: number, s: number): number {
+  const c = Math.min(Math.max(t, 0), 1) - 1;
+  return 1 + (s + 1) * c * c * c + s * c * c;
 }
+
+/** Phase 31: how far a draw swings past rest before settling (backOut strength), per kind of weapon. */
+const DRAW_OVERSHOOT: Record<WeaponCategory, number> = {
+  rifle: 0.9,
+  smg: 1.2,
+  pistol: 1.4,
+  shotgun: 0.7,
+  sniper: 0.5,
+  dmr: 0.6,
+  lmg: 0.4,
+  melee: 1.5,
+};
 
 function easeIn(t: number): number {
   const c = Math.min(Math.max(t, 0), 1);
@@ -621,7 +685,7 @@ const DRAW: Record<WeaponCategory, { x: number; y: number; rx: number; rz: numbe
   melee: { x: 0.02, y: 0.18, rx: 0.4, rz: 0.6 },
 };
 function drawOffset(category: WeaponCategory, d: number): void {
-  if (d <= 0) return;
+  if (d === 0) return;
   const k = DRAW[category];
   off.x -= d * k.x;
   off.y -= d * k.y;
@@ -638,8 +702,17 @@ function bump(t: number, at: number, width: number): number {
  * Reload motion per kind of weapon, `t` 0..1 of the reload, with jolts where its sounds are
  * (weapons.ts `sounds.reload` / `reloadEnd`).
  */
-function reloadOffset(category: WeaponCategory, t: number): void {
-  const e = Math.sin(Math.min(t, 1) * Math.PI);
+function reloadOffset(category: WeaponCategory, t: number, motion?: WeaponMotion): void {
+  // Phase 31: brought into the reload position quickly (eased out), held there while the hands work (a small
+  // working motion, not a frozen pose), returned to the shoulder smoothly (eased in and out) — instead of one
+  // symmetric arc. Each kind of weapon has its own timing; each weapon may go deeper / roll further.
+  const [inEnd, outStart] = RELOAD_TIMING[category];
+  const e = reloadEnvelope(t, inEnd, outStart) * (motion?.reload ?? 1);
+  const rollK = motion?.roll ?? 1;
+  const rz0 = off.rz;
+  const work = t > inEnd && t < outStart ? Math.sin((t - inEnd) * 26) * 0.012 * Math.sin(((t - inEnd) / (outStart - inEnd)) * Math.PI) : 0;
+  off.rz += work;
+  off.y += work * 0.15;
   switch (category) {
     case 'rifle':
       // Rolled right and dipped for the magazine (out 0.04, in 0.81), the charging handle at the end.
@@ -707,5 +780,31 @@ function reloadOffset(category: WeaponCategory, t: number): void {
     case 'melee':
       break;
   }
+  // This weapon's own roll (multiplier of what its kind did above).
+  if (rollK !== 1) off.rz = rz0 + (off.rz - rz0) * rollK;
+}
+
+/** Phase 31: per kind of weapon, when the reload pose is reached and when the return to the shoulder starts (0..1). */
+const RELOAD_TIMING: Record<WeaponCategory, readonly [number, number]> = {
+  rifle: [0.14, 0.86],
+  smg: [0.12, 0.88],
+  pistol: [0.11, 0.86],
+  shotgun: [0.1, 0.86],
+  sniper: [0.17, 0.83],
+  dmr: [0.15, 0.85],
+  lmg: [0.2, 0.83],
+  melee: [0.1, 0.9],
+};
+
+/** 0 → 1 (eased out by `inEnd`) → hold → 1 → 0 (eased in-out from `outStart`). */
+function reloadEnvelope(t: number, inEnd: number, outStart: number): number {
+  if (!(t > 0) || t >= 1) return 0;
+  if (t < inEnd) {
+    const u = t / inEnd;
+    return 1 - (1 - u) ** 3;
+  }
+  if (t <= outStart) return 1;
+  const u = (t - outStart) / (1 - outStart);
+  return 1 - u * u * (3 - 2 * u);
 }
 

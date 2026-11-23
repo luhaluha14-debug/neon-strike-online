@@ -29,6 +29,8 @@ const THIGH = 0.44;
 const SHIN = 0.43;
 const ANKLE = 0.08;
 /** Eye to hip joint, standing (1.68 m eyes, 0.93 m hips). Crouching keeps it, so the hips drop with the eyes. */
+/** Hip joint above the soles, standing (a full-body model hangs its upper body here). */
+export const HIP_HEIGHT = THIGH + SHIN + ANKLE - 0.02;
 const EYE_TO_HIP = PLAYER_CONFIG.standHeight - PLAYER_CONFIG.eyeOffsetFromTop - (THIGH + SHIN + ANKLE - 0.02);
 /**
  * Hips sit behind the eyes (more than anatomically: the usual first-person
@@ -89,6 +91,12 @@ export class FirstPersonBody {
   private turning = false;
   private phase = 0;
   private moveBlend = 0;
+  /**
+   * Phase 31: 1 while stepping (any walking speed), 0 standing. The planted foot's travel scales with this, not
+   * with the walk-to-run blend: at a walk the foot must still move back exactly as fast as the body moves on,
+   * or it slides (it covered only about half the ground at a walk before).
+   */
+  private stepBlend = 0;
   private air = 0;
   private initialized = false;
 
@@ -184,6 +192,7 @@ export class FirstPersonBody {
     this.phase += (speed * dt * Math.PI * 2) / stride;
     const moveTarget = s.grounded ? Math.min(speed / PLAYER_CONFIG.runSpeed, 1) : 0;
     this.moveBlend += (moveTarget - this.moveBlend) * (1 - Math.exp(-10 * dt));
+    this.stepBlend += ((s.grounded && speed > 0.15 ? 1 : 0) - this.stepBlend) * (1 - Math.exp(-10 * dt));
     this.air += ((s.grounded ? 0 : 1) - this.air) * (1 - Math.exp(-12 * dt));
 
     // Movement direction in body space (-Z forward).
@@ -205,7 +214,7 @@ export class FirstPersonBody {
     this.pelvis.rotation.x = -0.08 * this.moveBlend;
 
     // Planted, a foot covers stance * stride relative to the body.
-    const reach = ((stance * stride) / 2) * this.moveBlend;
+    const reach = ((stance * stride) / 2) * this.stepBlend;
     // Standing, the feet are a little ahead of the hips; moving, centred under them.
     const footZ = BODY_BACK - FEET_AHEAD * (1 - this.moveBlend);
     for (const leg of this.legs) {
@@ -234,7 +243,17 @@ export class FirstPersonBody {
     }
   }
 
-  /** Snap to the player's yaw (spawn / teleport) instead of turning toward it. */
+  /** Body yaw now (lags the view; twisted toward a sideways movement). */
+  get yaw(): number {
+    return this.bodyYaw;
+  }
+
+  /** Phase 31: shows / hides this body's own parts (legs and waist) — not what a full-body model hung on the pelvis. */
+  setOwnPartsVisible(visible: boolean): void {
+    for (const leg of this.legs) leg.thigh.visible = leg.shin.visible = leg.boot.visible = visible;
+    for (const c of this.pelvis.children) if ((c as THREE.Mesh).isMesh) c.visible = visible;
+  }
+
   /** Character skin (cosmetic: colours of this body's own materials; null = factory look). */
   applyLook(look: BodyAppearance | null): void {
     for (const part of ['pants', 'jacket', 'gear', 'boot'] as const) applyFinish(this.outfit[part], look?.[part] ?? null, BODY_FACTORY[part]);
@@ -249,6 +268,7 @@ export class FirstPersonBody {
     this.initialized = false;
     this.phase = 0;
     this.moveBlend = 0;
+    this.stepBlend = 0;
     this.air = 0;
     this.turning = false;
   }
