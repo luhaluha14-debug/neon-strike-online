@@ -44,6 +44,12 @@ export const CAMERA_MOTION = {
   aimed: 0.25,
 } as const;
 
+/**
+ * Phase 32: how hard each kind of weapon shakes the eye per round (CameraMotion.shot): a pistol snaps, an SMG
+ * buzzes lightly, a rifle thumps, a marksman / bolt-action rifle and a shotgun jolt, a machine gun shudders.
+ */
+export const SHOT_SHAKE = { pistol: 0.55, smg: 0.35, rifle: 0.5, dmr: 0.85, sniper: 1.15, shotgun: 1.1, lmg: 0.6, melee: 0 } as const;
+
 export class CameraMotion {
   /** Offsets to apply this frame: up (m), right (m), roll (rad). */
   y = 0;
@@ -62,6 +68,32 @@ export class CameraMotion {
   private airVy = 0;
   private lastVy = 0;
   private aimS = 0;
+  /**
+   * Phase 32: shot shake — the eye's roll and a small push up / back from each round (presentation only: the
+   * aim's pitch and yaw are the weapon's own recoil, untouched). Damped springs, settled within ~0.15 s.
+   */
+  private shotRoll = 0;
+  private shotRollVel = 0;
+  private shotLift = 0;
+  private shotLiftVel = 0;
+
+  /** A round fired: `k` how hard this weapon shakes the eye (SHOT_SHAKE), `side` -1..1 which way it rolls. */
+  shot(k: number, side: number): void {
+    const aimedK = 1 - 0.45 * this.aimS;
+    this.shotRollVel += side * k * 0.09 * aimedK;
+    this.shotLiftVel += k * 0.12 * aimedK;
+  }
+
+  /**
+   * Phase 32: the player was hit from `angle` (0 ahead, + right): the eye flinches away from it a touch (roll
+   * and a dip), by damage. Presentation only: the aim is untouched.
+   */
+  hurt(angle: number, amount: number): void {
+    const k = Math.min(1, 0.3 + amount / 60);
+    // (A negative roll tilts the view right, as a lean right does: a hit from the right tilts it left, + roll.)
+    this.shotRollVel += Math.sin(angle) * k * 0.16;
+    this.shotLiftVel -= k * 0.35;
+  }
 
   update(dt: number, m: CameraMotionInput): void {
     const C = CAMERA_MOTION;
@@ -86,7 +118,14 @@ export class CameraMotion {
     for (let i = 0; i < steps; i++) {
       this.landVel += (-140 * this.land - 22 * this.landVel) * h;
       this.land += this.landVel * h;
+      this.shotRollVel += (-900 * this.shotRoll - 52 * this.shotRollVel) * h;
+      this.shotRoll += this.shotRollVel * h;
+      this.shotLiftVel += (-700 * this.shotLift - 50 * this.shotLiftVel) * h;
+      this.shotLift += this.shotLiftVel * h;
     }
+    // Settled: exactly at rest again (no lingering hair of roll).
+    if (Math.abs(this.shotRoll) < 1e-5 && Math.abs(this.shotRollVel) < 1e-4) this.shotRoll = this.shotRollVel = 0;
+    if (Math.abs(this.shotLift) < 1e-5 && Math.abs(this.shotLiftVel) < 1e-4) this.shotLift = this.shotLiftVel = 0;
 
     // Steps: the stride advances with distance covered on the ground.
     const run01 = m.runSpeed > 0 ? Math.min(m.speed / m.runSpeed, 1.25) : 0;
@@ -106,12 +145,13 @@ export class CameraMotion {
     // The eye is lowest as each foot lands (twice per stride), shifts toward the stepping side.
     this.y = -Math.abs(Math.sin(this.phase)) * C.bob * a + this.land;
     this.x = Math.sin(this.phase) * C.side * a;
-    this.roll = Math.sin(this.phase) * C.roll * a;
+    this.roll = Math.sin(this.phase) * C.roll * a + this.shotRoll;
 
     // Breathing, only while nearly still.
     this.breathPhase += dt * C.breathRate;
     const still = Math.max(0, 1 - this.amount * 3);
     this.y += Math.sin(this.breathPhase) * C.breath * still * steady;
+    this.y += this.shotLift * 0.01;
   }
 
   /** Footsteps and the hardest landing (impact speed, m/s; 0 = none) since the last call. */
@@ -126,6 +166,7 @@ export class CameraMotion {
   reset(): void {
     this.y = this.x = this.roll = 0;
     this.amount = this.land = this.landVel = 0;
+    this.shotRoll = this.shotRollVel = this.shotLift = this.shotLiftVel = 0;
     this.steps = this.landing = 0;
     this.wasGrounded = true;
     this.airVy = this.lastVy = 0;

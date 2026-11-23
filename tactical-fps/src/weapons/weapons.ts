@@ -1,5 +1,4 @@
 import type { WeaponDefinition } from './WeaponDefinition';
-import { AWM_CONFIG } from '../config';
 
 // Single source of truth for weapon balance and first-person placement.
 // Add a new weapon by adding an entry and putting it in the loadout.
@@ -81,37 +80,32 @@ export const AR_01: WeaponDefinition = {
 };
 
 /**
- * AWM (Phase 30; id sr01 kept for saved data, skins and the network): GRID's top sniper rifle, now
- * semi-automatic at 150 RPM (a round every 0.4 s, was a 1.45 s bolt cycle). Phase 26-A: a body hit kills
- * through a vest (was 145: 44 to the vest, 101 to the body). Phase 30: 160 a round, so a body hit kills
- * through a vest with room (112 reaches the body) and so does a leg (112, no vest there); the longest
- * reach in the game (full damage to 150 m, 90 % from 300 m, 500 m) and its own hit correction
- * (AWM_CONFIG.hitPad). Magazine (5), reserve (30), reload (3.6 s), draw (1.0 s), moving inaccuracy and
- * the 4× scope stay as they were: it is strong, not easy.
+ * Bolt-action sniper rifle (AWP-style). One heavy, precise shot per bolt cycle. Phase 26-A: a body hit
+ * kills through a vest too (145: the vest takes 44, 101 reaches the body); a leg hit does not (94).
+ * Phase 32: restored as it was before Phase 30 (which had made it the semi-automatic "AWM" with a hit
+ * correction); the price stays 4,750 CR.
  */
 export const SR_01: WeaponDefinition = {
   id: 'sr01',
-  displayName: 'AWM',
+  displayName: 'SR-01',
   // Right mouse: 4x scope, look slowed to 40 % while zoomed.
   scope: { zoom: 4, sensitivity: 0.4 },
   category: 'sniper',
   fireMode: 'semi',
-  // Phase 30: 150 RPM, semi-automatic (one round per trigger pull, 0.4 s apart).
-  fireRate: 150,
-  action: 'semi',
+  // ~1.45 s between shots: the bolt cycle.
+  fireRate: 41,
   magazineSize: 5,
   reserveAmmo: 30,
   reloadTime: 3.6,
   equipTime: 1.0,
   damage: {
-    base: 160,
+    base: 145,
     headMultiplier: 4,
-    limbMultiplier: 0.7,
-    falloffStart: 150,
-    falloffEnd: 300,
+    limbMultiplier: 0.65,
+    falloffStart: 120,
+    falloffEnd: 250,
     falloffMinMultiplier: 0.9,
-    maxRange: 500,
-    hitPad: AWM_CONFIG.hitPad,
+    maxRange: 400,
   },
   spread: {
     standing: 0,
@@ -128,10 +122,9 @@ export const SR_01: WeaponDefinition = {
     yawDrift: 0,
     yawDriftAfterShots: 99,
     kickResponse: 34,
-    // Phase 30: back on the aim within the 0.4 s between rounds (was 0.25 s + 9°/s for a 1.45 s bolt cycle).
-    recoveryDelay: 0.1,
-    recoverySpeed: deg(16),
-    // The scope settles back on the aim after the kick (sideways too) before the next round.
+    recoveryDelay: 0.25,
+    recoverySpeed: deg(9),
+    // The scope settles back on the aim after the kick (sideways too) while the bolt cycles.
     yawRecovery: true,
     sprayResetTime: 1.2,
   },
@@ -159,7 +152,7 @@ export const SR_01: WeaponDefinition = {
   sounds: {
     fire: 'sr01.shot',
     fireVolume: 1,
-    // Phase 30: no hand-worked bolt (semi-automatic): no bolt sound between rounds.
+    cycle: 'sr01.bolt',
     dry: 'dryfire',
     equip: 'equip.gun',
     reload: [

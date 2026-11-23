@@ -1,5 +1,5 @@
-// Phase 30 — the AWM (SR-01's new name and role: semi-automatic, 150 RPM, GRID's top sniper rifle) and the
-// swap reset (drawing any weapon resets its fire cooldown; it may fire during its draw; ammo and the reload
+// Phase 32 — SR-01 restored (Phase 30 had made it the semi-automatic "AWM": that is undone) — and the Phase 30
+// swap reset, which stays (drawing any weapon resets its fire cooldown; it may fire during its draw; ammo and the reload
 // state are kept; the host accepts it, and only it). Real weapon code through the game's own frame driver;
 // online parts through a real relay with two browsers.
 
@@ -39,7 +39,7 @@ async function play(mode = 'deathmatch') {
   return page;
 }
 
-test('1. AWM numbers: 150 RPM semi-automatic, 160 a round (head ×4, leg ×0.7), 150 → 300 m falloff to 90 %, 500 m; magazine, reserve, reload, draw, scope and moving inaccuracy as before; price and slot kept; the strongest sniper', async () => {
+test('1. SR-01 restored (Phase 32): the bolt-action sniper rifle as before Phase 30 — 41 RPM, 145 a round (head ×4, leg ×0.65), 120 → 250 m falloff to 90 %, 400 m, the bolt sound; no hit correction on any weapon; 4,750 CR; the same ids, so saved purchases, skins and rooms carry over', async () => {
   const page = await openGame(env, { mode: 'training', width: 480, height: 270 });
   try {
     const r = await page.evaluate(async () => {
@@ -47,36 +47,39 @@ test('1. AWM numbers: 150 RPM semi-automatic, 160 a round (head ×4, leg ×0.7),
       const { armorSplit } = await import('/src/player/PlayerCombat.ts');
       const { WEAPONS } = await import('/src/weapons/weapons.ts');
       const { CATALOG } = await import('/src/weapons/catalog.ts');
-      const { AWM_CONFIG } = await import('/src/config.ts');
+      const config = await import('/src/config.ts');
+      const { SKIN_CATALOG } = await import('/src/economy/SkinCatalog.ts');
       const a = WEAPONS.sr01;
       const d = (zone, m) => computeDamage(a.damage, zone, m);
-      const others = Object.values(WEAPONS).filter((w) => w.id !== 'sr01' && w.damage.hitPad);
       const item = CATALOG.find((i) => i.id === 'SR-01');
       return {
         name: a.displayName,
         mode: a.fireMode,
         rate: a.fireRate,
-        interval: 60 / a.fireRate,
-        action: a.action,
-        dmg: { body: d('body', 50), head: d('head', 50), leg: d('limb', 50), body200: d('body', 225), body400: d('body', 400) },
+        action: a.action ?? null,
+        dmg: { body: d('body', 50), head: d('head', 50), leg: d('limb', 50), body400: d('body', 400) },
         range: a.damage.maxRange,
         vest: armorSplit(d('body', 50), 'body', 100).health,
-        kept: [a.magazineSize, a.reserveAmmo, a.reloadTime, a.equipTime, a.scope.zoom, +(a.spread.moving * 180 / Math.PI).toFixed(2)],
-        hitPad: [a.damage.hitPad, AWM_CONFIG.hitPad, others.length],
-        item: [item.name, item.price, item.slot],
-        dmr: { body: computeDamage(WEAPONS.dmr01.damage, 'body', 50), range: WEAPONS.dmr01.damage.maxRange },
+        kept: [a.magazineSize, a.reserveAmmo, a.reloadTime, a.equipTime, a.scope.zoom],
+        recovery: [a.recoil.recoveryDelay, +(a.recoil.recoverySpeed * 180 / Math.PI).toFixed(2)],
+        padded: Object.values(WEAPONS).filter((w) => w.damage.hitPad).map((w) => w.id),
+        awmConfig: 'AWM_CONFIG' in config,
+        item: [item.name, item.price, item.slot, item.weapon === a],
         cycleSound: a.sounds.cycle ?? null,
+        skins: SKIN_CATALOG.filter((s) => s.targets.includes('sr01')).length,
       };
     });
-    assert.deepEqual([r.name, r.mode, r.rate, r.interval, r.action], ['AWM', 'semi', 150, 0.4, 'semi']);
-    assert.deepEqual(r.dmg, { body: 160, head: 640, leg: 112, body200: 152, body400: 144 });
-    assert.equal(r.range, 500);
-    assert.ok(r.vest >= 100, `a body hit through a full vest still kills (${r.vest})`);
-    assert.deepEqual(r.kept, [5, 30, 3.6, 1, 4, 6]);
-    assert.deepEqual(r.hitPad, [0.15, 0.15, 0], 'the hit correction is the AWM’s only, from AWM_CONFIG');
-    assert.deepEqual(r.item, ['AWM 저격소총 (반자동)', 4750, 'primary']);
-    assert.ok(r.dmg.body > r.dmr.body && r.range > r.dmr.range, 'above the DMR in damage and reach');
-    assert.equal(r.cycleSound, null, 'no hand-worked bolt sound');
+    assert.deepEqual([r.name, r.mode, r.rate, r.action], ['SR-01', 'semi', 41, null]);
+    assert.deepEqual(r.dmg, { body: 145, head: 580, leg: 94, body400: 131 });
+    assert.equal(r.range, 400);
+    assert.ok(r.vest >= 100, `a body hit through a full vest still kills (Phase 26-A) (${r.vest})`);
+    assert.deepEqual(r.kept, [5, 30, 3.6, 1, 4]);
+    assert.deepEqual(r.recovery, [0.25, 9]);
+    assert.deepEqual(r.padded, [], 'no weapon has a hit correction');
+    assert.equal(r.awmConfig, false);
+    assert.deepEqual(r.item, ['저격소총', 4750, 'primary', true]);
+    assert.equal(r.cycleSound, 'sr01.bolt', 'the hand-worked bolt sound is back');
+    assert.ok(r.skins > 0, 'SR-01 skins still in the catalogue');
     assert.deepEqual(page.errors, []);
   } finally {
     await page.context().close();
@@ -106,7 +109,7 @@ const clickFire = (page, frames, every = 2) =>
     { frames, every },
   );
 
-test('2. the AWM in play: one round per trigger pull (holding fires once), 150 RPM when clicked fast (0.4 s apart), 5 rounds then a 3.6 s reload, the bolt snaps back and forward by itself (no hand-worked cycle)', async () => {
+test('2. SR-01 in play: one round per trigger pull, a bolt cycle between rounds (~1.46 s at 41 RPM however fast it is clicked), 5 rounds then a 3.6 s reload; the bolt handle is lifted and worked', async () => {
   const page = await play('deathmatch');
   try {
     await page.evaluate(() => {
@@ -129,21 +132,18 @@ test('2. the AWM in play: one round per trigger pull (holding fires once), 150 R
       window.T.run(2);
       return g.weapons.shotsFired - n;
     });
-    assert.equal(held, 1, 'semi-automatic: holding fires one round');
+    assert.equal(held, 1, 'holding fires one round');
     await page.evaluate(() => {
       const w = window.game.weapons.weapon;
       w.magazine = 5;
       w.reserve = 30;
-      window.T.run(40);
+      window.T.run(120);
     });
-    // Clicking as fast as the frames allow for 2 s: rounds 0.4 s apart (frames are 1/60 s).
-    const fired = await clickFire(page, 100);
+    // Clicking as fast as the frames allow for 7.5 s: rounds a bolt cycle apart, five, then the magazine is empty.
+    const fired = await clickFire(page, 450);
     const gaps = fired.slice(1).map((f, i) => (f - fired[i]) / 60);
-    assert.ok(fired.length === 5, `5 rounds in 1.67 s (${fired.length}: ${fired})`);
-    for (const g of gaps) assert.ok(Math.abs(g - 0.4) <= 1 / 60 + 1e-9, `0.4 s apart (${gaps})`);
-    const rpm = 60 / (gaps.reduce((a, b) => a + b, 0) / gaps.length);
-    assert.ok(Math.abs(rpm - 150) < 4, `${rpm.toFixed(1)} RPM`);
-    // The magazine is empty: a reload (3.6 s), then 5 again from the reserve.
+    assert.equal(fired.length, 5, `5 rounds (${fired})`);
+    for (const g of gaps) assert.ok(Math.abs(g - 60 / 41) <= 1 / 60 + 1e-9, `a bolt cycle apart (${gaps.map((x) => x.toFixed(3))})`);
     const ammo = await page.evaluate(() => {
       const w = window.game.weapons.weapon;
       const a = [w.magazine, w.reserve];
@@ -155,9 +155,10 @@ test('2. the AWM in play: one round per trigger pull (holding fires once), 150 R
       return { a, started, mid, after: [w.magazine, w.reserve, w.status] };
     });
     assert.deepEqual(ammo, { a: [0, 30], started: 'reloading', mid: 'reloading', after: [5, 25, 'ready'] });
-    // The bolt: back with the shot, home again within 0.11 s, never lifted (no bolt-action cycle).
+    // The bolt (the model's own part animation, as the game drives it): lifted and drawn back mid-cycle.
     const bolt = await page.evaluate(async () => {
       const { animateBolt } = await import('/src/weapons/view/SniperRifleView.ts');
+      const { WEAPONS } = await import('/src/weapons/weapons.ts');
       const V = window.game.player.position.constructor;
       const o = { position: new V(), rotation: { z: 0 } };
       o.position.set = function (x, y, z) {
@@ -165,19 +166,11 @@ test('2. the AWM in play: one round per trigger pull (holding fires once), 150 R
         this.y = y;
         this.z = z;
       };
-      const rest = new V(0, 0, 0);
-      const at = (s, action) => {
-        animateBolt(o, rest, { category: 'sniper', equip: 1, reload: null, sinceShot: s, fireInterval: 0.4, inspect: null, action }, 0.085);
-        return [+o.position.z.toFixed(4), +o.rotation.z.toFixed(3)];
-      };
-      const semi = [0, 0.025, 0.06, 0.12, 0.3].map((s) => at(s, 'semi'));
-      // A bolt-action (no action given; its old 1.45 s cycle): the handle is lifted mid-cycle.
-      animateBolt(o, rest, { category: 'sniper', equip: 1, reload: null, sinceShot: 0.6, fireInterval: 1.45, inspect: null }, 0.085);
-      return { semi, bolt: [+o.position.z.toFixed(4), +o.rotation.z.toFixed(3)] };
+      const def = WEAPONS.sr01;
+      animateBolt(o, new V(), { category: 'sniper', equip: 1, reload: null, sinceShot: 0.6, fireInterval: 60 / def.fireRate, inspect: null, action: def.action }, 0.085);
+      return [+o.position.z.toFixed(4), +o.rotation.z.toFixed(3)];
     });
-    assert.deepEqual(bolt.semi.map((x) => x[1]), [0, 0, 0, 0, 0], 'no handle lift');
-    assert.ok(bolt.semi[1][0] > 0.05 && bolt.semi[3][0] === 0 && bolt.semi[4][0] === 0, JSON.stringify(bolt.semi));
-    assert.ok(bolt.bolt[1] > 0, 'a bolt-action (no action given) still lifts its handle');
+    assert.ok(bolt[1] > 0 && bolt[0] > 0, `the handle lifted and the bolt drawn back mid-cycle (${bolt})`);
     assert.deepEqual(page.errors, []);
   } finally {
     await page.context().close();
@@ -211,29 +204,22 @@ const nearMiss = (page, weapon, side, height = 1.1) =>
     { weapon, side, height },
   );
 
-test('3. AWM hit correction (AWM_CONFIG.hitPad = 0.15 m): a round 0.4 m from a bot’s centre hits with the AWM and misses with every other gun; 0.5 m misses with all; a near miss over the head is a body hit, not a headshot; the training dummies, walls and other weapons are judged as before', async () => {
+test('3. no hit correction since Phase 32: a round 0.4 m from a bot’s centre misses with SR-01 as with every other gun; a head hit is a headshot; a wall stops the round', async () => {
   const page = await play('deathmatch');
   try {
-    const awm = await nearMiss(page, 'sr01', 0.4);
-    assert.deepEqual([awm.kind, awm.zone, awm.alive], ['target', 'body', false], JSON.stringify(awm));
-    for (const w of ['ar01', 'ar02', 'dmr01', 'smg01', 'smg02', 'lmg01', 'lmg02', 'pis01', 'pis02']) {
+    for (const w of ['sr01', 'ar01', 'ar02', 'dmr01', 'smg01', 'smg02', 'lmg01', 'lmg02', 'pis01', 'pis02']) {
       const r = await nearMiss(page, w, 0.4);
       assert.equal(r.kind, 'miss', `${w}: 0.4 m off is a miss`);
     }
-    assert.equal((await nearMiss(page, 'sr01', 0.5)).kind, 'miss', 'AWM: 0.5 m off is a miss');
-    // Just past the side of the head: a body hit (the correction never makes a headshot).
-    const head = await nearMiss(page, 'sr01', 0.38, 1.72);
-    assert.deepEqual([head.kind, head.zone], ['target', 'body']);
-    // A real head hit is still a headshot.
+    const body = await nearMiss(page, 'sr01', 0);
+    assert.deepEqual([body.kind, body.zone, body.alive], ['target', 'body', false], 'a body hit kills');
     const real = await nearMiss(page, 'sr01', 0, 1.72);
     assert.deepEqual([real.kind, real.zone], ['target', 'head']);
-    // Walls: a near miss whose padded point is behind a wall is no hit (the line to it is checked).
     const blocked = await page.evaluate(async () => {
       const g = window.game;
       const { WEAPONS } = await import('/src/weapons/weapons.ts');
       const V = g.player.position.constructor;
       const coll = g.map.collision;
-      // A wall face: from a spawn, the first direction with a wall 3–10 m away.
       const s = g.map.attackSpawns[0].position;
       const o = new V(s.x, s.y + 1.1, s.z);
       for (let i = 0; i < 64; i++) {
@@ -241,7 +227,6 @@ test('3. AWM hit correction (AWM_CONFIG.hitPad = 0.15 m): a round 0.4 m from a b
         const d = new V(-Math.sin(a), 0, -Math.cos(a));
         const h = coll.raycast(o, d, 10);
         if (h === null || h < 3) continue;
-        // The bot's centre 0.45 m behind the wall, on the round's line: the wall stops it first.
         const bot = g.squad.bots.find((b) => b.alive && !b.remote);
         bot.combat.protection = 0;
         const behind = o.clone().addScaledVector(d, h + 0.45);
@@ -251,7 +236,7 @@ test('3. AWM hit correction (AWM_CONFIG.hitPad = 0.15 m): a round 0.4 m from a b
       }
       return { error: 'no wall' };
     });
-    assert.deepEqual(blocked, { kind: 'world', alive: true }, 'the wall stops the AWM round; the padding reaches no one behind it');
+    assert.deepEqual(blocked, { kind: 'world', alive: true }, 'the wall stops the round');
     assert.deepEqual(page.errors, []);
   } finally {
     await page.context().close();
@@ -353,7 +338,7 @@ test('5. without a switch the fire rate holds for every gun (the reset is the sw
   }
 });
 
-test('6. a room: the member’s AWM → pistol → AWM (switch-shooting) is accepted by the host round for round; a forged faster AWM (no switch) is refused; forged switches are capped', async () => {
+test('6. a room: the member’s SR-01 → pistol → SR-01 (switch-shooting) is accepted by the host round for round; a forged faster SR-01 (no switch) is refused; forged switches are capped', async () => {
   const host = await openGame(env, { mode: 'deathmatch', width: 480, height: 270 });
   const member = await openGame(env, { mode: 'training', width: 480, height: 270 });
   for (const p of [host, member]) p.setDefaultTimeout(60000);
@@ -384,7 +369,7 @@ test('6. a room: the member’s AWM → pistol → AWM (switch-shooting) is acce
       for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) o[k] = (b[k] ?? 0) - (a[k] ?? 0);
       return o;
     };
-    // Real play: 6 cycles of AWM shot, pistol... the deathmatch loadout is AR-01 / AWM / M9: AWM → AR-01 → AWM.
+    // Real play: 6 cycles of SR-01 shot, pistol... the deathmatch loadout is AR-01 / SR-01 / M9: SR-01 → AR-01 → SR-01.
     const s0 = await stats();
     const sent = await member.evaluate(async () => {
       const g = window.game;
@@ -409,7 +394,7 @@ test('6. a room: the member’s AWM → pistol → AWM (switch-shooting) is acce
       g.weapons.loadout[1].magazine = 5;
       g.weapons.equipSlot(1);
       for (let i = 0; i < 6; i++) {
-        await click(); // AWM
+        await click(); // SR-01
         g.weapons.equipSlot(0);
         await click(); // AR-01 at once
         g.weapons.equipSlot(1);
@@ -422,10 +407,10 @@ test('6. a room: the member’s AWM → pistol → AWM (switch-shooting) is acce
       return Object.values(s).reduce((a, x) => a + x, 0) >= want;
     }, Object.values(s0).reduce((a, x) => a + x, 0) + sent);
     const real = delta(s0, await stats());
-    // Six AWM pulls (its 5 rounds, the sixth on an empty magazine) and six AR-01 rounds, each right after a switch.
-    assert.equal(sent, 11, 'the member fired 11 rounds (5 AWM, 6 AR-01), switching between each, in a fifth of a second');
+    // Six SR-01 pulls (its 5 rounds, the sixth on an empty magazine) and six AR-01 rounds, each right after a switch.
+    assert.equal(sent, 11, 'the member fired 11 rounds (5 SR-01, 6 AR-01), switching between each, in a fifth of a second');
     assert.equal(real.rate ?? 0, 0, `none refused for its rate (${JSON.stringify(real)})`);
-    // Forged: 6 AWM rounds at once with no switch between (the member's draw count unchanged).
+    // Forged: 6 SR-01 rounds at once with no switch between (the member's draw count unchanged).
     await member.waitForTimeout(1500);
     const s1 = await stats();
     await member.evaluate(() => {
@@ -436,8 +421,8 @@ test('6. a room: the member’s AWM → pistol → AWM (switch-shooting) is acce
     });
     await host.waitForFunction((b) => Object.values(window.game.netHost.shotStats).reduce((a, x) => a + x, 0) >= b + 10, Object.values(s1).reduce((a, x) => a + x, 0));
     const forged = delta(s1, await stats());
-    // At most a magazine's worth (5) bunched together; the rest refused for the AWM's own rate.
-    assert.ok((forged.rate ?? 0) >= 5, `a forged burst without switching is cut by the AWM's own rate (${JSON.stringify(forged)})`);
+    // At most a magazine's worth (5) bunched together; the rest refused for the SR-01's own rate.
+    assert.ok((forged.rate ?? 0) >= 5, `a forged burst without switching is cut by the SR-01's own rate (${JSON.stringify(forged)})`);
     // Forged switches: a new draw count on every round, 20 at once: no more than the swap allowance gets through.
     await member.waitForTimeout(3000);
     const s2 = await stats();
@@ -449,7 +434,7 @@ test('6. a room: the member’s AWM → pistol → AWM (switch-shooting) is acce
     await host.waitForFunction((b) => Object.values(window.game.netHost.shotStats).reduce((a, x) => a + x, 0) >= b + 20, Object.values(s2).reduce((a, x) => a + x, 0));
     const swaps = delta(s2, await stats());
     const judged = (swaps.miss ?? 0) + (swaps.world ?? 0) + (swaps.target ?? 0);
-    assert.ok(judged <= 5 + 3 + 1, `forged switches cannot lift the AWM past its burst + the swap allowance (${JSON.stringify(swaps)})`);
+    assert.ok(judged <= 5 + 3 + 1, `forged switches cannot lift the SR-01 past its burst + the swap allowance (${JSON.stringify(swaps)})`);
     assert.ok((swaps.rate ?? 0) >= 11, JSON.stringify(swaps));
     assert.deepEqual([host.errors, member.errors], [[], []]);
   } finally {

@@ -35,7 +35,6 @@ const FILE_CENTRE = new THREE.Vector3(0.95, 0, 0.05);
 const HANDS = new THREE.Vector3(0.11, 1.23, -0.47);
 /** How far the back of the figure reaches behind the feet (lifts the body when it lies on its back). */
 const BACK_DEPTH = 0.2;
-const DEATH_FALL = 0.5;
 /** Step bob length (m per bob) and height while running (the far figure, which has no legs of its own). */
 const BOB_STRIDE = 0.7;
 const BOB_HEIGHT = 0.03;
@@ -128,8 +127,6 @@ export class AgentModel implements BotBody {
   private move = 0;
   private raise = 0;
   private kick = 0;
-  private flinch = 0;
-  private flinchSide = 0;
   private near = true;
   /** Always the full animated body (the lobby's close-up figure, seen by its own camera). */
   alwaysNear = false;
@@ -243,14 +240,13 @@ export class AgentModel implements BotBody {
     this.phase += (speed * dt * Math.PI) / BOB_STRIDE;
     this.raise += ((p.aiming ? 1 : 0) - this.raise) * (1 - Math.exp(-9 * dt));
     this.kick = Math.max(0, this.kick - dt * 10);
-    this.flinch = Math.max(0, this.flinch - dt * 5);
 
     // Upper body: turned from the legs to the aim, leaning, tipped forward when crouched, breathing at rest.
     const twist = p.alive ? Math.atan2(Math.sin(p.yaw - by), Math.cos(p.yaw - by)) : 0;
     slashPose(mo.slashStyle, p.alive ? mo.slashSweep : 0, _slash);
-    const roll = this.flinch * 0.08 * this.flinchSide - mo.lean * BODY_LEAN - (p.alive ? mo.strafeRoll(by) : 0);
+    const roll = mo.flinch * 0.1 * mo.flinchSide - mo.lean * BODY_LEAN - (p.alive ? mo.strafeRoll(by) : 0);
     // The pelvis tips forward while running; the chest comes back up over it.
-    this.waist.rotation.set(0.08 * this.move + mo.crouch * 0.16 + mo.breathing(this.move), twist + _slash.ry * 0.3, roll, 'YXZ');
+    this.waist.rotation.set(0.08 * this.move + mo.crouch * 0.16 + mo.breathing(this.move) + mo.flinch * 0.2 * mo.flinchPitch, twist + _slash.ry * 0.3, roll, 'YXZ');
     // Far: the whole figure turns to the aim, leans about the hips, sinks a little when crouched, bobs with the step.
     this.farWaist.rotation.set(0, twist, -mo.lean * BODY_LEAN, 'YXZ');
     // (crouched it is squashed to the crouched height, standing on its soles).
@@ -266,11 +262,8 @@ export class AgentModel implements BotBody {
     this.rifle.visible = true;
 
     if (!p.alive) {
-      const t = Math.min(p.deadTime / DEATH_FALL, 1);
-      const fall = t * t;
-      this.object.position.y += BACK_DEPTH * fall;
-      this.object.rotateX((Math.PI / 2) * 0.97 * fall);
-      this.object.rotateZ(0.25 * fall);
+      // Phase 32: the knees give, then it goes over the way the killing round travelled.
+      const fall = mo.deathFall(this.object, p.deadTime, BACK_DEPTH);
       this.rifle.visible = fall < 0.35;
     }
   }
@@ -281,11 +274,8 @@ export class AgentModel implements BotBody {
     else this.kick = 1;
   }
 
-  onHit(direction: THREE.Vector3): void {
-    this.flinch = 1;
-    const by = this.lower.yaw;
-    const right = Math.cos(by) * direction.x - Math.sin(by) * direction.z;
-    this.flinchSide = right > 0 ? -1 : 1;
+  onHit(direction: THREE.Vector3, strength = 1): void {
+    this.motion.hit(direction, this.lower.yaw, strength);
   }
 
   setWeaponSkin(assetId: string | undefined): void {
@@ -308,7 +298,6 @@ export class AgentModel implements BotBody {
     this.move = 0;
     this.raise = 0;
     this.kick = 0;
-    this.flinch = 0;
   }
 
   /** Only this model's own geometry (the rifle, the legs); the character's geometry and materials belong to the loaded file. */

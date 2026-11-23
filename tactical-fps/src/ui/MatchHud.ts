@@ -3,7 +3,7 @@ import { fillCombatResults } from './combatResults';
 import './match.css';
 
 const FEED_SECONDS = 6;
-const WEAPON_SHORT: Record<string, string> = { ar01: 'AR-01', sr01: 'AWM', karambit: 'M9' };
+const WEAPON_SHORT: Record<string, string> = { ar01: 'AR-01', sr01: 'SR-01', karambit: 'M9' };
 
 /**
  * Deathmatch overlay: timer / kills / rank bar, kill feed, Tab scoreboard and

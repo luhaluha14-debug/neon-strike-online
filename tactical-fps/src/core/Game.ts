@@ -69,7 +69,7 @@ import { KillConfirm } from '../game/KillConfirm';
 import { TrainingStats, type CombatStats } from '../game/CombatStats';
 import { Minimap, type MinimapDot } from '../ui/Minimap';
 import { buildMinimapLayout } from '../world/MinimapLayout';
-import { CameraMotion } from '../player/CameraMotion';
+import { CameraMotion, SHOT_SHAKE } from '../player/CameraMotion';
 import { FrameStats, isSoftwareRenderer, webglRenderer } from './FrameStats';
 import { AllyMarkers } from '../fx/AllyMarkers';
 import { HitFeedback } from '../game/HitFeedback';
@@ -90,8 +90,7 @@ import { teamWaitOf, type TeamWaitMsg, type ToClient } from '../net/GameMessages
 import { applyBomb, applyMatch, applyTeamMatch, type BombStateMsg, type MatchState, type TeamMatchState } from '../net/Mirror';
 
 /** When the case leaves after a round (s): at once, or when the pump (shotgun) / bolt (sniper) is worked. */
-// Phase 30: the AWM (the sniper) is semi-automatic: its case leaves with the shot (was 0.62 s, the hand-worked bolt).
-const EJECT_DELAY: Record<Exclude<WeaponCategory, 'melee'>, number> = { rifle: 0, smg: 0, pistol: 0, shotgun: 0.22, sniper: 0, dmr: 0, lmg: 0 };
+const EJECT_DELAY: Record<Exclude<WeaponCategory, 'melee'>, number> = { rifle: 0, smg: 0, pistol: 0, shotgun: 0.22, sniper: 0.62, dmr: 0, lmg: 0 };
 /** Case throw (m/s): out of the port's side, up, back toward the shooter. */
 const EJECT: Record<Exclude<WeaponCategory, 'melee'>, { side: number; up: number; back: number }> = {
   rifle: { side: 1.8, up: 1.5, back: 0.3 },
@@ -114,6 +113,7 @@ const SPACE_RAYS = [new THREE.Vector3(0, 1, 0), new THREE.Vector3(1, 0, 0), new 
 const _spaceFrom = new THREE.Vector3();
 const _camRight = new THREE.Vector3();
 const _leanShift = new THREE.Vector3();
+const _UP = new THREE.Vector3(0, 1, 0);
 const _motionEvents = { steps: 0, landing: 0 };
 const UP = new THREE.Vector3(0, 1, 0);
 /** World muzzle flash size of someone else's shot, per kind of weapon (CombatEffects.flash). */
@@ -475,6 +475,8 @@ export class Game implements HostGame, ClientGame {
     // Sounds are synthesised in the background while the map downloads.
     this.audio = new AudioEngine(settings.volume, { srFireInterval: 60 / SR_01.fireRate });
     this.weaponAudio = new WeaponAudio(this.audio);
+    // Phase 32: impact sounds by the material struck.
+    this.weaponAudio.surfaceOf = (point, normal) => this.map?.collision.surfaceAt(point, normal) ?? null;
     // Spent cases ring on the floor (one at a time: a burst's cases don't pile up into noise).
     this.casings.onFloor = (kind, at) => {
       if (this.fxClock - this.lastCaseSound < 0.045) return;
@@ -889,6 +891,9 @@ export class Game implements HostGame, ClientGame {
           this.viewModel.finishSwitch();
           this.weaponAudio.onShot(weapon, result, delay, this.camera, false);
           this.viewModel.onShot(weapon.def.category, weapon.def.view.feel);
+          // Phase 32: the eye takes the shot too (roll and a small push; the aim is the recoil's own), each kind
+          // of weapon its own strength, scaled by the weapon's own kick.
+          this.cameraMotion.shot(SHOT_SHAKE[weapon.def.category] * (weapon.def.view.feel?.kick ?? 1), Math.random() < 0.5 ? -1 : 1);
           // The spent case: out of the port now, or when the pump / bolt is worked.
           if (weapon.def.category !== 'melee') this.pendingCases.push({ at: this.fxClock + EJECT_DELAY[weapon.def.category], def: weapon.def });
         }
@@ -1674,6 +1679,8 @@ export class Game implements HostGame, ClientGame {
     const sz = -e.direction.z;
     const angle = Math.atan2(sx * -fz + sz * fx, sx * fx + sz * fz);
     this.hud.showDamage(e.amount, angle);
+    // Phase 32: the eye flinches away from the hit too (the same reaction other players see on this body).
+    if (!e.killed) this.cameraMotion.hurt(angle, e.amount);
     this.recordDamage(e.sourceId, 'local', e.taken);
     if (e.killed) {
       this.audio.stopGroup('foley');
@@ -1910,7 +1917,8 @@ export class Game implements HostGame, ClientGame {
       if (_motionEvents.steps > 0) {
         // Own footsteps: a run is heard, a walk barely, crouching almost not at all.
         const speed01 = Math.hypot(player.velocity.x, player.velocity.z) / PLAYER_CONFIG.runSpeed;
-        this.weaponAudio.footstep(player.crouching ? 0.05 : speed01 > 0.8 ? 0.2 : 0.08);
+        // Phase 32: on what the feet stand on (metal deck, boards, earth, concrete).
+        this.weaponAudio.footstep(player.crouching ? 0.05 : speed01 > 0.8 ? 0.2 : 0.08, this.map?.collision.surfaceAt(player.position, _UP) ?? null);
       }
       if (_motionEvents.landing > 0) this.weaponAudio.landing(_motionEvents.landing);
     }
@@ -3448,7 +3456,10 @@ export class Game implements HostGame, ClientGame {
     const fz = -Math.cos(p.yaw);
     const sx = -m.d[0];
     const sz = -m.d[2];
-    this.hud.showDamage(m.amount, Math.atan2(sx * -fz + sz * fx, sx * fx + sz * fz));
+    const angle = Math.atan2(sx * -fz + sz * fx, sx * fx + sz * fz);
+    this.hud.showDamage(m.amount, angle);
+    // Phase 32: online (a member hit by the host's judgement) the eye flinches the same way.
+    if (!m.killed) this.cameraMotion.hurt(angle, m.amount);
     if (m.killed) this.audio.stopGroup('foley');
   }
 

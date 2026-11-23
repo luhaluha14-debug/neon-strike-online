@@ -68,7 +68,7 @@ export interface DamageProfile {
    * walls, rate, spawn protection and the host's checks still decide what is a valid hit.
    */
   lethal?: boolean;
-  /** Phase 30: hit correction (m) — the target's hitbox is this much wider for this weapon's rounds (AWM only). */
+  /** Phase 30: hit correction (m) — the target's hitbox is this much wider for this weapon's rounds (no weapon uses it since Phase 32, when SR-01 was restored). */
   hitPad?: number;
 }
 

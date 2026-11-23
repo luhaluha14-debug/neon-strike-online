@@ -39,7 +39,11 @@ export class Hud {
   private hitRingAnim: Animation | null = null;
   private killNoticeAnim: Animation | null = null;
   private readonly vignette: HTMLDivElement;
-  private readonly damageDir: HTMLDivElement;
+  /**
+   * Phase 32: up to three direction markers at once (hits from two or three shooters each keep their own;
+   * a new hit from about the same direction renews that marker instead of taking another).
+   */
+  private readonly damageDirs: { el: HTMLDivElement; angle: number; at: number; anim: Animation | null }[];
   private readonly vitals: HTMLDivElement;
   private readonly combat: HTMLDivElement;
   private readonly csKills: HTMLElement;
@@ -65,6 +69,8 @@ export class Hud {
     this.root = el('div', 'hud');
     this.root.innerHTML = `
       <div class="damage-vignette" aria-hidden="true"></div>
+      <div class="damage-dir" aria-hidden="true"><span class="damage-arc"></span></div>
+      <div class="damage-dir" aria-hidden="true"><span class="damage-arc"></span></div>
       <div class="damage-dir" aria-hidden="true"><span class="damage-arc"></span></div>
       <div class="crosshair" aria-hidden="true">
         <span class="ch-line ch-top"></span><span class="ch-line ch-bottom"></span>
@@ -130,7 +136,7 @@ export class Hud {
     this.reloadBar = this.root.querySelector('.reload-bar')!;
     this.hitMarker = this.root.querySelector('.hitmarker')!;
     this.vignette = this.root.querySelector('.damage-vignette')!;
-    this.damageDir = this.root.querySelector('.damage-dir')!;
+    this.damageDirs = [...this.root.querySelectorAll<HTMLDivElement>('.damage-dir')].map((el) => ({ el, angle: 0, at: -Infinity, anim: null }));
     this.vitals = this.root.querySelector('.vitals')!;
     this.combat = this.root.querySelector('.combat-stats')!;
     this.csKills = this.combat.querySelector('.cs-kills')!;
@@ -151,10 +157,19 @@ export class Hud {
   showDamage(amount: number, angle: number): void {
     for (const a of this.damageAnims) a.cancel();
     const peak = Math.min(0.2 + (amount / 100) * 0.5, 0.65);
-    this.damageDir.style.transform = `rotate(${angle}rad)`;
+    const now = performance.now();
+    // The marker for this direction: one still showing from about the same side, else a free (or the oldest) one.
+    const near = (d: { angle: number; at: number }) => now - d.at < 1100 && Math.abs(Math.atan2(Math.sin(angle - d.angle), Math.cos(angle - d.angle))) < 0.45;
+    const slot = this.damageDirs.find(near) ?? this.damageDirs.reduce((o, d) => (d.at < o.at ? d : o));
+    slot.anim?.cancel();
+    slot.angle = angle;
+    slot.at = now;
+    slot.el.style.transform = `rotate(${angle}rad)`;
+    // A heavy hit shows bolder (a graze stays clear but lighter).
+    const strong = Math.min(1, 0.55 + amount / 100);
+    slot.anim = slot.el.animate([{ opacity: strong }, { opacity: strong, offset: 0.4 }, { opacity: 0 }], { duration: 1100, easing: 'linear' });
     this.damageAnims = [
       this.vignette.animate([{ opacity: peak }, { opacity: 0 }], { duration: 550, easing: 'ease-out' }),
-      this.damageDir.animate([{ opacity: 1 }, { opacity: 1, offset: 0.4 }, { opacity: 0 }], { duration: 1100, easing: 'linear' }),
       this.vitals.animate([{ backgroundColor: 'rgba(208, 86, 63, 0.55)' }, { backgroundColor: 'rgba(17, 19, 21, 0.62)' }], { duration: 450, easing: 'ease-out' }),
     ];
   }

@@ -10,6 +10,21 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startEnv, openGame, installFrameDriver } from './harness.mjs';
 
+
+/**
+ * Phase 32: a round into the map plays the sound of what it struck (impact, impact.metal / .glass / .wood /
+ * .soft). Splits a sound count into the map impacts (all of those) and the rest.
+ */
+const splitImpacts = (sounds) => {
+  let impact = 0;
+  const rest = {};
+  for (const [id, n] of Object.entries(sounds)) {
+    if (id === 'impact' || (id.startsWith('impact.') && id !== 'impact.flesh')) impact += n;
+    else rest[id] = n;
+  }
+  return { impact, rest };
+};
+
 let env;
 let page;
 
@@ -104,7 +119,7 @@ test('AR-01 full auto: 600 RPM, one gunshot and one muzzle flash per round', asy
   assert.equal(r.flashes, 10);
   // Recoil has random sideways jitter, so whether a round reaches a distant
   // wall varies run to run: every world hit must give exactly one impact sound.
-  const { impact = 0, ...rest } = r.sounds;
+  const { impact, rest } = splitImpacts(r.sounds);
   assert.deepEqual(rest, { 'ar01.shot': 10 });
   assert.equal(impact, r.kinds.world ?? 0);
   assert.equal(r.mag, 20);
@@ -116,7 +131,7 @@ test('AR-01 empties the magazine, then each trigger pull on empty is one dry fir
   const a = await take();
   assert.equal(a.rounds, 20);
   assert.equal(a.sounds['ar01.shot'], 20);
-  assert.equal(a.sounds.impact ?? 0, a.kinds.world ?? 0);
+  assert.equal(splitImpacts(a.sounds).impact, a.kinds.world ?? 0);
   assert.equal(a.mag, 0);
   for (let i = 0; i < 3; i++) {
     await page.mouse.down();
@@ -152,9 +167,8 @@ test('switch to SR-01: draw sound; semi-auto fires once per click with one bolt 
   await run(100);
   const b = await take();
   assert.equal(b.rounds, 1);
-  const { impact = 0, ...srSounds } = b.sounds;
-  // Phase 30: the AWM is semi-automatic: no hand-worked bolt sound after the shot.
-  assert.deepEqual(srSounds, { 'sr01.shot': 1 });
+  const { impact, rest: srSounds } = splitImpacts(b.sounds);
+  assert.deepEqual(srSounds, { 'sr01.shot': 1, 'sr01.bolt': 1 });
   assert.equal(impact, b.kinds.world ?? 0);
 
   await hold(120); // holding the trigger for 2 s: still one shot
@@ -243,7 +257,7 @@ test('impacts: one impact sound per world hit; voices are capped and released', 
   assert.equal(r.rounds, 30);
   assert.equal(r.kinds.world, 30);
   assert.equal(r.sounds['ar01.shot'], 30);
-  assert.equal(r.sounds.impact, 30);
+  assert.equal(splitImpacts(r.sounds).impact, 30);
   // Group caps: shot 10 + impact 6 + foley 6.
   assert.ok(maxVoices <= 22, `max voices ${maxVoices}`);
   await page.waitForFunction(() => window.game.audio.liveNodes === 0, null, { timeout: 10000 });

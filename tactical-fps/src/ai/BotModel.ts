@@ -11,7 +11,6 @@ import { meleeStyleOf, type MeleeStyle } from '../weapons/meleeMotion';
 
 /** FirstPersonBody keeps its hips this far behind the eyes (first-person trick); a third-person body undoes it. */
 const BODY_BACK = 0.18;
-const DEATH_FALL = 0.5;
 
 /** What the model shows each frame (from the bot's controller, AI and weapon). */
 export interface BotPose {
@@ -74,7 +73,8 @@ export interface BotBody {
   readonly muzzle: THREE.Object3D;
   update(dt: number, pose: BotPose): void;
   onShot(): void;
-  onHit(direction: THREE.Vector3): void;
+  /** Hit by a round travelling `direction` (world); `strength` ~0.5..1.6 by damage (Phase 32; default 1). */
+  onHit(direction: THREE.Vector3, strength?: number): void;
   /** The weapon skin shown on the stand-in rifle (undefined: the default look). Cosmetic only. */
   setWeaponSkin(assetId: string | undefined): void;
   /** The weapon skin shown now (tests / change detection). */
@@ -227,8 +227,6 @@ export class BotModel implements BotBody {
   private readonly geometries: THREE.BufferGeometry[] = [];
   private raise = 0;
   private kick = 0;
-  private flinch = 0;
-  private flinchSide = 0;
   /** Phase 31: walk speed from the real displacement, crouch, landing, eased lean, knife slash. */
   readonly motion = new CharacterMotion();
 
@@ -353,7 +351,6 @@ export class BotModel implements BotBody {
     this.spine.rotation.y = twist * 0.75;
     this.raise += ((p.aiming ? 1 : 0) - this.raise) * (1 - Math.exp(-9 * dt));
     this.kick = Math.max(0, this.kick - dt * 10);
-    this.flinch = Math.max(0, this.flinch - dt * 5);
     const pitch = THREE.MathUtils.clamp(p.pitch, -1, 1);
     slashPose(mo.slashStyle, p.alive ? mo.slashSweep : 0, _slash);
     this.arms.rotation.x = pitch * this.raise + (1 - this.raise) * -0.75 + this.kick * 0.12 + _slash.rx;
@@ -362,18 +359,15 @@ export class BotModel implements BotBody {
     this.arms.position.z = this.kick * 0.035 + _slash.z;
     const move01 = Math.min(1, Math.hypot(mo.velocity.x, mo.velocity.z) / 5);
     // Crouched, the chest tips forward over the knees; standing still it breathes; it leans into a side step.
-    this.spine.rotation.x = pitch * 0.25 * this.raise + this.flinch * 0.25 + mo.crouch * 0.18 + mo.breathing(move01);
+    // Phase 32: a hit pushes the chest the way the round travelled (back from the front, forward from behind).
+    this.spine.rotation.x = pitch * 0.25 * this.raise + mo.flinch * 0.22 * mo.flinchPitch + mo.crouch * 0.18 + mo.breathing(move01);
     this.spine.rotation.y += _slash.ry * 0.3;
-    this.spine.rotation.z = this.flinch * 0.15 * this.flinchSide - mo.lean * BODY_LEAN - (p.alive ? mo.strafeRoll(this.object.rotation.y) : 0);
+    this.spine.rotation.z = mo.flinch * 0.15 * mo.flinchSide - mo.lean * BODY_LEAN - (p.alive ? mo.strafeRoll(this.object.rotation.y) : 0);
 
     if (!p.alive) {
-      // Falls onto its back about the feet (the object is at the feet; +Z is behind).
-      const t = Math.min(p.deadTime / DEATH_FALL, 1);
-      const fall = t * t;
-      // Lifted by about half the torso's depth so the body rests on the floor instead of sinking into it.
-      this.object.position.y += 0.14 * fall;
-      this.object.rotateX((Math.PI / 2) * 0.97 * fall);
-      this.object.rotateZ(0.25 * fall);
+      // Phase 32: the knees give, then it goes over the way the killing round travelled (its back, its face or a
+      // side), lifted by about half the torso's depth so it rests on the floor instead of sinking into it.
+      const fall = mo.deathFall(this.object, p.deadTime, 0.14);
       this.arms.rotation.x = -0.75 - 0.6 * fall;
     }
   }
@@ -385,10 +379,8 @@ export class BotModel implements BotBody {
   }
 
   /** Hit: the torso jolts away from the shot. */
-  onHit(direction: THREE.Vector3): void {
-    this.flinch = 1;
-    const right = Math.cos(this.object.rotation.y) * direction.x - Math.sin(this.object.rotation.y) * direction.z;
-    this.flinchSide = right > 0 ? -1 : 1;
+  onHit(direction: THREE.Vector3, strength = 1): void {
+    this.motion.hit(direction, this.object.rotation.y, strength);
   }
 
   /** Snap the legs to the current yaw (after a teleport). */
@@ -410,7 +402,6 @@ export class BotModel implements BotBody {
     this.motion.reset();
     this.raise = 0;
     this.kick = 0;
-    this.flinch = 0;
   }
 
   dispose(): void {

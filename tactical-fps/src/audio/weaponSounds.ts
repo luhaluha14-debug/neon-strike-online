@@ -47,7 +47,15 @@ export type SoundId =
   | 'lmg01.shot'
   | 'lmg.cover'
   | 'lmg.belt'
-  | 'lmg02.shot';
+  | 'lmg02.shot'
+  // Phase 32: bullet impacts by material, footsteps by ground.
+  | 'impact.metal'
+  | 'impact.glass'
+  | 'impact.wood'
+  | 'impact.soft'
+  | 'step.metal'
+  | 'step.wood'
+  | 'step.soft';
 
 /** Number of pre-rendered variants per sound. */
 export const VARIANTS: Record<SoundId, number> = {
@@ -93,6 +101,13 @@ export const VARIANTS: Record<SoundId, number> = {
   'lmg.cover': 2,
   'lmg.belt': 1,
   'lmg02.shot': 4,
+  'impact.metal': 4,
+  'impact.glass': 3,
+  'impact.wood': 3,
+  'impact.soft': 3,
+  'step.metal': 4,
+  'step.wood': 4,
+  'step.soft': 4,
 };
 
 interface GunshotRecipe {
@@ -765,6 +780,20 @@ export function renderSound(id: SoundId, variant: number, opts: { srFireInterval
       return caseShell(seed);
     case 'step':
       return footstep(seed);
+    case 'impact.metal':
+      return impactMetal(seed);
+    case 'impact.glass':
+      return impactGlass(seed);
+    case 'impact.wood':
+      return impactWood(seed);
+    case 'impact.soft':
+      return impactSoft(seed);
+    case 'step.metal':
+      return footstepMetal(seed);
+    case 'step.wood':
+      return footstepWood(seed);
+    case 'step.soft':
+      return footstepSoft(seed);
     case 'land':
       return landing(seed);
   }
@@ -809,6 +838,106 @@ function footstep(seed: number): Float32Array {
   mix(out, scuff, 0.5, 0.025);
   biquad(out, 'highpass', 70);
   return finish(out, 0.4, 1);
+}
+
+// ---- Phase 32: what a round or a boot sounds like on each kind of surface. ----------------------------
+
+/** A round on steel: a bright ping with a ringing tail and a ricochet whine now and then. */
+function impactMetal(seed: number): Float32Array {
+  const rand = rng(seed);
+  const out = buffer(0.5);
+  const snap = biquad(noise(0.03, rand), 'highpass', 3000);
+  shape(snap, expEnv(0.0002, 0.002));
+  mix(out, snap, 1.1);
+  const f = 1900 + rand() * 1400;
+  mix(out, ring(0.45, [[f, 0.45, 0.09], [f * 1.61, 0.28, 0.06], [f * 2.43, 0.14, 0.04]]), 1, 0.001);
+  // Some rounds glance off: a short falling whine.
+  if (rand() < 0.5) {
+    const whine = biquad(noise(0.3, rand), 'bandpass', (t) => 5200 - 9000 * t, 18);
+    shape(whine, expEnv(0.01, 0.09, 0.02));
+    mix(out, whine, 0.5, 0.01);
+  }
+  biquad(out, 'highpass', 400);
+  return finish(out, 0.62, 1.1);
+}
+
+/** A round through glass: a sharp crack, then a spray of small tinkles falling. */
+function impactGlass(seed: number): Float32Array {
+  const rand = rng(seed);
+  const out = buffer(0.6);
+  const crack = biquad(noise(0.04, rand), 'highpass', 2600);
+  shape(crack, expEnv(0.0002, 0.004));
+  mix(out, crack, 1.2);
+  for (let k = 0; k < 9; k++) {
+    const f = 3800 + rand() * 4200;
+    mix(out, ring(0.12, [[f, 0.12 + rand() * 0.1, 0.02], [f * 1.7, 0.06, 0.012]]), 1, 0.02 + rand() * 0.4);
+  }
+  biquad(out, 'highpass', 1200);
+  return finish(out, 0.55, 1);
+}
+
+/** A round into wood: a hollow thock and a splintering crackle. */
+function impactWood(seed: number): Float32Array {
+  const rand = rng(seed);
+  const out = buffer(0.3);
+  const thock = biquad(noise(0.1, rand), 'bandpass', 520 + rand() * 180, 2.5);
+  shape(thock, expEnv(0.0004, 0.022));
+  mix(out, thock, 1.4);
+  mix(out, glideSine(0.08, 300, 210, 0.015), 0.35, 0);
+  for (let k = 0; k < 5; k++) mix(out, click(rand, 2000 + rand() * 1800, 0.003, 0.2 * rand(), 0.02), 1, 0.005 + rand() * 0.06);
+  biquad(out, 'highpass', 120);
+  return finish(out, 0.65, 1.2);
+}
+
+/** A round into earth, grass or water: a dull, muffled thump and a spatter. */
+function impactSoft(seed: number): Float32Array {
+  const rand = rng(seed);
+  const out = buffer(0.3);
+  const thump = biquad(noise(0.12, rand), 'lowpass', 600 + rand() * 200);
+  shape(thump, expEnv(0.0008, 0.03));
+  mix(out, thump, 1.3);
+  const spatter = biquad(noise(0.2, rand), 'bandpass', 1400, 0.8);
+  shape(spatter, expEnv(0.004, 0.05));
+  mix(out, spatter, 0.45, 0.01);
+  biquad(out, 'highpass', 70);
+  return finish(out, 0.6, 1.2);
+}
+
+/** A boot on a metal deck or grating: the heel thud plus a short hollow clang. */
+function footstepMetal(seed: number): Float32Array {
+  const out = footstep(seed);
+  const rand = rng(seed + 991);
+  const f = 420 + rand() * 160;
+  mix(out, ring(0.2, [[f, 0.22, 0.05], [f * 2.76, 0.1, 0.03], [f * 5.4, 0.05, 0.02]]), 1, 0.002);
+  return finish(out, 0.42, 1);
+}
+
+/** A boot on boards: a hollow knock under the heel and a faint creak. */
+function footstepWood(seed: number): Float32Array {
+  const rand = rng(seed);
+  const out = buffer(0.24);
+  const knock = biquad(noise(0.06, rand), 'bandpass', 340 + rand() * 120, 2);
+  shape(knock, expEnv(0.002, 0.03));
+  mix(out, knock, 1.3, 0);
+  const creak = biquad(noise(0.12, rand), 'bandpass', (t) => 900 + 600 * t, 10);
+  shape(creak, (t) => Math.sin(Math.PI * Math.min(t / 0.1, 1)) * 0.25);
+  mix(out, creak, 0.4, 0.03);
+  biquad(out, 'highpass', 70);
+  return finish(out, 0.4, 1);
+}
+
+/** A boot on earth or grass: a soft, low crunch with no hard heel. */
+function footstepSoft(seed: number): Float32Array {
+  const rand = rng(seed);
+  const out = buffer(0.24);
+  const press = biquad(noise(0.1, rand), 'lowpass', 380 + rand() * 100);
+  shape(press, expEnv(0.006, 0.03));
+  mix(out, press, 1, 0);
+  const crunch = biquad(noise(0.14, rand), 'bandpass', 1800 + rand() * 800, 0.7);
+  shape(crunch, (t) => Math.sin(Math.PI * Math.min(t / 0.12, 1)) * 0.3 * (0.7 + 0.3 * Math.sin(t * 900)));
+  mix(out, crunch, 0.55, 0.01);
+  biquad(out, 'highpass', 60);
+  return finish(out, 0.36, 1);
 }
 
 /** Landing from a jump or a fall: both boots at once, a heavier thud with gear rattling. */

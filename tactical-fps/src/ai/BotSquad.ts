@@ -6,7 +6,7 @@ import type { WeaponDefinition } from '../weapons/WeaponDefinition';
 import type { LoadedMap } from '../world/MapLoader';
 import { Bot, type Combatant } from './Bot';
 import { AgentModel } from './AgentModel';
-import { crouchOf } from './CharacterMotion';
+import { crouchOf, hitStrength } from './CharacterMotion';
 import { BotKit, BotModel, type BotBody, type BotPose } from './BotModel';
 import type { NavGrid } from './NavGrid';
 
@@ -89,7 +89,8 @@ export class BotSquad {
       model.object.name = bot.id;
       this.group.add(model.object);
       bot.combat.onDamage = (e) => {
-        model.onHit(e.direction);
+        // Phase 32: the body reacts by how hard the round hit (a headshot a little harder).
+        model.onHit(e.direction, hitStrength(e.amount + e.absorbed, e.zone === 'head'));
         this.events.onDamage?.(bot, e);
       };
       bot.weapons.events = {

@@ -97,7 +97,7 @@ test('menu flow: pick a weapon, play, pause, resume', async () => {
   await page.waitForFunction(() => window.game.weapons.slot === 1);
   const picked = await ui();
   assert.deepEqual(picked.pressed, ['false', 'true', 'false']);
-  assert.match(picked.hudSlot, /AWM/); // Phase 30: SR-01 is now the AWM
+  assert.match(picked.hudSlot, /SR-01/);
 
   await page.click('.play-button');
   // pointerLockElement is set before the (async) pointerlockchange event the game reacts to.

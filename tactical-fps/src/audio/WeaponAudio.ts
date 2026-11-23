@@ -3,6 +3,40 @@ import type { HitscanResult } from '../combat/HitscanSystem';
 import type { Weapon } from '../weapons/Weapon';
 import type { AudioEngine } from './AudioEngine';
 import type { SoundId } from './weaponSounds';
+import type { SurfaceKind } from '../world/SurfaceMaterials';
+import { impactClassOf, type ImpactClass } from '../fx/ImpactEffects';
+
+/** Phase 32: the sound of a round hitting each kind of material (concrete, brick and asphalt share the plain one). */
+const IMPACT_SOUND: Record<ImpactClass, SoundId> = {
+  concrete: 'impact',
+  brick: 'impact',
+  asphalt: 'impact',
+  metal: 'impact.metal',
+  glass: 'impact.glass',
+  wood: 'impact.wood',
+  dirt: 'impact.soft',
+  foliage: 'impact.soft',
+  water: 'impact.soft',
+};
+
+/** Phase 32: a footstep by what the ground is (hard stone and concrete: the plain step). */
+export function stepSound(kind: SurfaceKind | null): SoundId {
+  switch (kind) {
+    case 'metal':
+    case 'paintedMetal':
+    case 'rust':
+    case 'carPaint':
+      return 'step.metal';
+    case 'wood':
+      return 'step.wood';
+    case 'dirt':
+    case 'grass':
+    case 'foliage':
+      return 'step.soft';
+    default:
+      return 'step';
+  }
+}
 
 const SPEED_OF_SOUND = 343;
 
@@ -31,6 +65,14 @@ const _right = new THREE.Vector3();
 export class WeaponAudio {
   private reloadWeapon: Weapon | null = null;
   private nextReloadCue = 0;
+  /** Phase 32: what the map is made of at a point (set by the game; unset / null: plain concrete). */
+  surfaceOf: ((point: THREE.Vector3, normal: THREE.Vector3) => SurfaceKind | null) | null = null;
+
+  /** The impact sound for a round's result: a body, or the material it struck. */
+  impactSound(result: Exclude<HitscanResult, { kind: 'miss' }>): SoundId {
+    if (result.kind === 'target') return 'impact.flesh';
+    return IMPACT_SOUND[impactClassOf(this.surfaceOf?.(result.point, result.normal) ?? null)];
+  }
 
   constructor(private readonly engine: AudioEngine) {}
 
@@ -49,7 +91,7 @@ export class WeaponAudio {
       this.engine.play(s.hit, { group: 'impact', gain: 0.8, rateJitter: 0.04, delay: delay + 0.03 });
       return;
     }
-    this.impact(result.kind === 'target' ? 'impact.flesh' : 'impact', result.point, delay, listener);
+    this.impact(this.impactSound(result), result.point, delay, listener);
   }
 
   /** Hit confirm at the shooter: this player's round hit someone (here, or resolved by the room's host). */
@@ -77,7 +119,7 @@ export class WeaponAudio {
       lowpass: distantLowpass(d),
       wet: reverbSend(d),
     });
-    if (result.kind !== 'miss') this.impact(result.kind === 'target' ? 'impact.flesh' : 'impact', result.point, 0, listener);
+    if (result.kind !== 'miss') this.impact(this.impactSound(result), result.point, 0, listener);
   }
 
   /** A sound at a point in the world (grenades): quieter and later with distance, panned left/right. */
@@ -97,9 +139,9 @@ export class WeaponAudio {
     });
   }
 
-  /** The player's own footstep (`gain` by gait: a walk is quiet). */
-  footstep(gain: number): void {
-    this.engine.play('step', { group: 'env', gain, rateJitter: 0.06, wet: 0.08 });
+  /** The player's own footstep (`gain` by gait: a walk is quiet), on the ground it is on (Phase 32). */
+  footstep(gain: number, ground: SurfaceKind | null = null): void {
+    this.engine.play(stepSound(ground), { group: 'env', gain, rateJitter: 0.06, wet: 0.08 });
   }
 
   /** The player landing, by impact speed (m/s). */
@@ -164,7 +206,7 @@ export class WeaponAudio {
   }
 
   /** Bullet impact at a point (map surface or body): quieter and later with distance, panned left/right. */
-  private impact(id: 'impact' | 'impact.flesh', point: THREE.Vector3, delay: number, listener: THREE.Camera): void {
+  private impact(id: SoundId, point: THREE.Vector3, delay: number, listener: THREE.Camera): void {
     _dir.subVectors(point, listener.position);
     const d = _dir.length();
     if (d > 120) return;
@@ -172,7 +214,7 @@ export class WeaponAudio {
     _right.set(1, 0, 0).applyQuaternion(listener.quaternion);
     this.engine.play(id, {
       group: 'impact',
-      gain: (id === 'impact.flesh' ? 0.75 : 0.5) / (1 + d / 6),
+      gain: (id === 'impact.flesh' ? 0.75 : id === 'impact.metal' ? 0.55 : id === 'impact.soft' ? 0.45 : 0.5) / (1 + d / 6),
       pan: _dir.dot(_right) * 0.7,
       rateJitter: 0.06,
       delay: delay + Math.min(d / SPEED_OF_SOUND, 0.3),
