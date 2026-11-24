@@ -113,22 +113,26 @@ test('2. knife items in the GRID store: 카람빗 1,500 CR and 버터플라이 1
   assert.equal(M.heldAsset({ evil: 1 }, 'ar01'), undefined);
 });
 
-test('3. the knife models (made for GRID in Blender, tools/knife-models.py): parts, materials, polygon budget', () => {
+test('3. the knife models (delivered files, aligned by tools/import-knife.mjs): parts, materials, size, orientation', () => {
+  // Phase 34: the karambit and butterfly are now the user's delivered models (replacing the Blender-made ones
+  // of Phase 27): their own part and material names, one root node naming the knife, more detail (a heavier
+  // but still light file). The butterfly's handles are one piece in the file, so it has no hinges.
   const k = glb('karambit.glb');
-  assert.deepEqual(k.json.materials.map((m) => m.name), ['Blade_Steel', 'Blade_Edge', 'Handle_G10', 'Ring_Steel', 'Pin_Steel', 'Handle_Groove']);
+  assert.deepEqual(k.json.materials.map((m) => m.name), ['Steel', 'SteelEdge', 'HandleRubber', 'RingSteel']);
   const b = glb('butterfly.glb');
-  assert.deepEqual(b.json.nodes.map((n) => n.name), ['Blade', 'Handle_Safe', 'Handle_Bite']);
-  assert.deepEqual(b.json.materials.map((m) => m.name), ['Blade_Steel', 'Blade_Edge', 'Handle_Anodized', 'Handle_Window', 'Pin_Brass', 'Latch_Steel']);
-  // Each handle turns about its own pin (the node origin), on either side of the blade's tang.
-  const [safe, bite] = [b.json.nodes[1].translation, b.json.nodes[2].translation];
-  assert.ok(safe[0] > 0.004 && bite[0] < -0.004, 'pins either side of the tang');
-  for (const f of [k, b]) {
-    assert.ok(f.tris > 500 && f.tris < 3000, `${f.tris} triangles: a game-ready budget`);
-    assert.ok(f.bytes < 80000, `${f.bytes} bytes`);
-    assert.ok(f.json.materials.length <= 6, 'a few materials (≤ 6 draw calls)');
+  assert.deepEqual(b.json.materials.map((m) => m.name), ['BladeFace', 'BladeEdge', 'BladeBack', 'HandleDark', 'HoleBlack', 'Camo', 'Pin']);
+  for (const [f, root, parts] of [[k, 'Karambit', ['Blade', 'Grip', 'Handle', 'Ring']], [b, 'Butterfly', ['Blade', 'Handle', 'HolePlugs', 'InlayA', 'InlayB', 'InlayC', 'Pins']]]) {
+    const scene = f.json.scenes[0].nodes.map((i) => f.json.nodes[i]);
+    assert.deepEqual(scene.map((n) => n.name), [root], 'one root node');
+    assert.deepEqual(scene[0].children.map((i) => f.json.nodes[i].name), parts);
+    // Metres: scaled from the file's units to a knife about 21–22 cm long.
+    assert.ok(scene[0].scale[0] > 0.015 && scene[0].scale[0] < 0.025, `scale ${scene[0].scale}`);
+    assert.ok(f.tris > 500 && f.tris < 8000, `${f.tris} triangles: a game-ready budget`);
+    assert.ok(f.bytes < 250000, `${f.bytes} bytes`);
+    assert.ok(f.json.materials.length <= 7, 'a few materials');
   }
-  // The shipped M9 for scale: the new knives are far lighter.
-  assert.ok(glb('m9_bayonet.glb').tris > 10 * k.tris);
+  // The shipped M9 for scale: the knife items stay lighter.
+  assert.ok(glb('m9_bayonet.glb').tris > 2 * k.tris);
 });
 
 test('3b. the lighter third-person files: same nodes, transforms and material names as the first-person files, a fraction of the triangles', () => {
@@ -365,29 +369,23 @@ test('2 / 7. a bought knife item in the hands: first person shows the 카람빗 
         const v = window.game.viewModel.currentView;
         const mats = new Set();
         v.object.traverse((o) => o.isMesh && mats.add([o.material].flat()[0].name));
-        return { url: window.game.shownSpec.url, mats: [...mats].sort() };
+        return { url: window.game.shownSpec.url, mats: [...mats].sort(), style: v.meleeStyle };
       });
     assert.equal(await holdKnife('karambit.claw'), true);
-    await page.waitForFunction(() => window.game.viewModel.currentView?.object && [...(function* f(o) { yield o; for (const c of o.children) yield* f(c); })(window.game.viewModel.currentView.object)].some((o) => o.material?.name === 'Ring_Steel'));
+    await page.waitForFunction(() => window.game.viewModel.currentView?.object && [...(function* f(o) { yield o; for (const c of o.children) yield* f(c); })(window.game.viewModel.currentView.object)].some((o) => o.material?.name === 'RingSteel'));
     const claw = await firstPerson();
     assert.equal(claw.url, '/weapons/karambit.glb');
-    assert.ok(claw.mats.includes('Ring_Steel') && claw.mats.includes('Blade_Edge'), claw.mats.join());
+    // Phase 34: the delivered karambit's material names.
+    assert.ok(claw.mats.includes('RingSteel') && claw.mats.includes('SteelEdge'), claw.mats.join());
+    assert.equal(claw.style, 'karambit');
 
     assert.equal(await holdKnife('karambit.butterfly'), true);
-    await page.waitForFunction(() => window.game.viewModel.currentView?.hinges?.length === 2);
-    // The handles: closed over the blade as it is drawn, open in the hand; flipped shut and open again on inspect.
-    const hinge = await page.evaluate(() => {
-      const v = window.game.viewModel.currentView;
-      const at = (equip, inspect) => {
-        v.animate({ category: 'melee', equip, reload: null, sinceShot: 9, fireInterval: 0.5, inspect });
-        return v.hinges.map((h) => +Math.abs(h.o.rotation.z - h.rest).toFixed(2));
-      };
-      return { drawing: at(0, null), open: at(1, null), flip: at(1, 0.5), done: at(1, 1) };
-    });
-    assert.deepEqual(hinge.drawing, [3.14, 3.14]);
-    assert.deepEqual(hinge.open, [0, 0]);
-    assert.deepEqual(hinge.flip, [3.14, 3.14]);
-    assert.deepEqual(hinge.done, [0, 0]);
+    // Phase 34: the delivered butterfly has its handles in one piece (no hinges to swing); its root node names it,
+    // so it is still used as a butterfly (the straight thrust).
+    await page.waitForFunction(() => window.game.shownSpec?.url === '/weapons/butterfly.glb' && window.game.viewModel.currentView?.meleeStyle === 'butterfly');
+    const fly = await firstPerson();
+    assert.ok(fly.mats.includes('Camo') && fly.mats.includes('BladeEdge'), fly.mats.join());
+    assert.equal(fly.style, 'butterfly');
     assert.equal((await firstPerson()).url, '/weapons/butterfly.glb');
 
     // Unequipped: the free M9 again.
