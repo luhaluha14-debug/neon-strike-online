@@ -477,7 +477,8 @@ export class ViewModelLayer {
     // (A left-handed view model is mirrored, so its sideways offsets are mirrored back here.)
     const hand = this.leftHanded ? -1 : 1;
     off.x -= (leanNow - this.leanS) * 0.03 * hand;
-    off.rz -= this.leanS * 0.06 * hand;
+    // Phase 33: aimed, the weapon stays square to the sights (the cant fades out as it comes up).
+    off.rz -= this.leanS * 0.06 * hand * (1 - 0.85 * this.aimS);
     off.y -= Math.abs(this.leanS) * 0.004;
     // Moving: the weapon rolls a touch with each step; a landing dips it.
     off.rz += Math.sin(this.bobPhase) * 0.012 * this.bobAmount;

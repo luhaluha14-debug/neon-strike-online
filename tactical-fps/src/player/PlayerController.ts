@@ -7,6 +7,8 @@ const _wish = new THREE.Vector3();
 const _segment = new THREE.Line3();
 const _down = new THREE.Vector3(0, -1, 0);
 const _normal = new THREE.Vector3();
+/** Phase 33: the lean's motion is integrated in steps of at most this (s): frame-rate independent. */
+const LEAN_STEP = 1 / 240;
 const _leanEye = new THREE.Vector3();
 const _leanDir = new THREE.Vector3();
 
@@ -33,10 +35,13 @@ export class PlayerController {
   /** Eased toward the held lean before the wall limit. */
   private leanWant = 0;
   /**
-   * Phase 31: progress toward the held lean at a steady rate (LEAN_CONFIG.time for the full way); the lean
-   * itself follows it on an ease-in-out curve, so it starts and settles gently instead of snapping into motion.
+   * Phase 33: the lean's own speed (leans /s). The lean moves like a body does: it speeds up from rest, brakes
+   * to stop exactly on the side held, and a switch to the other side turns over at speed through upright
+   * (Phase 31's ease-in-out curve stopped there, at zero speed).
    */
-  private leanLinear = 0;
+  private leanVel = 0;
+  /** The lean shown is held back by a wall (or still growing back out from one). */
+  private leanCapped = false;
 
   private jumpHeld = false;
   /** Time left on a jump press made in the air (it fires on landing; see jumpBuffer). */
@@ -63,7 +68,8 @@ export class PlayerController {
     this.groundTicks = 0;
     this.jumped = false;
     this.wallContact = false;
-    this.lean = this.leanWant = this.leanLinear = 0;
+    this.lean = this.leanWant = this.leanVel = 0;
+    this.leanCapped = false;
   }
 
   /** Mouse look is applied per render frame for responsiveness, not per tick. */
@@ -167,23 +173,53 @@ export class PlayerController {
   /** Eases the lean toward `want` (-1..1) and keeps it clear of a wall at that side. */
   updateLean(want: number, dt: number): void {
     const target = Math.max(-1, Math.min(1, want));
-    const step = dt / LEAN_CONFIG.time;
-    this.leanLinear += Math.max(-step, Math.min(step, target - this.leanLinear));
-    const a = Math.abs(this.leanLinear);
-    this.leanWant = Math.sign(this.leanLinear) * a * a * (3 - 2 * a);
-    this.applyLeanLimit(this.leanWant);
+    const A = LEAN_CONFIG.accel;
+    const V = LEAN_CONFIG.speed;
+    // Fixed small steps: the same motion at any frame / tick rate.
+    const steps = Math.max(1, Math.ceil(dt / LEAN_STEP));
+    const h = dt / steps;
+    for (let i = 0; i < steps; i++) {
+      const d = target - this.leanWant;
+      if (Math.abs(d) < 1e-4 && Math.abs(this.leanVel) < 0.2) {
+        this.leanWant = target;
+        this.leanVel = 0;
+        continue;
+      }
+      const dir = Math.sign(d);
+      // Brake once the stop needs all the room left; otherwise speed up toward the side held.
+      const braking = Math.sign(this.leanVel) === dir && (this.leanVel * this.leanVel) / (2 * A) >= Math.abs(d);
+      this.leanVel = Math.max(-V, Math.min(V, this.leanVel + (braking ? -dir : dir) * A * h));
+      this.leanWant += this.leanVel * h;
+      // Never past a full lean (a switch while moving fast toward one side coasts, then turns at the stop).
+      if (Math.abs(this.leanWant) > 1) {
+        this.leanWant = Math.sign(this.leanWant);
+        this.leanVel = 0;
+      }
+      // Arrived (never past the side held).
+      if ((target - this.leanWant) * dir <= 0) {
+        this.leanWant = target;
+        this.leanVel = 0;
+      }
+    }
+    this.applyLeanLimit(this.leanWant, dt);
   }
 
   /** A lean another machine reported (a member's, on the host): the same wall limit here, so no peeking through. */
   setReportedLean(v: number): void {
     const l = Number.isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0;
-    this.leanWant = this.leanLinear = l;
+    this.leanWant = l;
+    this.leanVel = 0;
     this.applyLeanLimit(l);
   }
 
-  private applyLeanLimit(want: number): void {
+  /**
+   * The lean after the wall limit. A wall closing in cuts it at once (no peeking through); when the room opens
+   * again (Phase 33) it grows back at most LEAN_CONFIG.wallRelease /s instead of jumping out (`dt` given).
+   */
+  private applyLeanLimit(want: number, dt = Infinity): void {
     if (Math.abs(want) < 1e-3) {
       this.lean = 0;
+      this.leanCapped = false;
       return;
     }
     const side = Math.sign(want);
@@ -192,7 +228,13 @@ export class PlayerController {
     const reach = LEAN_CONFIG.offset * Math.abs(want);
     const hit = this.world.raycast(_leanEye, _leanDir, reach + LEAN_CONFIG.wallMargin);
     const room = hit === null ? reach : Math.max(0, Math.min(reach, hit - LEAN_CONFIG.wallMargin));
-    this.lean = side * (room / LEAN_CONFIG.offset);
+    let lean = side * (room / LEAN_CONFIG.offset);
+    // Out from behind a wall edge: grow back smoothly rather than jump to the full lean held.
+    if (this.leanCapped && Math.sign(this.lean) === side && Math.abs(lean) > Math.abs(this.lean)) {
+      lean = side * Math.min(Math.abs(lean), Math.abs(this.lean) + LEAN_CONFIG.wallRelease * dt);
+    }
+    this.lean = lean;
+    this.leanCapped = Math.abs(lean) < Math.abs(want) - 1e-4;
   }
 
   /** Where the lean puts the eye relative to the upright eye (world, m). */
