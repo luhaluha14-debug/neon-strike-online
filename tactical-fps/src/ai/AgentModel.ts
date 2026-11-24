@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { loadGltfScene, loadedGltfScene } from '../weapons/view/GltfWeaponView';
 import { PLAYER_CONFIG } from '../config';
-import { buildBotRifle, liftCharacterMaterial, RIFLE_GRIP, RIFLE_MUZZLE_Z, BODY_LEAN, slashPose, holdsKnife, type BotBody, type BotKit, type BotPose } from './BotModel';
+import { buildBotRifle, liftCharacterMaterial, RIFLE_GRIP, RIFLE_MUZZLE_Z, BODY_LEAN, LEAN_HIP_SHIFT, slashPose, holdsKnife, type BotBody, type BotKit, type BotPose } from './BotModel';
 import { FirstPersonBody, HIP_HEIGHT, type BodyState } from '../player/FirstPersonBody';
 import { CharacterMotion, nearCamera } from './CharacterMotion';
 import { meleeStyleOf } from '../weapons/meleeMotion';
@@ -230,6 +230,8 @@ export class AgentModel implements BotBody {
     _state.eyeHeight = mo.eyeHeight;
     _state.grounded = p.grounded || !p.alive;
     this.lower.update(dt, _state);
+    // Phase 33: leaning, the hips shift that way a little (the weight onto that leg).
+    this.lower.pelvis.position.x += mo.lean * LEAN_HIP_SHIFT;
     const by = this.lower.yaw;
     this.object.position.set(p.feet.x - Math.sin(by) * BODY_BACK, p.feet.y, p.feet.z - Math.cos(by) * BODY_BACK);
     const near = this.alwaysNear || nearCamera(p.feet);

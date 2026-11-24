@@ -75,10 +75,11 @@ test('1. the lean eases in and out over the same 0.18 s; the weapon trails a mom
     p.updateLean(0, 1);
     return { inn, out, rest, moving, held };
   });
-  // Linear progress after 2 frames is 2/60/0.18 = 0.185; eased it is well below that (a gentle start).
+  // Phase 33: the lean accelerates from rest and brakes onto the side held (LEAN_CONFIG.accel / speed) instead of
+  // Phase 31's ease-in-out curve: still a gentle start (a steady 0.18 s ramp would be at 0.185 after 2 frames)
+  // and a full lean by 0.2 s.
   assert.ok(r.inn[1] < 0.185 * 0.7, `starts gently (${r.inn[1].toFixed(3)})`);
-  // Halfway in time, halfway out (ease-in-out is symmetric), and full by 0.18 s (11 frames) as before.
-  assert.ok(Math.abs(r.inn[4] - 0.5) < 0.12, `about half by 0.09 s (${r.inn[4].toFixed(3)})`);
+  assert.ok(r.inn[4] > 0.25 && r.inn[4] < 0.75, `well on the way by 0.08 s (${r.inn[4].toFixed(3)})`);
   assert.equal(r.inn[11], 1, 'full lean by 0.2 s');
   for (let i = 1; i < 12; i++) assert.ok(r.inn[i] >= r.inn[i - 1], 'never backs off on the way in');
   assert.ok(r.out[1] > 1 - 0.185 * 0.7, `settles back gently too (${r.out[1].toFixed(3)})`);

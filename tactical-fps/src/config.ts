@@ -67,6 +67,15 @@ export const LEAN_CONFIG = {
   offset: 0.38,
   roll: 0.2,
   time: 0.18,
+  /**
+   * Phase 33: how the lean moves (in full leans per second): it speeds up at `accel` /s² from rest to at most
+   * `speed` /s and brakes at the same rate to stop exactly on the side held — a full lean in ~0.19 s (as
+   * `time`), a full switch to the other side in ~0.3 s, turning over at speed through upright (no stop there).
+   */
+  accel: 110,
+  speed: 9,
+  /** Phase 33: when a wall at that side lets the lean out again, it grows at most this fast (leans /s): no jump. */
+  wallRelease: 6,
   wallMargin: 0.25,
   /** The eye drops this much at a full lean (the body bends). */
   drop: 0.05,

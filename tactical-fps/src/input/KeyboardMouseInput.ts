@@ -1,6 +1,7 @@
 import { CAMERA_CONFIG } from '../config';
 import { defaultControls, type ActionId } from './Controls';
 import type { InputSource, InputState } from './InputState';
+import { LeanIntent } from './LeanIntent';
 
 /** PC input: WASD + mouse look via Pointer Lock. Uses `code` so layouts (e.g. Korean IME) don't matter. */
 export class KeyboardMouseInput implements InputSource {
@@ -19,6 +20,7 @@ export class KeyboardMouseInput implements InputSource {
   private pitch = 0;
   private locked = false;
   private readonly onLockChange: (locked: boolean) => void;
+  private readonly leanIntent = new LeanIntent();
 
   constructor(private readonly element: HTMLElement, onLockChange: (locked: boolean) => void) {
     this.onLockChange = onLockChange;
@@ -69,7 +71,8 @@ export class KeyboardMouseInput implements InputSource {
     out.utility = l.has(b.utility);
     out.use = held('use');
     out.inspect = pressed('inspect');
-    out.lean = (held('leanRight') ? 1 : 0) - (held('leanLeft') ? 1 : 0);
+    // Phase 33: both held → the side pressed last (no cancelled 0 between a quick left-right switch).
+    out.lean = this.leanIntent.resolve(held('leanLeft'), held('leanRight'));
     out.lookYaw = this.yaw;
     out.lookPitch = this.pitch;
     this.yaw = 0;

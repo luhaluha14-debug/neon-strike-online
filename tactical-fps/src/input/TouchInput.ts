@@ -2,6 +2,7 @@ import type { InputState } from './InputState';
 import type { TouchSettings } from './TouchSettings';
 import { canHide, LAYOUT_IDS, placementCentre, safeInsets, type LayoutId, type TouchLayout } from './TouchLayout';
 import '../ui/touch.css';
+import { LeanIntent } from './LeanIntent';
 
 // Phone / tablet controls: a move stick on the left (it appears where the
 // thumb lands in the left part of the screen), a look drag anywhere else, and
@@ -73,6 +74,8 @@ export class TouchInput {
   readonly root: HTMLDivElement;
   /** The "turn to landscape" notice (shown by CSS in portrait). */
   readonly rotate: HTMLDivElement;
+  /** Phase 33: which lean button wins when both are held. */
+  private readonly leanIntent = new LeanIntent();
   active = false;
   /** Set by the game each frame: the view is zoomed (scope), so the ADS look speed applies. */
   zoomed = false;
@@ -409,7 +412,9 @@ export class TouchInput {
     // Phase 30 lean: held, like Q / E (both at once: upright).
     const ll = held('leanL');
     const lr = held('leanR');
-    if (ll || lr) out.lean = (lr ? 1 : 0) - (ll ? 1 : 0);
+    // Phase 33: both buttons held → the one pressed last, as on the keyboard.
+    const lean = this.leanIntent.resolve(ll, lr);
+    if (ll || lr) out.lean = lean;
     out.utility ||= this.latched.has('utility');
     if (this.slot >= 0) out.equipSlot = this.slot;
     if (this.cycle !== 0) out.equipCycle = this.cycle;

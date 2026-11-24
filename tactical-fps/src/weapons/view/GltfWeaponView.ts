@@ -125,7 +125,8 @@ export class GltfWeaponView implements WeaponView {
       const o = find(name);
       return o ? [{ o, rest: o.rotation.z, dir: i === 0 ? 1 : -1 }] : [];
     });
-    if (this.hinges.length) this.meleeStyle = 'butterfly';
+    // Phase 34: the delivered butterfly file has its handles in one piece (no hinges); its root node names it.
+    if (this.hinges.length || find('Butterfly')) this.meleeStyle = 'butterfly';
     else if (find('Karambit')) this.meleeStyle = 'karambit';
     // Ejection port: the file's own node, else the fit's point (model space).
     const portNode = find('Ejection_Port') ?? find('Dust_Cover');

@@ -65,6 +65,12 @@ export function holdsKnife(held: HeldWeapon): boolean {
  * (and the hit capsule's top) does, LEAN_CONFIG.offset.
  */
 export const BODY_LEAN = 0.5;
+/**
+ * Phase 33: how far the hips shift toward a full lean (m): the weight goes onto that leg as the upper body bends
+ * out, so the drawn head ends up where the eye and the hit capsule's top are (LEAN_CONFIG.offset, 0.38 m), not
+ * short of it.
+ */
+export const LEAN_HIP_SHIFT = 0.07;
 
 /** What BotSquad drives for each bot: the built-in BotModel or a Blender character (AgentModel). */
 export interface BotBody {
@@ -340,6 +346,8 @@ export class BotModel implements BotBody {
     _state.eyeHeight = mo.eyeHeight;
     _state.grounded = p.grounded || !p.alive;
     this.lower.update(dt, _state);
+    // Phase 33: leaning, the hips shift that way a little (the weight onto that leg).
+    this.lower.pelvis.position.x += mo.lean * LEAN_HIP_SHIFT;
     // Re-place it with the body's actual (lagging) yaw so the hips stay over the capsule
     // while the body turns, rather than swinging around a point in front of them.
     const by = this.object.rotation.y;
