@@ -257,7 +257,7 @@ export function animateBolt(bolt: THREE.Object3D, rest: THREE.Vector3, state: We
 }
 
 /**
- * A semi-automatic action (Phase 30's AWM; no weapon uses it since Phase 32): no hand on the bolt; it snaps back with the shot and runs
+ * Phase 30, a semi-automatic action (SR-01): no hand on the bolt; it snaps back with the shot and runs
  * forward again in a tenth of a second (a fresh round chambered, the case out). A reload pulls it back and
  * lets it go at the end, handle down.
  */

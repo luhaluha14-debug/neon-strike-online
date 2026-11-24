@@ -72,6 +72,17 @@ export const LEAN_CONFIG = {
   drop: 0.05,
 } as const;
 
+/**
+ * SR-01 hit correction (Phase 30's "AWM" performance, kept on SR-01 since Phase 32): the target's hit capsule
+ * is `hitPad` m wider for an SR-01 round only (radius 0.30 → 0.45 m); every other weapon is judged as before.
+ * A hit only the correction makes is a body hit (never a headshot), and only if no wall stands between the
+ * shooter and that point; the round still stops at the first wall on its line. Judged by whoever judges
+ * rounds (the host online), PC and touch alike.
+ */
+export const SR01_CONFIG = {
+  hitPad: 0.15,
+} as const;
+
 export const ARMOR_CONFIG = {
   max: 100,
   absorb: 0.3,

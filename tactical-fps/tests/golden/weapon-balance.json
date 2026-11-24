@@ -41,15 +41,16 @@
   },
   "sr01": {
     "damage": {
-      "base": 145,
+      "base": 160,
       "headMultiplier": 4,
-      "limbMultiplier": 0.65,
-      "falloffStart": 120,
-      "falloffEnd": 250,
+      "limbMultiplier": 0.7,
+      "falloffStart": 150,
+      "falloffEnd": 300,
       "falloffMinMultiplier": 0.9,
-      "maxRange": 400
+      "maxRange": 500,
+      "hitPad": 0.15
     },
-    "fireRate": 41,
+    "fireRate": 150,
     "fireMode": "semi",
     "magazineSize": 5,
     "reserveAmmo": 30,
@@ -71,8 +72,8 @@
       "yawDrift": 0,
       "yawDriftAfterShots": 99,
       "kickResponse": 34,
-      "recoveryDelay": 0.25,
-      "recoverySpeed": 0.15707963267948966,
+      "recoveryDelay": 0.1,
+      "recoverySpeed": 0.2792526803190927,
       "yawRecovery": true,
       "sprayResetTime": 1.2
     }

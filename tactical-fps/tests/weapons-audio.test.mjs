@@ -168,7 +168,8 @@ test('switch to SR-01: draw sound; semi-auto fires once per click with one bolt 
   const b = await take();
   assert.equal(b.rounds, 1);
   const { impact, rest: srSounds } = splitImpacts(b.sounds);
-  assert.deepEqual(srSounds, { 'sr01.shot': 1, 'sr01.bolt': 1 });
+  // Phase 30's semi-automatic SR-01 (kept in Phase 32): no hand-worked bolt sound after the shot.
+  assert.deepEqual(srSounds, { 'sr01.shot': 1 });
   assert.equal(impact, b.kinds.world ?? 0);
 
   await hold(120); // holding the trigger for 2 s: still one shot

@@ -242,11 +242,12 @@ test('SG-01: one round kills up close, a vest or not; no use past 15 m', () => {
   assert.ok(r.sg[15].bare < 10 && r.sg[20].bare === 0, 'beyond: not in one round');
 });
 
-test('SR-01: a body hit kills through a vest (it took two before); a leg hit still does not', () => {
+test('SR-01 (Phase 30: the SR-01): a body hit kills through a vest (it took two before Phase 26-A); a leg hit kills too since Phase 30 (it took two)', () => {
   assert.deepEqual(r.sr.bodyVest, [1, 1, 1], 'one round at 10 / 50 / 100 m, full vest');
   assert.equal(r.sr.body, 1);
-  assert.equal(r.sr.limb, 2);
-  assert.ok(r.sr.limbDamage < 100 && r.sr.limbDamage >= 90, `leg ${r.sr.limbDamage}`);
+  // Phase 30: 160 x 0.7 = 112 (was 145 x 0.65 = 94: two rounds).
+  assert.equal(r.sr.limb, 1);
+  assert.equal(r.sr.limbDamage, 112);
 });
 
 test('DMR-01: two body hits, a head hit anywhere; fired flat out the next round leaves high, paced it does not', () => {
@@ -273,10 +274,13 @@ test('LMG-02: the recoil left exactly as it was; the damage a round down, so the
   assert.deepEqual([r.def.lmg02.rpm, r.def.lmg02.mag, r.def.lmg02.reserve, r.def.lmg02.reload], [1000, 120, 240, 6], 'the rate of fire and the belt kept');
   // The steepest climb per second of every automatic.
   for (const [id, v] of Object.entries(r.climbPerSec)) if (id !== 'lmg02') assert.ok(r.climbPerSec.lmg02 > v * 1.3, `climbs faster than ${id} (${r.climbPerSec.lmg02.toFixed(1)} vs ${v.toFixed(1)} °/s)`);
-  // Firepower: still the most, no longer out of reach (it was 467 against 293 for the next).
-  const next = Math.max(...Object.entries(r.dps).filter(([id]) => id !== 'lmg02').map(([, v]) => v));
+  // Firepower: still the most of the sustained-fire guns, no longer out of reach (it was 467 against 293 for the next).
+  // Phase 30: the SR-01's paper rate (160 x 150 RPM = 400) is above it, but a 5-round magazine ends it in 1.6 s:
+  // it is compared apart.
+  const next = Math.max(...Object.entries(r.dps).filter(([id]) => id !== 'lmg02' && id !== 'sr01').map(([, v]) => v));
   assert.equal(r.dps.lmg02, 350);
   assert.ok(r.dps.lmg02 > next && r.dps.lmg02 < next * 1.35, `DPS ${r.dps.lmg02} against ${next}`);
+  assert.equal(r.dps.sr01, 400, 'the SR-01 (Phase 30): 400 a second on paper, for one 5-round magazine');
   assert.equal(r.ttk.lmg02[20], 0.24, '5 body hits');
   assert.equal(r.armor.lmg02[20], 0.36);
   assert.ok(r.head.lmg02 < 100, 'no one-shot head kill');
