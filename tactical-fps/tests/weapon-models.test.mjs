@@ -98,15 +98,18 @@ test('orientation: muzzles and the blade point away from the camera, past the ha
   assert.ok(m9.bladeTip[1] > m9.grip[1], 'blade points up from the fist');
 });
 
-test('reload drops the file\'s magazine parts; the bolt-action cycles the file\'s bolt parts', async () => {
+test('reload drops the file\'s magazine parts; the SR-01 (Phase 30: semi-automatic) snaps the file\'s bolt parts back with the shot', async () => {
   const arRest = await inspect(0);
   const arReload = await inspect(0, { reload: 0.4 });
   assert.deepEqual(arRest.magazine.children.sort(), ['Mag_Ribs_L', 'Mag_Ribs_R', 'Magazine', 'Magazine_Base']);
   assert.ok(arReload.magazine.y < arRest.magazine.y - 0.1 || !arReload.magazine.visible, 'AR magazine out during reload');
   const srRest = await inspect(1);
-  const srCycle = await inspect(1, { sinceShot: 0.6 });
+  // Phase 30: 20 ms after a shot the bolt is back (by itself, no handle lift); home again by the next round.
+  const srCycle = await inspect(1, { sinceShot: 0.02 });
+  const srHome = await inspect(1, { sinceShot: 0.3 });
   assert.deepEqual(srRest.bolt.children.sort(), ['Bolt_Cap', 'Bolt_Handle', 'Bolt_Knob', 'Bolt_Shroud']);
-  assert.ok(srCycle.bolt.z > srRest.bolt.z + 0.03 || Math.abs(srCycle.bolt.rz) > 0.5, `bolt moved: ${JSON.stringify(srCycle.bolt)}`);
+  assert.ok(srCycle.bolt.z > srRest.bolt.z + 0.03, `bolt moved: ${JSON.stringify(srCycle.bolt)}`);
+  assert.ok(Math.abs(srHome.bolt.z - srRest.bolt.z) < 1e-6 && srHome.bolt.rz === 0, `bolt home: ${JSON.stringify(srHome.bolt)}`);
   const srReload = await inspect(1, { reload: 0.4 });
   assert.ok(srReload.magazine.y < srRest.magazine.y - 0.1 || !srReload.magazine.visible, 'SR magazine out during reload');
 });

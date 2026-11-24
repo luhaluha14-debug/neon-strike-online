@@ -90,7 +90,8 @@ import { teamWaitOf, type TeamWaitMsg, type ToClient } from '../net/GameMessages
 import { applyBomb, applyMatch, applyTeamMatch, type BombStateMsg, type MatchState, type TeamMatchState } from '../net/Mirror';
 
 /** When the case leaves after a round (s): at once, or when the pump (shotgun) / bolt (sniper) is worked. */
-const EJECT_DELAY: Record<Exclude<WeaponCategory, 'melee'>, number> = { rifle: 0, smg: 0, pistol: 0, shotgun: 0.22, sniper: 0.62, dmr: 0, lmg: 0 };
+// SR-01 (the sniper) is semi-automatic (Phase 30's performance): its case leaves with the shot.
+const EJECT_DELAY: Record<Exclude<WeaponCategory, 'melee'>, number> = { rifle: 0, smg: 0, pistol: 0, shotgun: 0.22, sniper: 0, dmr: 0, lmg: 0 };
 /** Case throw (m/s): out of the port's side, up, back toward the shooter. */
 const EJECT: Record<Exclude<WeaponCategory, 'melee'>, { side: number; up: number; back: number }> = {
   rifle: { side: 1.8, up: 1.5, back: 0.3 },

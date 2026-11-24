@@ -128,7 +128,8 @@ test('cases: one per round from the port, to the port side; pump / bolt delay; f
   assert.equal(r.ar01.first, 1, 'AR: case out on the shot frame');
   assert.equal(r.pis01.first, 1);
   assert.equal(r.sg01.first, 0, 'shotgun: the hull comes out with the pump');
-  assert.equal(r.sr01.first, 0, 'sniper: the case comes out with the bolt');
+  // Phase 30: the SR-01 is semi-automatic: its case comes out with the shot (was with the hand-worked bolt).
+  assert.equal(r.sr01.first, 1, 'SR-01: case out on the shot frame');
   for (const [id, s] of Object.entries(r)) {
     assert.equal(s.later, 1, `${id}: exactly one case per round`);
     // The shotgun model's bolt window is on its left (fit.ejectPort): its hulls go left.

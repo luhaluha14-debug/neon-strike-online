@@ -57,7 +57,7 @@ export class HitscanSystem {
     _ray.origin.copy(origin);
     _ray.direction.copy(direction);
     let best: { target: Damageable; distance: number; point: THREE.Vector3; normal: THREE.Vector3; zone: HitZone } | null = null;
-    // Phase 30: a weapon's hit correction (none since Phase 32): a wider hitbox for this round only.
+    // Phase 30: a weapon's hit correction (SR-01's): a wider hitbox for this round only.
     const pad = damage.hitPad ?? 0;
     for (const target of this.targets) {
       if (!target.alive || target.id === shot.sourceId) continue;
