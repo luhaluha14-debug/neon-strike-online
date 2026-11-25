@@ -74,6 +74,7 @@ test('hitting a dummy: blood mist + droplets, a floor stain, flesh impact sound;
 test('controls page: sensitivity slider applies at once and is saved apart from the settings record', async () => {
   const page = await openGame(env, { width: 1280, height: 720 });
   await page.click('#tab-controls');
+  const touchBefore = await page.evaluate(() => [...document.querySelectorAll('output[data-touch-out]')].map((o) => o.textContent));
   await page.evaluate(() => {
     const r = document.querySelector('input[data-setting="sensitivity"]');
     r.value = '2.5';
@@ -81,11 +82,14 @@ test('controls page: sensitivity slider applies at once and is saved apart from 
   });
   const r = await page.evaluate(([ck, sk]) => ({
     applied: window.game.input.sensitivity,
-    shown: document.querySelector('.range-value').textContent,
+    // The readout beside the mouse slider (it used to read the first .range-value on the page: a touch
+    // slider's, which the bug wrote into while the mouse readout stayed at 1.00).
+    shown: document.querySelector('input[data-setting="sensitivity"]').parentElement.querySelector('output').textContent,
+    touch: [...document.querySelectorAll('output[data-touch-out]')].map((o) => o.textContent),
     saved: JSON.parse(localStorage.getItem(ck)).sensitivity,
     settingsKeys: localStorage.getItem(sk) ? Object.keys(JSON.parse(localStorage.getItem(sk))).sort() : null,
   }), [CONTROLS_KEY, SETTINGS_KEY]);
-  assert.deepEqual(r, { applied: 2.5, shown: '2.50', saved: 2.5, settingsKeys: r.settingsKeys });
+  assert.deepEqual(r, { applied: 2.5, shown: '2.50', touch: touchBefore, saved: 2.5, settingsKeys: r.settingsKeys });
   // The settings record (if any) keeps exactly its existing fields.
   if (r.settingsKeys) assert.deepEqual(r.settingsKeys, ['frameLimit', 'mapId', 'quality', 'volume']);
 
