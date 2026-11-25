@@ -531,7 +531,8 @@ export class MainMenu {
   private renderControls(): void {
     const c = this.controls;
     if (!c) return;
-    this.root.querySelector('.range-value')!.textContent = c.sensitivity.toFixed(2);
+    // The mouse row's own readout: the touch settings' sliders, earlier on the page, use .range-value too.
+    this.root.querySelector('output[data-mouse-out="sensitivity"]')!.textContent = c.sensitivity.toFixed(2);
     for (const btn of this.root.querySelectorAll<HTMLButtonElement>('.bind-key')) {
       const a = btn.dataset.action as ActionId;
       const waiting = this.capturing === a;
@@ -907,7 +908,7 @@ function controlsHtml(): string {
         <span class="field-label">감도</span>
         <span class="range-row">
           <input class="range" type="range" data-setting="sensitivity" min="${SENSITIVITY_MIN}" max="${SENSITIVITY_MAX}" step="0.05" value="1" />
-          <output class="range-value">1.00</output>
+          <output class="range-value" data-mouse-out="sensitivity">1.00</output>
         </span>
         <span class="field-hint">1.00이 기본값입니다. 바로 적용되고 저장됩니다.</span>
       </label>
